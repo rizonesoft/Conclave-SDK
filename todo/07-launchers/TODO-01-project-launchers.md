@@ -2,7 +2,7 @@
 schema_version: 1
 id: project-launchers
 domain: 07-launchers
-status: active
+status: done
 title: "TODO-01 -- Project launchers: one desktop shape for every project"
 ---
 
@@ -52,7 +52,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [x] |
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [x] |
 | 8 | §8 | Operator page and `project-launchers` skill | §6, §7 | [x] |
-| 9 | §9 | Agent and declared links named outside the ANSI code page | §6 | [ ] |
+| 9 | §9 | Agent and declared links named outside the ANSI code page | §6 | [x] |
 
 ## 1. Launchers kit known to `forge.py`
 
@@ -346,9 +346,12 @@ A person or an agent in a project needs one place that says how to set the title
 - [x] Write each link in `kits/launchers/templates/scripts/project-shortcuts.ps1` (lines 271-277) through `[Conclave.ShellLink]::Write` with `[Conclave.ShellLinkData]` (passing bare `$item.Icon` to `IconPath` and `0` to `IconIndex`) from `kits/launchers/templates/scripts/lib/ShellLink.cs` (IShellLinkW, built in §7), loaded once with `Add-Type -Path` after the `-Remove -and -Inspect` check, removing both `WScript.Shell` constructions (lines 123 and 181). Done when: the test above writes both links, each read back through `[Conclave.ShellLink]::Read` with its name, target, arguments, working directory, mark, bare icon path, and icon index 0 whole, and no `.tmp` file is left. Cheaper substitute: refusing a non-ANSI title in `load_profile`, which takes a valid title from the owner. **Corrected 2026-11-21:** lines shifted from 232 to 271-277 after §8 added `-Inspect`.
 - [x] Read each link's mark (lines 122-126 `Get-Owned`, 188, and 220) once per scanned file through `[Conclave.ShellLink]::Read`, and refuse with `missing $shellLink (python forge.py kit <project> launchers installs it)` when `scripts/lib/ShellLink.cs` is missing (sharing the single load across create, `-Remove`, and `-Inspect`, preserving `-Inspect`'s per-file error output). At planned destinations, a corrupt, inaccessible, or foreign `.lnk` refuses with exit 1 before staging; in `Get-Owned`, include hidden links (`-Force`), skip unrelated corrupt `.lnk` files, and fail closed (reporting the unreadable path, exit 1, nothing changed) on sharing/access errors (`0x80070020`, `0x80070005`), running ownership discovery before staging so no staged files leak. Done when: tests cover (a) rerun, title/declared-link rename stale cleanup, locked-move rollback + unlock retry, and `-Remove` on the Unicode installation plus a readable WScript-created everyday link upgrade; (b) an unrelated corrupt `.lnk`, a corrupt destination `.lnk`, and an exclusively locked owned `.lnk` (preserving bytes, zero `*.tmp.*`/`*.old` residue, succeeding after unlock); and (c) removing `ShellLink.cs` from an installed pair refuses create, `-Inspect`, and `-Remove` with the exact install command and unchanged bytes, and restoring it lets `-Remove` succeed even with a malformed profile and unavailable WSL. **Corrected 2026-11-18:** it named `Shell.Application`, which §7's round 1 found reads arguments cut at 259 characters. **Corrected 2026-11-21:** lines shifted from 86, 149, 181 to 122-126, 188, 220 after §8 added `-Inspect`, and plan review added ownership-scan fail-closed, missing-helper recovery, and Unicode stale/rollback/upgrade coverage.
 - [x] Update `kits/launchers/templates/docs/launchers.md` (deleted-project removal note requires `scripts/lib/ShellLink.cs` beside the surviving script copy; missing-helper refusal quotes `python forge.py kit <project> launchers`; occupied-name refusal notes moving aside a verified pre-Unicode lossy link before retrying) and verify `tests/test_forge.py -k launchers_page`. Done when: `python -m unittest tests.test_forge -k launchers_page -v` and `markdown_table` pass on Windows.
-- [ ] Commit: `launchers: agent and declared links take a title outside the ANSI code page`
+- [x] Commit: `launchers: agent and declared links take a title outside the ANSI code page`
 
 **Test checkpoint:** on Windows, `python forge.py check-all --only kit-launchers` (with `ProjectShortcutsTest` executed, not skipped) and `python -m unittest tests.test_forge -k launchers_page -v` pass; restoring `WScript.Shell` for the link write or the mark read makes the CJK test fail on a Windows host whose ANSI code page cannot encode the fixture.
+
+> **Verified:** 2026-11-21 | §9 | 7211c4c26137e801a78f28817717386138f47e80
+> **Review:** `docs/reviews/d07-t01-s9.json`
 
 ## Verification
 

@@ -169,7 +169,7 @@ Sections: 17 | Checklist items: 150
 | [x]    | D07 T01 §6 | Declared links that run a command or open a URL                         | windows-host | 7     |
 | [x]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share        | windows-host | 22    |
 | [x]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | windows-host | 6     |
-| [ ]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 5     |
+| [x]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 5     |
 | [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                                | none         | 10    |
 | [x]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 13    |
 | [ ]    | D07 T02 §3 | Plugin install, status and removal on the pinned site                   | none         | 7     |
@@ -242,6 +242,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 109/152 verified sections, 13 ready to run now.
+Progress: 110/152 verified sections, 12 ready to run now.
 
-Checklist: 908/1153 items completed (includes Commit items).
+Checklist: 909/1153 items completed (includes Commit items).
