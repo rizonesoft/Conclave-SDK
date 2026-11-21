@@ -93,6 +93,24 @@ FAKE_CLI = textwrap.dedent('''\
         text = "## Completeness\\n\\n1. Ctrl+O: missing-in-scope.\\n2. Recent files: missing-out-of-scope.\\n\\n## Round 7: none\\n\\nCOMPLETION: gaps"
     if mode == "say":
         text = os.environ["FAKE_SAY"]
+    if mode == "regrade":
+        import re as _re
+        m = _re.search(r"Findings file[^\\n]*:\\s*`([^`]+)`", stdin)
+        if not m or "## Severity rubric" not in stdin or "contests on its grade" not in stdin:
+            text = "OVERALL: blocked"
+        else:
+            rec_text = open(m.group(1), encoding="utf-8").read()
+            if "## Writer note:" in rec_text and "no real Path:" in rec_text and "Path: real" not in rec_text:
+                grade = "P3"
+            else:
+                grade = "P2"
+            text = (
+                f"1. open ({grade} from {m.group(1)})\\n"
+                "LENS plan-delivery: findings\\n"
+                "LENS record: clean\\n"
+                f"HIGHEST: {grade}\\n"
+                "RECONCILIATION: gaps"
+            )
     if mode == "completionblocked":
         text = "I could not read the candidate commit.\\n\\nCOMPLETION: blocked"
     if name == "codex":
@@ -1553,29 +1571,43 @@ class SeverityRubricDispatch(Harness):
                 self.assertEqual(res.returncode, 0, res.stderr)
                 (call,) = self.calls()
                 self.assertEqual(call["stdin"].count(rubric), 1)
-        # Writer contests the P2 in a ## Writer note:; reconciliation prompt points at the findings file and rubric.
-        with open(tp_rec, "a", encoding="utf-8", newline="") as fh:
-            fh.write("\n## Writer note: contested grade\n\n- Finding 1 has no real Path:; request re-grade under SEVERITY_RUBRIC.\n")
-        rec_prompt = self.repo / "reconcile-prompt.md"
-        rec_prompt.write_text(
-            f"Findings file: `{tp_rec.name}`.\n"
-            "An open gap the writer's `## Writer note:` contests on its grade is graded again under the rubric.\n",
-            encoding="utf-8",
-        )
-        self.log.unlink(missing_ok=True)
-        res, summary = self.dispatch(
-            "--kind", "reconciliation", "--candidate", self.CANDIDATE, "--writer", "claude",
-            "--prompt", str(rec_prompt), "--record", str(tp_rec), codex="say",
-            say="1. open · P3 (re-graded after Writer note: no real Path:)\nLENS plan-delivery: findings\nLENS record: clean\nHIGHEST: P3\nRECONCILIATION: gaps",
-        )
-        self.assertEqual(res.returncode, 0, res.stderr)
-        self.assertEqual(summary["highest"], "P3")
-        self.assertIs(summary["blocking"], False)
-        (call,) = self.calls()
-        self.assertEqual(call["stdin"].count(rubric), 1)
-        self.assertIn(tp_rec.name, call["stdin"])
-        self.assertIn("## Writer note:", call["stdin"])
-        self.assertIn("## Writer note: contested grade", tp_rec.read_text(encoding="utf-8"))
+        # Fill the real production reconciliation-review-prompt.md and have the stub read the findings file on disk
+        # for both a named-path finding (retains P2, blocking=True) and a pathless Writer-note dispute (P3, blocking=False).
+        (self.repo / "docs").mkdir(exist_ok=True)
+        shutil.copyfile(SCRIPTS.parent / "docs" / "reconciliation-review-prompt.md",
+                        self.repo / "docs" / "reconciliation-review-prompt.md")
+        gates_file = self.repo / "gates.txt"
+        gates_file.write_text("OK\n", encoding="utf-8")
+        for label, note_line, want_grade, want_blocking in (
+            ("named_path_retains_p2", "Path: real user action reproduces crash.", "P2", True),
+            ("pathless_dispute_regrades_p3", "Finding 1 has no real Path:; request re-grade.", "P3", False),
+        ):
+            with self.subTest(regrade=label):
+                case_rec = self.repo / f"three-pass-{label}.md"
+                shutil.copyfile(tp_rec, case_rec)
+                with open(case_rec, "a", encoding="utf-8", newline="") as fh:
+                    fh.write(f"\n## Writer note: contested grade\n\n- {note_line}\n")
+                filled_prompt = self.repo / f"reconcile-{label}.md"
+                filled = subprocess.run(
+                    [sys.executable, "-B", str(SCRIPTS / "review-prompt.py"), "--kind", "reconciliation",
+                     "--candidate", self.CANDIDATE, "--failed", self.CANDIDATE, "--ref", "D00 T01 §11",
+                     "--findings", case_rec.name, "--gates", str(gates_file), "--governing", "AGENTS.md",
+                     "--out", str(filled_prompt)],
+                    cwd=self.repo, capture_output=True, text=True, timeout=60,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                self.assertEqual(filled.returncode, 0, filled.stderr)
+                self.log.unlink(missing_ok=True)
+                res, summary = self.dispatch(
+                    "--kind", "reconciliation", "--candidate", self.CANDIDATE, "--writer", "claude",
+                    "--prompt", str(filled_prompt), "--record", str(case_rec), codex="regrade",
+                )
+                self.assertEqual(res.returncode, 0, res.stderr)
+                self.assertEqual(summary["highest"], want_grade)
+                self.assertIs(summary["blocking"], want_blocking)
+                (call,) = self.calls()
+                self.assertEqual(call["stdin"].count(rubric), 1)
+                self.assertIn(case_rec.name, call["stdin"])
 
 
 class RepositoryPin(unittest.TestCase):
