@@ -5127,15 +5127,14 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
                 self.assertGreater(current_pos, -1)
                 self.assertGreater(install_step_pos, current_pos)
                 current_branch = step[current_pos:install_step_pos]
-                cur_approval_pos = current_branch.lower().find("approval")
+                cur_approval_pos = current_branch.lower().find("ask the owner's approval only for the temporary ticket write and removal")
                 cur_check_pos = current_branch.find("`python3 scripts/open-dashboard.py --check`")
-                self.assertGreater(cur_approval_pos, -1, "missing owner approval in current-plugin branch")
+                self.assertGreater(cur_approval_pos, -1, "missing positive owner approval instruction in current-plugin branch")
                 self.assertLess(cur_approval_pos, cur_check_pos, "owner approval must precede --check when plugin is current")
-                self.assertIn("temporary ticket write", current_branch.lower())
                 install_branch = step[install_step_pos:]
-                approval_pos = install_branch.lower().find("approval")
+                approval_pos = install_branch.lower().find("ask the owner's approval before running")
                 install_pos = install_branch.find("`python3 scripts/ticket-login.py install --yes`")
-                self.assertGreater(approval_pos, -1, "missing owner approval before install")
+                self.assertGreater(approval_pos, -1, "missing positive owner approval instruction before install")
                 self.assertLess(approval_pos, install_pos, "owner approval must precede install --yes")
 
         # 2. wordpress-site-safety across Claude, Antigravity, and Codex copies.
@@ -5153,8 +5152,8 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
         next_heading = page.find("\n## ", heading_pos + 1)
         section = page[heading_pos:next_heading] if next_heading > 0 else page[heading_pos:]
         for token in (
-            "one-use ticket",
-            "consumed on first redemption",
+            "through a one-use ticket",
+            "expires after 60 seconds and is consumed on first redemption",
             "no standing login key",
             "SHA-256 hash",
             "conclave_login_ticket",
