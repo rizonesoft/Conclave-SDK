@@ -316,9 +316,13 @@ class ProjectShortcutsTest(unittest.TestCase):
     def links(self):
         return sorted(p.name for p in self.desk.glob("*.lnk")) if self.desk.exists() else []
 
-    def leftovers(self):
-        found = [*self.desk.glob("*.tmp.*"), *self.desk.glob("*.old"), *self.icons.glob("*.tmp.*"),
-                 *self.icons.glob("*.old")] if self.desk.exists() else []
+    def leftovers(self, desk=None, icons=None):
+        desk, icons = desk or self.desk, icons or self.icons
+        found = []
+        if desk.exists():
+            found.extend([*desk.glob("*.tmp.*"), *desk.glob("*.old")])
+        if icons.exists():
+            found.extend([*icons.glob("*.tmp.*"), *icons.glob("*.old")])
         return [p.name for p in found]
 
     # --- refusals ---------------------------------------------------------------------------------------------------
@@ -803,7 +807,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         done = self.run_script(project=project, icons=icons)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual(self.links(), ["Foreign.lnk", "東京 (Claude).lnk", "東京 (Site 東京).lnk"])
-        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(self.leftovers(icons=icons), [])
         identity = str(project.resolve()).lower()
         key = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:8]
         expected_mark = f"conclave-launcher: {identity}"
@@ -843,7 +847,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(renamed.returncode, 0, renamed.stdout + renamed.stderr)
         self.assertEqual(self.links(), ["Foreign.lnk", "大阪 (Claude).lnk"])
         self.assertEqual(len(list(icons.iterdir())), 1)
-        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(self.leftovers(icons=icons), [])
         # Locked-move rollback on a Unicode installation keeps old bytes and foreign link, then retry succeeds.
         before = {p.name: p.read_bytes() for p in [*self.desk.iterdir(), *icons.iterdir()]}
         self.write_profile(project, {
@@ -856,7 +860,7 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
         self.assertIn("could not be put in place or removed", failed.stdout)
         self.assertEqual({p.name: p.read_bytes() for p in [*self.desk.iterdir(), *icons.iterdir()]}, before)
-        self.assertEqual(self.leftovers(), [])
+        self.assertEqual(self.leftovers(icons=icons), [])
         retried = self.run_script(project=project, icons=icons)
         self.assertEqual(retried.returncode, 0, retried.stdout + retried.stderr)
         self.assertEqual(self.links(), ["Foreign.lnk", "東京 (Claude).lnk", "東京 (Site 東京).lnk"])
@@ -968,6 +972,46 @@ class ProjectShortcutsTest(unittest.TestCase):
                                   STUB_WSL_FAIL="1", PATH="")
         self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
         self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
+
+    def test_foreign_link_placed_during_staging_is_not_overwritten_and_restores_cleanly(self):
+        # Completion P2: if a foreign .lnk appears at a planned destination after the pre-staging ownership scan,
+        # the commit loop verifies the moved backup's mark, aborts with exit 1, and restores the foreign bytes.
+        target_link = self.desk / "Example Site (Claude).lnk"
+        foreign_bytes = b"foreign-link-placed-during-staging"
+        wrapper_py = self.base / "inject_python.py"
+        wrapper_py.write_text(
+            "import os, runpy, sys\n"
+            "args = sys.argv[1:]\n"
+            "if args and args[0] == '-B':\n"
+            "    args = args[1:]\n"
+            "sys.argv = args\n"
+            "try:\n"
+            "    runpy.run_path(args[0], run_name='__main__')\n"
+            "except SystemExit as exc:\n"
+            "    code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)\n"
+            "else:\n"
+            "    code = 0\n"
+            "if code == 0 and 'overlay' in args:\n"
+            "    os.makedirs(os.path.dirname(os.environ['INJECT_LINK']), exist_ok=True)\n"
+            "    with open(os.environ['INJECT_LINK'], 'wb') as fh:\n"
+            "        fh.write(b'foreign-link-placed-during-staging')\n"
+            "sys.exit(code)\n",
+            encoding="utf-8",
+        )
+        wrapper_cmd = self.base / "inject_python.cmd"
+        wrapper_cmd.write_text(f'@"{sys.executable}" "{wrapper_py}" %*\r\n', encoding="utf-8")
+        command = [PWSH, "-NoProfile", "-NonInteractive", "-File",
+                   str(self.project / "scripts/project-shortcuts.ps1"),
+                   "-ShortcutDir", str(self.desk), "-IconDir", str(self.icons),
+                   "-Wsl", str(self.wsl), "-Python", str(wrapper_cmd)]
+        done = run_tree(command, timeout=120,
+                        env=self.env(INJECT_LINK=str(target_link)))
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("changed during the run and is no longer this project's link", done.stdout,
+                      done.stdout + done.stderr)
+        self.assertEqual(target_link.read_bytes(), foreign_bytes)
+        self.assertEqual(list(self.icons.iterdir()), [])
+        self.assertEqual(self.leftovers(), [])
 
 
 

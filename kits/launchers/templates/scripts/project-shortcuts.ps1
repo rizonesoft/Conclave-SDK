@@ -311,11 +311,11 @@ function Unstage { foreach ($s in $staged) { Remove-Item -LiteralPath $s.Temp -F
 try {
   foreach ($item in $plan) {
     $iconTemp = "$($item.Icon).$PID.tmp.ico"
-    $staged.Add([pscustomobject]@{ Temp = $iconTemp; Dest = $item.Icon })
+    $staged.Add([pscustomobject]@{ Temp = $iconTemp; Dest = $item.Icon; IsLink = $false })
     $out = & $Python -B $renderer overlay $brand $item.Mark $iconTemp 2>&1
     if ($LASTEXITCODE -ne 0) { throw "the icon for $($item.Label) could not be rendered: $(($out | Out-String).Trim())" }
     $linkTemp = Join-Path $ShortcutDir "$($item.Label).$PID.tmp.lnk"
-    $staged.Add([pscustomobject]@{ Temp = $linkTemp; Dest = $item.Link })
+    $staged.Add([pscustomobject]@{ Temp = $linkTemp; Dest = $item.Link; IsLink = $true })
     $data = [Conclave.ShellLinkData]::new()
     $data.Target = $item.Target
     $data.Arguments = $item.Arguments
@@ -351,6 +351,10 @@ try {
     }
     $entry = [pscustomobject]@{ Dest = $s.Dest; Backup = $backup; Placed = $false }
     $moved.Add($entry)
+    # Verify ownership of any link that appeared or changed at a planned destination during staging.
+    if ($s.IsLink -and $backup -and (Get-Mark $backup) -cne $mark) {
+      throw "'$($s.Dest)' changed during the run and is no longer this project's link"
+    }
     Move-Item -LiteralPath $s.Temp -Destination $s.Dest
     $entry.Placed = $true
   }
