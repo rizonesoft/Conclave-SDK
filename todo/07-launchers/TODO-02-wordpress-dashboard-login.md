@@ -227,6 +227,8 @@ No test without a network can show that a real WordPress accepts the right token
 
 ## 8. Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py`
 
+> **Started:** 2026-11-21T10:30Z
+
 Filed 2026-11-21 from the `D00 T01 §10` shadow audit of `D07 T02 §2` (`docs/reviews/07-launchers/audit-d07-t02-s2.md`). `_https_browser` in `kits/wordpress/templates/scripts/open-dashboard.py` was added in Round 1's fix commit (`f5ae9111`) and missed two Desktop Entry Specification rules: a desktop file ID with hyphens may resolve to a subdirectory under `applications/` (`vendor-browser.desktop` -> `applications/vendor/browser.desktop`), and `Exec=` undergoes desktop-entry string unescaping (`\s`, `\n`, `\t`, `\r`, `\\`) before argument splitting and field-code expansion. Also closes two P3 items from the same audit (`store` rejecting `bool` user IDs and the PHP harness testing expiry against a distinct site clock).
 
 **Phase:** 8
