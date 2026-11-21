@@ -1,0 +1,90 @@
+{
+  "ref": "D07 T02 \u00a75",
+  "title": "WordPress link in the launcher profile",
+  "implementation_sha": "681312ab1de65f25cfb6592a3648b607528408d6",
+  "date": "2026-11-21",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T02-s5.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 44946866762 green at 681312ab (7/7 jobs); kit-launchers 77/77 OK; test_forge -k launcher_links 6/6 OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T02-s5.md",
+    "verdict": "reconciled",
+    "candidate": "681312ab1de65f25cfb6592a3648b607528408d6",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T02-s5.md",
+    "candidate": "f6795a3267b688f655b2243321b086661333750d",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "f6795a3267b688f655b2243321b086661333750d",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?",
+      "repair-adversarial": "In the newest repair only (the last reviewed candidate to the repaired candidate, both named above): how does the newest repair fail on hostile input, races, aborts, cancellation, automation or links? Code an earlier pass reviewed and the repair left unchanged is out of scope.",
+      "repair-integration": "In the newest repair only (the last reviewed candidate to the repaired candidate, both named above): what does the newest repair break in a caller, a contract, another kit or an installed copy?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "plan-delivery",
+        "record",
+        "repair-adversarial",
+        "repair-integration"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}
