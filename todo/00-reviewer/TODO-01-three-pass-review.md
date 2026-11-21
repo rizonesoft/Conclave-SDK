@@ -318,7 +318,9 @@ Filed 2026-11-11 from the completion review of §3 (an out-of-scope gap). `stamp
 
 ## 9. Re-plan route for a chain that cannot settle, recovery planned up front
 
-> **Started:** 2026-11-19T06:17Z
+> **Started:** 2026-11-21T13:38Z
+
+**Corrected 2026-11-21:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-19T06:17Z; its review chain is kept as `docs/reviews/00-reviewer/D00-T01-s9-chain1.md` (chain 1 candidate `f4cd5fd3` hit a Windows 8.3 temp-path lock failure fixed in `c2809855`, and later commits touched its files before stamp). Corrected the Test checkpoint filter from `-k skill` (which matches 0 tests in `tests/test_forge.py`) to `-k micro_todo_and_complete_plan_rules`.
 
 Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its reconciliations kept raising edges in crash recovery one at a time, and then alternated between two findings that asked opposite things of one checked item, which no build could satisfy while `stamp` held the contract fixed. Two lessons belong in the kits the next section reads: plan the recovery of a change that replaces files on disk (one locked, journaled change, own-files-only, kept until done) before the build, and when a chain cannot settle, re-plan the item instead of spending passes on code (the route `D07 T01 §7` took by hand: a dated correction, a new `Started:`, the first findings file kept as `D<NN>-T<NN>-s<N>-chain1.md`, a new chain).
 
@@ -344,7 +346,7 @@ Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its
 - [x] Run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: `python forge.py skill-copies --check` exits 0 and the self-sync test passes.
 - [x] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
 
-**Test checkpoint:** `python -m unittest tests.test_forge -k skill`, `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph` (the todo kit's graph tests, which live in the SDK's `tests/`) and the reviewer kit's dispatcher tests pass; removing the re-plan rule from the review skill, the chain refusal from `stamp` or the dispatcher, or the next-unused numbering from `replan` makes its test fail.
+**Test checkpoint:** `python -m unittest tests.test_forge -k micro_todo_and_complete_plan_rules`, `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph` (the todo kit's graph tests, which live in the SDK's `tests/`) and the reviewer kit's dispatcher tests pass; removing the re-plan rule from the review skill, the chain refusal from `stamp` or the dispatcher, or the next-unused numbering from `replan` makes its test fail.
 
 ## 10. Verify-only reconciliation trial in the SDK's own pin
 
