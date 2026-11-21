@@ -19,7 +19,7 @@ The pin's `[schedule]` sets each pass's lenses and optional reasoning effort, so
 - **Three-pass** (`policy = "three-pass"`, what a new install starts on): a plan review before the build, one round after it, one completion review of the final candidate, and a reconciliation only after a pass that returned gaps.
 - **Rotation** (no `policy` key): a plan review, a completion review, then rounds at falling effort and one lens per round until a round has no `P1` or `P2` finding.
 
-Proportionality: only a failure that can happen in real operation with real input is `P1` or `P2`; a contrived scenario (a hand-edited record, a tool used against its contract, an input no real user or tool produces) is `P3` at most.
+Severity is graded by impact times likelihood under `SEVERITY_RUBRIC` in `scripts/review_pin.py`, which `scripts/review-dispatch.py` appends to every pass: it grades and never filters, and requires `Path:` and `Evidence:` on every `P1` and `P2`.
 
 ## Steps
 

@@ -496,6 +496,26 @@ class NoGraph(Filler):
     def test_round_needs_no_lookup(self):
         self.assertIn(f"`{REF}`", self.ok("round", "--ref", REF))
 
+    def test_all_four_prompts_point_at_appended_rubric_with_no_inline_definitions_or_suppression(self):
+        inline_def = re.compile(r"P[123]`?\s*\(")
+        for kind in KINDS:
+            extra = ["--ref", REF]
+            if kind in ("plan", "completion"):
+                extra += ["--todo", "todo/00-x/TODO-01-y.md"]
+            if kind == "reconciliation":
+                extra += ["--findings", "docs/reviews/00-x/D00-T01-s7.md"]
+            text = self.ok(kind, *extra)
+            with self.subTest(kind=kind):
+                self.assertIsNone(inline_def.search(text), f"{kind} still defines P1/P2/P3 inline")
+                for forbidden in ("list only", "report only", "Do not list a need", "Proportionality:"):
+                    self.assertNotIn(forbidden, text, f"{kind} still contains suppression phrase {forbidden!r}")
+                self.assertIn("likelihood-weighted severity rubric", text)
+                self.assertIn("scripts/review-dispatch.py", text)
+                if kind == "reconciliation":
+                    self.assertIn("## Writer note:", text)
+                    self.assertIn("contests on its grade", text)
+                    self.assertIn("revised grade contributes to `HIGHEST:`", text)
+
 
 class ThroughTheDispatcher(Harness):
     def test_a_filled_round_prompt_reaches_the_reviewer(self):
@@ -510,7 +530,7 @@ class ThroughTheDispatcher(Harness):
         self.assertIsNotNone(summary)
         sent = self.calls()[-1]["stdin"]
         self.assertIn(CAND, sent)
-        self.assertEqual(sent, filled.read_text(encoding="utf-8"))
+        self.assertEqual(sent, filled.read_text(encoding="utf-8").rstrip("\n") + self.module().review_pin.SEVERITY_RUBRIC)
         self.assertEqual(PLACEHOLDER.findall(sent), [])
 
 

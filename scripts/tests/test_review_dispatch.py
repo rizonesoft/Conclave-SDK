@@ -330,7 +330,7 @@ class Dispatch(Harness):
         for flag in ("--sandbox", "read-only", "--ephemeral", "model_reasoning_effort=xhigh"):
             self.assertIn(flag, call["argv"])
         self.assertEqual(call["argv"][-1], "-", "the prompt goes on stdin, never on the command line")
-        self.assertEqual(call["stdin"], self.prompt.read_text())
+        self.assertEqual(call["stdin"], self.prompt.read_text().rstrip("\n") + self.module().review_pin.SEVERITY_RUBRIC)
         self.assertEqual(Path(call["cwd"]).resolve(), self.repo.resolve())
 
     def test_one_reviewer_and_no_fallback(self):
@@ -1319,13 +1319,13 @@ class Schedule(Harness):
         (call,) = self.calls()
         self.assertEqual(self.effort_of(call), "medium")
         self.assertNotIn("## Lenses for this pass", call["stdin"])
-        self.assertEqual(call["stdin"], self.prompt.read_text())
+        self.assertEqual(call["stdin"], self.prompt.read_text().rstrip("\n") + self.module().review_pin.SEVERITY_RUBRIC)
 
     def test_a_pin_without_a_schedule_keeps_the_reviewers_effort_and_prompt(self):
         (self.repo / ".conclave/reviewers.toml").write_text(FIXTURE_PIN, encoding="utf-8")
         summary, (call,) = self.round()
         self.assertEqual(self.effort_of(call), "xhigh")
-        self.assertEqual(call["stdin"], self.prompt.read_text())
+        self.assertEqual(call["stdin"], self.prompt.read_text().rstrip("\n") + self.module().review_pin.SEVERITY_RUBRIC)
         self.assertNotIn("position", summary)
 
     def test_check_pin_reports_the_schedule(self):
@@ -1422,12 +1422,13 @@ class MultiCli(Harness):
         self.assertEqual(json.loads(call["settings"]),
                          {"permissions": {"deny": ["write_file(*)", "edit_file(*)", "mcp(*)"]}})
         self.assertFalse(Path(call["argv"][call["argv"].index("--settings") + 1]).exists(), "the settings file is scratch")
+        expected_prompt = self.prompt.read_text().rstrip("\n") + self.module().review_pin.SEVERITY_RUBRIC
         if os.name == "nt":
             # The fake is a .cmd shim on Windows, so the prompt must arrive by file, never as argument text.
             self.assertTrue(call["argv"][-1].startswith("-p=Follow the review instructions in the file "))
-            self.assertEqual(call["from_file"], self.prompt.read_text())
+            self.assertEqual(call["from_file"], expected_prompt)
         else:
-            self.assertEqual(call["argv"][-1], "-p=" + self.prompt.read_text())
+            self.assertEqual(call["argv"][-1], "-p=" + expected_prompt)
 
     def test_sonnet_reviews_gemini_work_in_plan_mode(self):
         result, summary = self.dispatch("--writer", "gemini", "--prompt", str(self.prompt))
@@ -1438,14 +1439,14 @@ class MultiCli(Harness):
         self.assertEqual(call["argv"][call["argv"].index("--permission-mode") + 1], "plan")
         self.assertEqual(call["argv"][call["argv"].index("--model") + 1], "claude-sonnet-5-5")
         self.assertEqual(call["argv"][call["argv"].index("--effort") + 1], "high")
-        self.assertEqual(call["stdin"], self.prompt.read_text())
+        self.assertEqual(call["stdin"], self.prompt.read_text().rstrip("\n") + self.module().review_pin.SEVERITY_RUBRIC)
 
     def test_a_large_prompt_reaches_gemini_by_file(self):
         self.prompt.write_text("x" * 150_000, encoding="utf-8")
         self.dispatch("--writer", "codex", "--prompt", str(self.prompt))
         (call,) = self.calls()
         self.assertTrue(call["argv"][-1].startswith("-p=Follow the review instructions in the file "))
-        self.assertEqual(call["from_file"], "x" * 150_000)
+        self.assertEqual(call["from_file"], ("x" * 150_000) + self.module().review_pin.SEVERITY_RUBRIC)
 
     def test_a_windows_shim_never_gets_prompt_text_in_its_arguments(self):
         reviewer = {"cli": "agy", "model": "gemini-4-argon-high"}
@@ -1474,6 +1475,98 @@ class MultiCli(Harness):
         module.check_schedule(schedule, {"claude", "agy"})
         with self.assertRaises(module.Refused):
             module.check_schedule(schedule, {"codex", "agy"})
+
+
+class SeverityRubricDispatch(Harness):
+    """Every dispatched pass receives review_pin.SEVERITY_RUBRIC once, regardless of schedule or lens list (D00 T01 §11)."""
+
+    CANDIDATE = "a" * 40
+
+    THREE_PASS_LENSLESS_COMPLETION = FIXTURE_PIN + textwrap.dedent('''
+        [schedule]
+        policy = "three-pass"
+        pass_cap = 10
+        blocking = ["P1", "P2"]
+
+        [schedule.plan]
+        effort = "medium"
+        lenses = ["plan"]
+
+        [[schedule.rounds]]
+        effort = "medium"
+        lenses = ["adversarial"]
+
+        [schedule.completion]
+        effort = "low"
+
+        [schedule.reconciliation]
+        effort = "low"
+        lenses = ["plan-delivery", "record"]
+    ''')
+
+    def _rubric(self):
+        return self.module().review_pin.SEVERITY_RUBRIC.strip()
+
+    def test_unscheduled_and_lensless_rotation_and_three_pass_passes_receive_rubric_once(self):
+        rubric = self._rubric()
+        # 1. Unscheduled pin (no [schedule]).
+        (self.repo / ".conclave/reviewers.toml").write_text(FIXTURE_PIN, encoding="utf-8")
+        self.log.unlink(missing_ok=True)
+        res, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt),
+                                     "--record", str(self.repo / "unscheduled.md"),
+                                     codex="say", say="HIGHEST: none\nOVERALL: approve")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(summary["review"].splitlines()[-1], "OVERALL: approve")
+        (call,) = self.calls()
+        self.assertEqual(call["stdin"].count(rubric), 1)
+
+        # 2. Rotation pin: lensless completion, plan, and round.
+        (self.repo / ".conclave/reviewers.toml").write_text(SCHEDULED_PIN, encoding="utf-8")
+        rot_rec = self.repo / "rotation.md"
+        for kind, extra, reply in (
+            ("plan", ["--candidate", self.CANDIDATE], "HIGHEST: none\nPLAN: complete\nOVERALL: approve"),
+            ("completion", ["--candidate", self.CANDIDATE], "HIGHEST: none\nCOMPLETION: complete"),
+            ("round", [], "HIGHEST: none\nOVERALL: approve"),
+        ):
+            with self.subTest(schedule="rotation", kind=kind):
+                self.log.unlink(missing_ok=True)
+                res, summary = self.dispatch("--kind", kind, "--writer", "claude", "--prompt", str(self.prompt),
+                                             "--record", str(rot_rec), *extra, codex="say", say=reply)
+                self.assertEqual(res.returncode, 0, res.stderr)
+                self.assertEqual(summary["review"].splitlines()[-1], reply.splitlines()[-1])
+                (call,) = self.calls()
+                self.assertEqual(call["stdin"].count(rubric), 1)
+
+        # 3. Three-pass pin with lensless completion: plan, round, completion (gaps), and reconciliation (contested grade -> P3).
+        (self.repo / ".conclave/reviewers.toml").write_text(self.THREE_PASS_LENSLESS_COMPLETION, encoding="utf-8")
+        tp_rec = self.repo / "three-pass.md"
+        for kind, reply in (
+            ("plan", "LENS plan: clean\nHIGHEST: none\nPLAN: complete\nOVERALL: approve"),
+            ("round", "LENS adversarial: clean\nHIGHEST: none\nOVERALL: approve"),
+            ("completion", "1. P2 missing path\nHIGHEST: P2\nCOMPLETION: gaps"),
+        ):
+            with self.subTest(schedule="three-pass", kind=kind):
+                self.log.unlink(missing_ok=True)
+                res, summary = self.dispatch("--kind", kind, "--candidate", self.CANDIDATE,
+                                             "--writer", "claude", "--prompt", str(self.prompt),
+                                             "--record", str(tp_rec), codex="say", say=reply)
+                self.assertEqual(res.returncode, 0, res.stderr)
+                (call,) = self.calls()
+                self.assertEqual(call["stdin"].count(rubric), 1)
+        # Writer contests the P2 in a ## Writer note:; reconciliation reassesses to P3 and summary reflects non-blocking P3.
+        with open(tp_rec, "a", encoding="utf-8", newline="") as fh:
+            fh.write("\n## Writer note: contested grade\n\n- Finding 1 has no real Path:; request re-grade under SEVERITY_RUBRIC.\n")
+        self.log.unlink(missing_ok=True)
+        res, summary = self.dispatch(
+            "--kind", "reconciliation", "--candidate", self.CANDIDATE, "--writer", "claude",
+            "--prompt", str(self.prompt), "--record", str(tp_rec), codex="say",
+            say="1. open · P3 (re-graded after Writer note: no real Path:)\nLENS plan-delivery: findings\nLENS record: clean\nHIGHEST: P3\nRECONCILIATION: gaps",
+        )
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(summary["highest"], "P3")
+        self.assertIs(summary["blocking"], False)
+        (call,) = self.calls()
+        self.assertEqual(call["stdin"].count(rubric), 1)
 
 
 class RepositoryPin(unittest.TestCase):

@@ -5189,5 +5189,31 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
         self.assertRegex(remove_block, r"(?m)^python3 scripts/ticket-login\.py remove --yes(?:\s+#|$)")
 
 
+class SeverityRubricSkillAndReadmeTests(unittest.TestCase):
+    """Likelihood-weighted severity rubric pointers in skills and reviewer README (D00 T01 §11)."""
+
+    def test_independent_review_and_review_todo_section_skills_and_readme(self):
+        rev_templates = forge.FORGE_ROOT / "kits" / "reviewer" / "templates"
+        todo_templates = forge.FORGE_ROOT / "kits" / "todo" / "templates"
+        for agent_dir in (".claude", ".agents", ".codex"):
+            ind = (rev_templates / agent_dir / "skills" / "independent-review" / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill="independent-review", agent=agent_dir):
+                self.assertIn("impact times likelihood", ind)
+                self.assertIn("SEVERITY_RUBRIC", ind)
+                self.assertIn("grades and never filters", ind)
+                self.assertNotIn("Proportionality: only a failure", ind)
+            rts = (todo_templates / agent_dir / "skills" / "review-todo-section" / "SKILL.md").read_text(encoding="utf-8")
+            with self.subTest(skill="review-todo-section", agent=agent_dir):
+                self.assertIn("Contesting a grade:", rts)
+                self.assertIn("never rewrite the reviewer's grade", rts)
+                self.assertIn("next reconciliation reassesses it", rts)
+                self.assertIn("completion review reads the note", rts)
+                self.assertIn("next rotation round", rts)
+                self.assertNotIn("Severity is proportional:", rts)
+        readme = (forge.FORGE_ROOT / "kits" / "reviewer" / "README.md").read_text(encoding="utf-8")
+        for token in ("impact times likelihood", "SEVERITY_RUBRIC", "`Path:`", "`Evidence:`", "grades and never filters"):
+            self.assertIn(token, readme, token)
+
+
 if __name__ == "__main__":
     unittest.main()

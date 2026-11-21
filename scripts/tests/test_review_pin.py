@@ -838,6 +838,28 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(rotation.returncode, 2)
         self.assertIn("three-pass", rotation.stderr)
 
+    def test_severity_rubric_has_levels_exception_fields_and_no_dashes(self):
+        rubric = review_pin.SEVERITY_RUBRIC
+        for needle in (
+            "impact times likelihood",
+            "grades and never filters",
+            "report every finding at every lens",
+            "when unsure between two grades on a named real path, take the higher",
+            "`P1`:",
+            "`P2`:",
+            "`P3`:",
+            "Hostile input from outside the project",
+            "`Path:`",
+            "`Evidence:`",
+            "`ran`",
+            "`traced`",
+            "exact `file:line`",
+            "without a named real `Path:` grades `P3`",
+        ):
+            self.assertIn(needle, rubric, needle)
+        self.assertNotIn("\u2014", rubric)
+        self.assertNotIn("\u2013", rubric)
+
 
 if __name__ == "__main__":
     unittest.main()

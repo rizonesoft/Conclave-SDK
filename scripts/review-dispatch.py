@@ -556,6 +556,8 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     recurrence = three_pass and kind == "reconciliation" and review_pin.recurrence_cap(schedule) is not None
     if recurrence:
         prompt = prompt.rstrip("\n") + review_pin.recurrence_block(schedule)
+    # Every dispatched pass receives the single likelihood-weighted severity rubric once, outside the schedule gate.
+    prompt = prompt.rstrip("\n") + review_pin.SEVERITY_RUBRIC
     scheduled_fields = {"effort": effort, "lenses": lenses} if plan else {}
 
     def none(reason):
@@ -570,11 +572,9 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     tmp = Path(tempfile.mkdtemp())
     try:
         stdout_path, message_path = tmp / "stdout.txt", tmp / "last-message.md"
-        prompt_file = Path(prompt_path).resolve()
-        if appended:
-            # The pointer an Antigravity shim gets must name the prompt with what the dispatcher appended to it.
-            prompt_file = tmp / "prompt.md"
-            prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
+        # Every dispatched pass has the severity rubric appended, so write the final prompt for file-based CLIs too.
+        prompt_file = tmp / "prompt.md"
+        prompt_file.write_text(prompt, encoding="utf-8", newline="\n")
         argv, stdin_text = command(reviewer, executable, prompt, prompt_file, message_path, timeout, effort)
         if reviewer["cli"] == "agy":
             agy_settings_path(message_path).write_text(json.dumps(AGY_REVIEW_SETTINGS), encoding="utf-8")
