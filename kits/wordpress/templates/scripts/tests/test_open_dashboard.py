@@ -623,16 +623,13 @@ class BrowserTest(unittest.TestCase):
                 self.assertEqual(list((local_app / "conclave-dashboard").glob("open-*.html")), [])
 
     def _find_linux_browser(self):
+        if os.name != "posix":
+            return None
         candidates = [
             shutil.which("google-chrome"), shutil.which("chromium"), shutil.which("chromium-browser"),
             shutil.which("chrome"), shutil.which("msedge"),
         ]
-        if os.name == "nt":
-            candidates += [
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-            ]
-        return next((c for c in candidates if c and Path(c).is_file()), None)
+        return next((c for c in candidates if c and not c.startswith("/mnt/") and Path(c).is_file()), None)
 
     def _find_windows_browser(self):
         if os.name == "nt":
@@ -720,11 +717,8 @@ class BrowserTest(unittest.TestCase):
 
     def test_headless_browser_follows_redirect_via_linux_open_browser(self):
         browser = self._find_linux_browser()
-        win_fallback = None
-        if not browser and os.name == "posix":
-            win_fallback = self._find_windows_browser()
-        if not browser and not win_fallback:
-            self.skipTest("no headless Chromium/Chrome/Edge browser found for Linux open_browser loopback check")
+        if not browser:
+            self.skipTest("native Linux headless Chromium/Chrome/Edge browser required for Linux open_browser loopback check")
         port, hits, done_event = self._start_loopback()
         marker_val = "linuxsmokemarker0123456789"
         target_url = f"http://127.0.0.1:{port}/?conclave_ticket={marker_val}"
@@ -732,31 +726,8 @@ class BrowserTest(unittest.TestCase):
         apps = data / "applications"
         apps.mkdir(parents=True, exist_ok=True)
         profile = Path(self._tmp.name) / "linux-chrome-profile"
-        cleanup_profile = str(profile)
-        cleanup_browser = browser or win_fallback
-
-        if browser:
-            esc_browser = browser.replace("\\", "\\\\\\\\")
-            esc_profile = str(profile).replace("\\", "\\\\\\\\")
-            desktop_exec = (f'"{esc_browser}" --headless=new --disable-gpu --no-first-run '
-                            f'"--user-data-dir={esc_profile}" --virtual-time-budget=2000 --dump-dom %u')
-        else:
-            # WSL host with no native Linux browser: wrap Windows Chrome in a POSIX executable so Linux open_browser
-            # still runs its full desktop-entry + start_new_session Popen path and real headless Chrome follows %u.
-            win_profile = self._windows_temp_profile("linux-chrome-profile")
-            cleanup_profile = win_profile
-            wrapper = Path(self._tmp.name) / "wsl_linux_browser.py"
-            wrapper.write_text(
-                "import subprocess, sys, urllib.parse\n"
-                "uri = sys.argv[1]\n"
-                "path = urllib.parse.unquote(urllib.parse.urlparse(uri).path)\n"
-                "win_p = subprocess.run(['wslpath', '-w', path], capture_output=True, text=True, check=True).stdout.strip()\n"
-                "win_uri = ('file://' + win_p.lstrip(chr(92)).replace(chr(92), '/')) if win_p.startswith(chr(92)*2) else ('file:///' + win_p.replace(chr(92), '/'))\n"
-                f"subprocess.run([{win_fallback!r}, '--headless=new', '--disable-gpu', '--no-first-run', "
-                f"{'--user-data-dir=' + win_profile!r}, '--virtual-time-budget=2000', '--dump-dom', win_uri], "
-                "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=25)\n",
-                encoding="utf-8")
-            desktop_exec = f'"{sys.executable}" "{wrapper}" %u'
+        desktop_exec = (f'"{browser}" --headless=new --disable-gpu --no-first-run '
+                        f'"--user-data-dir={profile}" --virtual-time-budget=2000 --dump-dom %u')
         (apps / "smoke.desktop").write_text(f"[Desktop Entry]\nName=Smoke\nExec={desktop_exec}\n", encoding="utf-8")
 
         real_run = subprocess.run
@@ -771,9 +742,7 @@ class BrowserTest(unittest.TestCase):
 
         def spy_popen(argv, **kwargs):
             recorded_argv.append(list(argv))
-            if os.name == "nt":
-                kwargs.pop("start_new_session", None)
-                kwargs["creationflags"] = NO_WINDOW
+            self.assertTrue(kwargs.get("start_new_session"), "Linux open_browser must start browser in a new session")
             proc = real_popen(argv, **kwargs)
             spawned.append(proc)
             return proc
@@ -789,9 +758,11 @@ class BrowserTest(unittest.TestCase):
                 self.assertTrue(done_event.wait(timeout=15), "headless browser did not follow redirect via Linux open_browser")
         finally:
             for proc in spawned:
-                self._kill_browser_tree(proc, cleanup_browser, cleanup_profile)
+                self._kill_browser_tree(proc, browser, str(profile))
         self.assertEqual(len(recorded_argv), 1)
+        self.assertEqual(recorded_argv[0][0], browser)
         self.assertNotIn(marker_val, " ".join(recorded_argv[0]))
+        self.assertTrue(recorded_argv[0][-1].startswith("file:///") and recorded_argv[0][-1].endswith(".html"), recorded_argv[0])
         self.assertEqual(hits, [f"/?conclave_ticket={marker_val}"])
 
     def test_headless_browser_follows_redirect_via_wsl_open_browser(self):
@@ -815,30 +786,24 @@ class BrowserTest(unittest.TestCase):
             win_local_app = subprocess.run(["wslpath", "-w", str(local_app)], capture_output=True, text=True, check=True).stdout.strip()
             win_argv_log = subprocess.run(["wslpath", "-w", str(argv_log)], capture_output=True, text=True, check=True).stdout.strip()
 
-        # Tiny PowerShell wrapper acting as the registered Windows HTTPS browser: records the exact initial
-        # arguments PowerShell passed to it (proving zero ticket marker in browser argv), then launches headless Chrome.
-        spy_ps = Path(self._tmp.name) / "win_browser_spy.ps1"
-        spy_ps.write_text(
-            f"$args | ConvertTo-Json -Compress | Set-Content -LiteralPath '{win_argv_log.replace(chr(39), chr(39)*2)}' -Encoding utf8\n"
-            f"$u = $args[-1]\n"
-            f"& '{win_browser.replace(chr(39), chr(39)*2)}' --headless=new --disable-gpu --no-first-run "
-            f"'--user-data-dir={win_profile.replace(chr(39), chr(39)*2)}' --virtual-time-budget=2000 --dump-dom --single-argument $u | Out-Null\n",
-            encoding="utf-8")
-        win_spy_ps = str(spy_ps)
-        win_pwsh = pwsh
-        if os.name == "posix":
-            win_spy_ps = subprocess.run(["wslpath", "-w", str(spy_ps)], capture_output=True, text=True, check=True).stdout.strip()
-            win_pwsh = subprocess.run(["wslpath", "-w", pwsh], capture_output=True, text=True, check=True).stdout.strip()
-
         reg_block = (
             "$prog = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId; "
             "if (-not $prog) { throw 'no progid' }; "
             "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)';"
         )
-        chrome_cmd = f'"{win_pwsh}" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{win_spy_ps}" --single-argument %1'
+        # Register the real Windows browser directly (no wrapper) with Chrome's unquoted --single-argument %1 template.
+        chrome_cmd = (f'"{win_browser}" --headless=new --disable-gpu --no-first-run '
+                      f'"--user-data-dir={win_profile}" --virtual-time-budget=2000 --dump-dom --single-argument %1')
         ps_lit = chrome_cmd.replace("'", "''").replace("%", "%%")
+        start_stmt = "$proc = [Diagnostics.Process]::Start($psi);"
+        log_lit = win_argv_log.replace("'", "''").replace("%", "%%")
+        log_tap = (f"[IO.File]::WriteAllText('{log_lit}', "
+                   f"(@{{exe=$psi.FileName; args=$psi.Arguments}} | ConvertTo-Json -Compress), "
+                   f"[Text.UTF8Encoding]::new($false)); ")
         self.assertIn(reg_block, od.POWERSHELL_OPEN)
+        self.assertIn(start_stmt, od.POWERSHELL_OPEN)
         patched_ps = od.POWERSHELL_OPEN.replace(reg_block, f"$cmd = '{ps_lit}';", 1)
+        patched_ps = patched_ps.replace(start_stmt, log_tap + start_stmt, 1)
 
         real_run = subprocess.run
         ps_calls = []
@@ -867,9 +832,11 @@ class BrowserTest(unittest.TestCase):
             self._kill_windows_profile(pwsh, win_profile)
         self.assertEqual(len(ps_calls), 1)
         self.assertNotIn(marker_val, " ".join(ps_calls[0][0]))
-        received = json.loads(argv_log.read_text(encoding="utf-8-sig"))
-        self.assertNotIn(marker_val, " ".join(received))
-        self.assertTrue(received[-1].startswith("file://") and received[-1].endswith(".html"), received)
+        received = json.loads(argv_log.read_text(encoding="utf-8"))
+        self.assertEqual(received["exe"], win_browser)
+        self.assertNotIn(marker_val, received["args"])
+        self.assertIn("--single-argument file://", received["args"])
+        self.assertTrue(received["args"].endswith(".html"), received["args"])
         self.assertEqual(hits, [f"/?conclave_ticket={marker_val}"])
 
     def test_from_wsl_each_missing_piece_and_a_failed_child_is_refused(self):
