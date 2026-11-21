@@ -24,6 +24,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -187,7 +188,7 @@ def _page(url):
     return page
 
 
-DESKTOP_ID = re.compile(r"[^\x00-\x1f/\\]+\.desktop")
+DESKTOP_ID = re.compile(r"[^\x00-\x1f\x7f-\x9f/\\]+\.desktop")
 ANY_PERCENT = re.compile(r"%(.)?")
 LOCALE_RE = re.compile(r"^([A-Za-z0-9-]+)(?:_([A-Za-z0-9-]+))?(?:\.[^@]*)?(?:@(.+))?$")
 DESKTOP_UNESCAPE = re.compile(r"\\([sntr\\])")
@@ -233,20 +234,23 @@ def _split_desktop_exec(command):
     return words
 
 
+MISS_ERRNOS = {errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG}
+
+
 def _is_file_or_miss(path):
     try:
-        return path.is_file()
+        return stat.S_ISREG(os.stat(path).st_mode)
     except OSError as error:
-        if error.errno == errno.ENAMETOOLONG:
+        if error.errno in MISS_ERRNOS:
             return False
         raise
 
 
 def _is_dir_or_miss(path):
     try:
-        return path.is_dir()
+        return stat.S_ISDIR(os.stat(path).st_mode)
     except OSError as error:
-        if error.errno == errno.ENAMETOOLONG:
+        if error.errno in MISS_ERRNOS:
             return False
         raise
 
@@ -365,7 +369,7 @@ def _https_browser(page):
         raise Refusal("there is no xdg-mime to find the browser that opens https links")
     done = subprocess.run([query, "query", "default", "x-scheme-handler/https"], capture_output=True, text=True,
                           timeout=CHILD_TIMEOUT)
-    entry = (done.stdout or "").strip()
+    entry = (done.stdout or "").rstrip("\r\n")
     if done.returncode != 0 or not DESKTOP_ID.fullmatch(entry):
         raise Refusal("no browser is set to open https links (xdg-mime query default x-scheme-handler/https)")
     raw_home = os.environ.get("XDG_DATA_HOME") or ""

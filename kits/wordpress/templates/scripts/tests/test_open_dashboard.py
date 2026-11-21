@@ -341,8 +341,12 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
             data = Path(tmp) / "data"
             apps = data / "applications"
             apps.mkdir(parents=True, exist_ok=True)
+            marker = Path(tmp) / "child-ran.txt"
+            script = Path(tmp) / "fail_browser.py"
+            script.write_text(f"import pathlib, sys\npathlib.Path({str(marker)!r}).write_text('ran', encoding='utf-8')\nsys.exit(1)\n",
+                              encoding="utf-8")
             (apps / "fail.desktop").write_text(
-                f'[Desktop Entry]\nName=Fail\nExec="{sys.executable}" -c "import sys; sys.exit(1)" %u\n',
+                f'[Desktop Entry]\nName=Fail\nExec="{sys.executable}" "{script}" %u\n',
                 encoding="utf-8")
             env = {"XDG_DATA_HOME": str(data), "XDG_DATA_DIRS": "/nowhere"}
 
@@ -362,6 +366,8 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
                     mock.patch.object(od.shutil, "which", side_effect=lambda name: "/usr/bin/xdg-mime" if name == "xdg-mime" else None), \
                     mock.patch.object(od.subprocess, "run", fake_run):
                 code = od.main([], out=out, err=err)
+            ran = marker.read_text(encoding="utf-8") if marker.is_file() else ""
+        self.assertEqual(ran, "ran", "the browser child process never started")
         self.assertEqual((code, out.getvalue()), (1, ""))
         self.assertEqual(err.getvalue(), "open-dashboard: the browser that opens https links could not be started\n"
                                          "open-dashboard: the ticket was removed from the site\n")
@@ -705,15 +711,15 @@ class BrowserTest(unittest.TestCase):
         real_entry.parent.mkdir(parents=True, exist_ok=True)
         real_entry.write_text("[Desktop Entry]\nName=Real\nExec=nested-browser %u\n", encoding="utf-8")
 
-        real_is_file = Path.is_file
+        real_stat = os.stat
 
-        def overlong_on_flat(path_obj):
-            if path_obj.name == "vendor-browser.desktop":
+        def overlong_on_flat(path_obj, *args, **kwargs):
+            if Path(path_obj).name == "vendor-browser.desktop":
                 raise OSError(errno.ENAMETOOLONG, "File name too long")
-            return real_is_file(path_obj)
+            return real_stat(path_obj, *args, **kwargs)
 
         before = set(self.pages.glob("open-*.html"))
-        with mock.patch.object(Path, "is_file", overlong_on_flat):
+        with mock.patch.object(od.os, "stat", overlong_on_flat):
             self.open(wsl=False, which=self.LINUX, handler="vendor-browser.desktop", entry=None,
                       extra_env={"XDG_DATA_HOME": str(sys_data), "XDG_DATA_DIRS": "/nowhere"})
         [(argv, _)] = self.started
@@ -729,40 +735,50 @@ class BrowserTest(unittest.TestCase):
         sys_entry.parent.mkdir(parents=True, exist_ok=True)
         sys_entry.write_text("[Desktop Entry]\nName=Sys\nExec=sys-browser %u\n", encoding="utf-8")
 
-        real_is_file = Path.is_file
-        real_is_dir = Path.is_dir
+        real_stat = os.stat
         env = {"XDG_DATA_HOME": str(user_data), "XDG_DATA_DIRS": str(sys_data)}
 
-        for label, target, attr, fail_name in (
-                ("apps dir EIO", Path, "is_dir", "applications"),
-                ("direct file EIO", Path, "is_file", "vendor-browser.desktop"),
-                ("subdir EIO", Path, "is_dir", "vendor")):
+        for label, fail_name, err_no in (
+                ("apps dir EIO", "applications", errno.EIO),
+                ("direct file EIO", "vendor-browser.desktop", errno.EIO),
+                ("subdir EACCES", "vendor", errno.EACCES)):
             with self.subTest(label):
                 self.started.clear()
-                orig = real_is_file if attr == "is_file" else real_is_dir
 
-                def raise_eio(path_obj, _orig=orig, _name=fail_name):
-                    if path_obj.name == _name and str(user_data) in str(path_obj):
-                        raise OSError(errno.EIO, "Input/output error")
-                    return _orig(path_obj)
+                def raise_stat_err(path_obj, *args, _name=fail_name, _err=err_no, **kwargs):
+                    if Path(path_obj).name == _name and str(user_data) in str(path_obj):
+                        raise OSError(_err, "stat failure")
+                    return real_stat(path_obj, *args, **kwargs)
 
-                with mock.patch.object(target, attr, raise_eio):
+                with mock.patch.object(od.os, "stat", raise_stat_err):
                     with self.assertRaisesRegex(od.Refusal, "could not be read"):
                         self.open(wsl=False, which=self.LINUX, handler="vendor-browser.desktop", entry=None, extra_env=env)
                 self.assertEqual(self.started, [])
 
-    def test_nested_desktop_directory_with_spaces_resolves(self):
+    def test_nested_desktop_directory_with_spaces_resolves_and_control_chars_refused(self):
         user_data = Path(self._tmp.name) / "xdg_spaces"
-        spaced = user_data / "applications" / "Work Apps" / "org.example.Browser.desktop"
-        spaced.parent.mkdir(parents=True, exist_ok=True)
-        spaced.write_text("[Desktop Entry]\nName=Work Browser\nExec=work-apps-browser %u\n", encoding="utf-8")
-        before = set(self.pages.glob("open-*.html"))
-        self.open(wsl=False, which=self.LINUX, handler="Work Apps-org.example.Browser.desktop", entry=None,
-                  extra_env={"XDG_DATA_HOME": str(user_data), "XDG_DATA_DIRS": "/nowhere"})
-        [(argv, _)] = self.started
-        [page] = set(self.pages.glob("open-*.html")) - before
-        self.assertEqual(argv, ["work-apps-browser", page.as_uri()])
-        self.assertNotIn("conclave_ticket", " ".join(argv))
+        for label, dirname, handler in (
+                ("inner space", "Work Apps", "Work Apps-org.example.Browser.desktop"),
+                ("leading space", " Work Apps", " Work Apps-org.example.Browser.desktop")):
+            with self.subTest(label):
+                self.started.clear()
+                spaced = user_data / "applications" / dirname / "org.example.Browser.desktop"
+                spaced.parent.mkdir(parents=True, exist_ok=True)
+                spaced.write_text(f"[Desktop Entry]\nName=Work Browser\nExec=browser-{label.replace(' ', '-')} %u\n",
+                                  encoding="utf-8")
+                before = set(self.pages.glob("open-*.html"))
+                self.open(wsl=False, which=self.LINUX, handler=handler, entry=None,
+                          extra_env={"XDG_DATA_HOME": str(user_data), "XDG_DATA_DIRS": "/nowhere"})
+                [(argv, _)] = self.started
+                [page] = set(self.pages.glob("open-*.html")) - before
+                self.assertEqual(argv, [f"browser-{label.replace(' ', '-')}", page.as_uri()])
+                self.assertNotIn("conclave_ticket", " ".join(argv))
+        for bad in ("bad\x7fname.desktop", "bad\u0085name.desktop"):
+            with self.subTest(bad=repr(bad)):
+                self.started.clear()
+                with self.assertRaisesRegex(od.Refusal, "no browser is set to open https links"):
+                    self.open(wsl=False, which=self.LINUX, handler=bad, entry=None)
+                self.assertEqual(self.started, [])
 
     def test_two_launches_get_two_pages_and_only_dead_pages_are_removed(self):
         first, second = self.URL, "https://example.org/?conclave_ticket=" + "ef" * 32
