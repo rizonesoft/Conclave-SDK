@@ -185,7 +185,9 @@ The first site got its plugin from a hand-typed SFTP command, and nothing takes 
 
 ## 5. WordPress link in the launcher profile
 
-The desktop link is the launchers kit's to write (`T01 §6`). This section only declares it: installing the WordPress kit into a project that has a launcher profile adds one entry, as the Laravel kit adds its servers to the `lsp` table.
+> **Started:** 2026-11-21T20:10Z
+
+The desktop link is the launchers kit's to write (`T01 §6`). This section declares it and makes it work for both WSL and Windows-drive checkouts: installing the WordPress kit into a project that has a launcher profile adds one entry (with `"wsl": true` so Windows-drive shortcuts invoke the opener through `wsl.exe --cd <project>` rather than native PowerShell, and refuse cleanly when WSL is unavailable), as the Laravel kit adds its servers to the `lsp` table.
 
 **Phase:** 8
 **Needs:** none
@@ -193,14 +195,15 @@ The desktop link is the launchers kit's to write (`T01 §6`). This section only 
 
 **Build order:**
 
-1. Add the entry at install. Done when: the profile holds it once, however often the kit is installed.
+1. Support optional `"wsl": true` on `run` entries in `launchers.py` and `project-shortcuts.ps1`. Done when: `test_launchers.py` and `test_project_shortcuts.py` prove Windows-drive and WSL invocations and the missing-WSL refusal.
+2. Add one shared launcher-link merge helper in `forge.py` called from `apply_kit` for both `wordpress` and `launchers` kits. Done when: `test_forge -k launcher_links` proves both install orders, dry-run, standalone installs, conflicts, refusals, write failures, and existing-project adoption.
 
-- [ ] Make `python forge.py kit <project> wordpress` add `{"label": "WordPress", "mark": "wordpress", "run": "python3 scripts/open-dashboard.py"}` to `links` in `.conclave/launchers.json` when that file exists and has no entry labelled `WordPress`, written atomically, and report it under a `launcher_links` key as `added` or `kept`. Done when: a test installs twice and finds one entry and the reports `added` then `kept`. Cheaper substitute: a second shortcut script in the WordPress kit, which is the per-project script this plan replaces.
-- [ ] Leave a profile that does not load exactly as it was and report it under `merge_needed`. Done when: a test with a malformed profile finds its bytes unchanged.
-- [ ] Make `python forge.py kit <project> launchers` add the same entry when the project already has `scripts/open-dashboard.py`, so the order of the two kits does not matter. Done when: a test installs the kits in both orders and reads the same profile back.
+- [ ] Support optional boolean `"wsl"` on `run` link entries in `kits/launchers/templates/scripts/lib/launchers.py` (rejected on `url` entries and for non-bool values) and in `kits/launchers/templates/scripts/project-shortcuts.ps1` (for a Windows-drive checkout with `wsl: true`, require `wsl.exe` on `PATH` and launch via `wsl.exe --cd <project> --exec bash -lc` with optional `-d <Distro>` and the same failure-wait wrapper; WSL checkouts already run in WSL). Done when: `test_launchers.py` verifies `wsl: true`/`false`, non-bool, and `url`+`wsl` refusal, and `test_project_shortcuts.py` verifies generated invocation for both Windows-drive and WSL checkouts plus refusal when `wsl.exe` is unavailable. **Planned 2026-11-21 (plan review, P1):** Windows-drive checkouts run `open-dashboard.py` through WSL instead of failing in native PowerShell.
+- [ ] Add one shared merge helper `_merge_wordpress_launcher_link` in `forge.py` called from `apply_kit` after kit files are written when `kit_name in ("wordpress", "launchers")`: validate `.conclave/launchers.json` with `load_profile(..., unset=True)` (accepting fresh `title: null, icon: null` seeds, and reading the launchers kit seed on `launchers --dry-run`), add `{"label": "WordPress", "mark": "wordpress", "run": "python3 scripts/open-dashboard.py", "wsl": True}` atomically when the opener is present or being installed and the profile exists (or is being seeded), report `launcher_links` as `{"added": ["WordPress"]}` or `{"kept": ["WordPress"]}` only for an equivalent dashboard entry, and create no profile on standalone `wordpress` or link on standalone `launchers`. Done when: `tests/test_forge.py` tests both install orders (reading back with `load_profile(..., unset=True)` and asserting exact `label`, `mark`, `run`, `wsl`, opener presence, and preserved settings and unrelated links), install-twice (`added` then `kept`), `--dry-run` in both orders with zero disk changes, standalone installs, and existing-project adoption starting from a populated launcher profile. Cheaper substitute: a second shortcut script in the WordPress kit, or duplicate merge paths per kit. **Planned 2026-11-21 (plan review, P1/P2/P3):** `unset=True` validation, full field/settings read-back, dry-run/standalone/adoption coverage, single helper.
+- [ ] Preserve `.conclave/launchers.json` untouched and report `.conclave/launchers.json` under `merge_needed` (with a conflict, refusal, or failure detail under `launcher_links`, never `added` or `kept`) on existing link conflicts (a `WordPress` URL link, a differently cased `wordpress` label, or a same-slug label such as `WordPress!`), malformed JSON, schema-invalid JSON, an unsafe linked destination or parent, or a failed atomic write. Done when: `tests/test_forge.py` tests all three conflict cases, malformed and schema-invalid JSON, symlinked profile destination, and a failed `atomic_write`, asserting original bytes survive and `merge_needed` contains `.conclave/launchers.json`. **Planned 2026-11-21 (plan review, P1/P2):** conflict detection by case-insensitive label and icon slug, schema/symlink/write-failure refusals.
 - [ ] Commit: `wordpress: the dashboard link in the launcher profile`
 
-**Test checkpoint:** `python -m unittest tests.test_forge -k launcher_links` ends `OK`; adding the entry without the label check makes the install-twice test fail.
+**Test checkpoint:** `python -m unittest tests.test_forge -k launcher_links -v` and `python forge.py check-all --only kit-launchers` end `OK`; removing the conflict check, the `unset=True` flag, or the Windows-drive WSL dispatch makes its test fail.
 
 ## 6. `wordpress-connect` step and tooling page
 
@@ -237,7 +240,7 @@ No test without a network can show that a real WordPress accepts the right token
 2. Run the five requests and record them. Done when: the checkpoint's evidence is in this section.
 
 - [ ] Ask the owner which connected project's staging site takes the kit's plugin, and record the answer here as the site's environment and date, never its address. Done when: the answer is recorded and the Need can be removed.
-- [ ] Install the kit's three files into that project with `python forge.py update <project> wordpress` and run `python scripts/ticket-login.py install --yes`. Done when: `python scripts/ticket-login.py status` prints `current`.
+- [ ] Install the kit's three files into that project with `python forge.py update <project> wordpress`, rerun `python forge.py kit <project> wordpress` so an existing launcher profile receives the `WordPress` dashboard link, and run `python scripts/ticket-login.py install --yes`. Done when: `python scripts/ticket-login.py status` prints `current`.
 - [ ] Run `python scripts/open-dashboard.py --check`. Done when: it prints that a ticket was stored and removed again.
 - [ ] Prove the five cases with a ticket stored by `store` and requests that send no cookies and follow no redirect: the right token returns 302 to `/wp-admin/` with the login cookies; a wrong token, the same token again, a ticket past its expiry and a malformed token each return 403. Done when: the five status codes are recorded here with the date, and no token.
 - [ ] Remove the site's earlier project-own copy of the plugin and its option when the chosen project is the one that built the first version, so one login plugin is left. Done when: a listing of `wp-content/mu-plugins/` shows `conclave-ticket-login.php` alone.
