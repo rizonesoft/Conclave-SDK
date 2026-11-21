@@ -130,7 +130,7 @@ The opener is the half that runs on the operator's machine. The first build open
 
 ## 3. Plugin install, status and removal on the pinned site
 
-> **Started:** 2026-11-21T18:00Z
+> **Started:** 2026-11-21T18:13Z
 
 The first site got its plugin from a hand-typed SFTP command, and nothing takes it off. A login plugin that cannot be seen or removed from the project is not finished. These are writes to a live site: each runs only when a person or an approved step asks for it by name.
 
