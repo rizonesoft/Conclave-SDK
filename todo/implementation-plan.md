@@ -176,7 +176,7 @@ Sections: 17 | Checklist items: 149
 | [ ]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                      | none         | 4     |
 | [ ]    | D07 T02 §5 | WordPress link in the launcher profile                                  | none         | 4     |
 | [ ]    | D07 T02 §6 | `wordpress-connect` step and tooling page                               | none         | 5     |
-| [ ]    | D07 T02 §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py`      | none         | 5     |
+| [x]    | D07 T02 §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py`      | none         | 5     |
 
 ### Phase 9: Design and safety lenses across projects
 
@@ -241,6 +241,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 105/151 verified sections, 14 ready to run now.
+Progress: 106/151 verified sections, 13 ready to run now.
 
-Checklist: 896/1149 items completed (includes Commit items).
+Checklist: 897/1149 items completed (includes Commit items).

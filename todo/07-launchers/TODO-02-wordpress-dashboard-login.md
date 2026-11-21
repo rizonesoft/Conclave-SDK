@@ -51,7 +51,7 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [ ] |
 | 6 | §6 | `wordpress-connect` step and tooling page | §4, §5 | [ ] |
 | 7 | §7 | Live proof on a staging site | §6 | [ ] |
-| 8 | §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py` | §1 | [ ] |
+| 8 | §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py` | §1 | [x] |
 
 ## 1. Ticket login plugin in the WordPress kit
 
@@ -244,9 +244,12 @@ Filed 2026-11-21 from the `D00 T01 §10` shadow audit of `D07 T02 §2` (`docs/re
 - [x] Parse `Exec=` in `_https_browser` of `kits/wordpress/templates/scripts/open-dashboard.py` per the Desktop Entry Specification: apply `_unescape_desktop()` first, then tokenize desktop-entry double-quoted arguments (`\"`, `` \` ``, `\$`, `\\`, without shell single-quote stripping), and refuse unknown field codes (`%x`, trailing `%`) while keeping `%%` as a literal percent. Done when: recorder tests in `test_open_dashboard.py` verify `Exec=browser "--profile=Work\sProfile" %u` yields `--profile=Work Profile`, verify quoted literal `$`, `` ` ``, `"`, and four on-disk backslashes `\\\\` -> `\`, verify an unknown field code `%x` raises `Refusal` with zero launches, and verify zero ticket URLs in argv. Cheaper substitute: keeping `shlex.split` (which leaves extra backslashes on `\$` and `` \` ``) or passing unknown `%x` codes through literally. **Planned 2026-11-21 (plan review, P1/P2):** desktop quoting distinct from `shlex.split` and unknown field-code refusal.
 - [x] Reject `bool` in `store` of `kits/wordpress/templates/scripts/open-dashboard.py` (`isinstance(user_id, bool)`), matching `pinned_user`. Done when: a test in `test_open_dashboard.py` passes `user_id=True` to `store` and asserts `Refusal` with no remote call.
 - [x] Prove site-clock expiry in `kits/wordpress/templates/scripts/tests/test_open_dashboard.py` by offsetting Python's `time.time` during `store()` while running the unchanged PHP program and bracketing the call with unshifted timestamps. Done when: the store test asserts `before + LIFETIME <= expires <= after + LIFETIME` against the real clock while Python's `time.time` is shifted by +3600 seconds, so a Python-computed expiry fails the test. **Planned 2026-11-21 (plan review, P3 simplest):** offset Python's clock instead of modifying the PHP harness.
-- [ ] Commit: `wordpress: desktop-entry ID subdirectory lookup and Exec unescaping in open-dashboard.py`
+- [x] Commit: `wordpress: desktop-entry ID subdirectory lookup and Exec unescaping in open-dashboard.py`
 
 **Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py` and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` end `OK` under WSL with PHP, and `python forge.py check-all --only kit-wordpress` passes; removing the subdirectory ID fallback or the `Exec` unescaping makes its test fail.
+
+> **Verified:** 2026-11-21 | §8 | 273fea94e9b11fd30165c98871fe0130162407de
+> **Review:** `docs/reviews/d07-t02-s8.json`
 
 ## Verification
 
