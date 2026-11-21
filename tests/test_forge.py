@@ -4400,7 +4400,8 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertIn("-Remove", st)
                 self.assertIn("pwsh", st)
                 self.assertIn("Add-Type -Path scripts/lib/ShellLink.cs", st)
-                self.assertIn("[Conclave.ShellLink]::Read($_.FullName)", st)
+                self.assertIn("[Conclave.ShellLink]::Read($f.FullName)", st)
+                self.assertIn("$l.Description -ceq $mark", st)
                 self.assertIn("skip creation and removal", st)
                 self.assertIn("verify that the project's owned `.lnk` files", st)
                 self.assertIn("only ever started by the operator", st)
@@ -4452,6 +4453,24 @@ class LaunchersPageTests(unittest.TestCase):
             proc.wait()
             raise
 
+    @staticmethod
+    def _parse_format_list(output):
+        clean = re.sub(r"\x1b\[[0-9;]*m", "", output)
+        records = []
+        current = {}
+        for line in clean.splitlines():
+            if not line.strip():
+                if current:
+                    records.append(current)
+                    current = {}
+                continue
+            m = re.match(r"^(\w+)\s*:\s*(.*)$", line)
+            if m:
+                current[m.group(1)] = m.group(2).strip()
+        if current:
+            records.append(current)
+        return {r["Link"]: r for r in records if "Link" in r}
+
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
         pwsh = shutil.which("pwsh")
@@ -4473,6 +4492,18 @@ class LaunchersPageTests(unittest.TestCase):
             icon_dir.mkdir()
             unrelated = shortcut_dir / "Keep Me.lnk"
             unrelated.write_bytes(b"unrelated")
+            # A second project's valid shortcut in the same directory: inspection and removal must ignore it.
+            other_lnk = shortcut_dir / "Other App (Site).lnk"
+            mk_other = self._run_tree(
+                [pwsh, "-NoProfile", "-Command",
+                 "Add-Type -Path scripts/lib/ShellLink.cs; "
+                 "$d = [Conclave.ShellLinkData]::new(); "
+                 "$d.Target = 'C:\\Windows\\System32\\rundll32.exe'; "
+                 "$d.Arguments = 'url.dll,FileProtocolHandler https://other.test'; "
+                 "$d.Description = 'conclave-launcher: c:\\other-project'; "
+                 "[Conclave.ShellLink]::Write($env:OTHER_LNK, $d)"],
+                cwd=target, env={**os.environ, "OTHER_LNK": str(other_lnk)})
+            self.assertEqual(mk_other.returncode, 0, mk_other.stdout + mk_other.stderr)
 
             # 1. Create links with the command from docs/launchers.md (under process-tree timeout cleanup).
             created = self._run_tree(
@@ -4493,17 +4524,19 @@ class LaunchersPageTests(unittest.TestCase):
             rb_env = {**os.environ, "CONCLAVE_SHORTCUT_DIR": str(shortcut_dir)}
             rb = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target, env=rb_env)
             self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
-            clean_rb = re.sub(r"\x1b\[[0-9;]*m", "", rb.stdout)
-            self.assertIn("Shop App (Site).lnk", clean_rb)
-            self.assertIn("rundll32.exe", clean_rb.lower())
-            self.assertIn("https://example.test", clean_rb)
-            icons_seen = [pathlib.Path(m.strip()) for m in re.findall(r"IconPath\s*:\s*([^\r\n]+)", clean_rb)]
-            self.assertGreaterEqual(len(icons_seen), 3, clean_rb)
-            for saved_icon in icons_seen:
-                self.assertTrue(saved_icon.is_file(), f"IconPath does not exist: {saved_icon}")
-                self.assertEqual(saved_icon.parent.resolve(), icon_dir.resolve())
+            recs = self._parse_format_list(rb.stdout)
+            self.assertIn("Shop App (Site).lnk", recs)
+            self.assertNotIn("Other App (Site).lnk", recs, "read-back must ignore another project's shortcut")
+            self.assertIn("Keep Me.lnk", recs, "read-back must surface unreadable shortcut errors")
+            self.assertTrue(recs["Keep Me.lnk"].get("Error"), recs["Keep Me.lnk"])
+            site_rec = recs["Shop App (Site).lnk"]
+            self.assertTrue(site_rec["Target"].lower().endswith("rundll32.exe"), site_rec)
+            self.assertIn("https://example.test", site_rec["Arguments"])
+            saved_icon = pathlib.Path(site_rec["IconPath"])
+            self.assertTrue(saved_icon.is_file(), f"IconPath does not exist: {saved_icon}")
+            self.assertEqual(saved_icon.parent.resolve(), icon_dir.resolve())
 
-            # 3. Rename title to one with an apostrophe and $ (O'Brien $x), drop a link, rerun, and run published read-back.
+            # 3. Rename title to one with an apostrophe and $ (O'Brien $x), drop a link, rerun, and verify exact record.
             example["title"] = "O'Brien $x"
             example["links"] = [lnk for lnk in example["links"] if lnk["label"] == "Site"]
             profile_path.write_text(json.dumps(example), encoding="utf-8")
@@ -4517,18 +4550,25 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertTrue(obrien_lnk.is_file())
             rb2 = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target, env=rb_env)
             self.assertEqual(rb2.returncode, 0, rb2.stdout + rb2.stderr)
-            clean_rb2 = re.sub(r"\x1b\[[0-9;]*m", "", rb2.stdout)
-            self.assertIn("O'Brien $x (Site).lnk", clean_rb2)
-            self.assertIn("https://example.test", clean_rb2)
+            recs2 = self._parse_format_list(rb2.stdout)
+            self.assertIn("O'Brien $x (Site).lnk", recs2)
+            self.assertNotIn("Other App (Site).lnk", recs2)
+            ob_rec = recs2["O'Brien $x (Site).lnk"]
+            self.assertTrue(ob_rec["Target"].lower().endswith("rundll32.exe"), ob_rec)
+            self.assertIn("https://example.test", ob_rec["Arguments"])
+            ob_icon = pathlib.Path(ob_rec["IconPath"])
+            self.assertTrue(ob_icon.is_file(), f"IconPath does not exist: {ob_icon}")
+            self.assertEqual(ob_icon.parent.resolve(), icon_dir.resolve())
             self.assertTrue(unrelated.is_file())
+            self.assertTrue(other_lnk.is_file())
 
-            # 4. Invalidate the profile before running -Remove and verify owned files vanish while unrelated survives.
+            # 4. Invalidate the profile before running -Remove and verify owned files vanish while unrelated survive.
             profile_path.write_text("{broken json", encoding="utf-8")
             removed = self._run_tree(
                 [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
                  "-Remove", "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
-            self.assertEqual([p.name for p in shortcut_dir.iterdir()], ["Keep Me.lnk"])
+            self.assertEqual(sorted(p.name for p in shortcut_dir.iterdir()), ["Keep Me.lnk", "Other App (Site).lnk"])
             self.assertEqual(list(icon_dir.glob("*.ico")), [])
 
 
