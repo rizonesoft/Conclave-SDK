@@ -290,6 +290,7 @@ class _FakeRemoteSite:
         self.multisite = False
         self.mu_dir_override: str | None = None
         self.abspath_override: str | None = None
+        self.config_path_override: str | None = None
         self.db_error = ""
         self.raw_stderr = "RAW_REMOTE_DIAGNOSTIC_DO_NOT_LEAK"
         self.bootstrap_broken = False
@@ -403,6 +404,27 @@ class _FakeRemoteSite:
                     out = hook(tokens, site_url)
                     if out is not None:
                         return out
+                if len(tokens) >= 4 and tokens[2] == "--skip-wordpress":
+                    core_root = (self.abspath_override or self._posix_path(self.wp_dir)).rstrip("/")
+                    if PHP:
+                        runner = (
+                            "<?php\n"
+                            "$core = trim(file_get_contents('php://stdin'));\n"
+                            "class FakeRunner { private $r; public function __construct($r) { $this->r = $r; } public function find_wp_root() { return $this->r; } }\n"
+                            "class WP_CLI { public static $runner; public static function get_runner() { return self::$runner; } }\n"
+                            "WP_CLI::$runner = new FakeRunner($core);\n"
+                            + tokens[3] + "\n"
+                        )
+                        with tempfile.NamedTemporaryFile("w", suffix=".php", delete=False, encoding="utf-8") as fh:
+                            fh.write(runner)
+                            php_file = fh.name
+                        try:
+                            res = subprocess.run([str(PHP), php_file], input=core_root, capture_output=True, text=True,
+                                                 timeout=30, creationflags=NO_WINDOW)
+                        finally:
+                            Path(php_file).unlink(missing_ok=True)
+                        return subprocess.CompletedProcess(["wp"], res.returncode, res.stdout, res.stderr)
+                    return subprocess.CompletedProcess(["wp"], 0, f"CONCLAVE_ROOT:{core_root}\n", "")
                 return self._run_php_eval(tokens[2], site_url)
             if sub == "config" and tokens[2:4] == ["list", "--format=json"]:
                 hook = self.hooks.get("config")
@@ -410,8 +432,8 @@ class _FakeRemoteSite:
                     return hook(tokens, site_url)
                 return subprocess.CompletedProcess(["wp"], 0, json.dumps(self.config_constants), "")
             if sub == "config" and tokens[2:3] == ["path"]:
-                cfg_root = (self.abspath_override or self._posix_path(self.wp_dir)).rstrip("/")
-                return subprocess.CompletedProcess(["wp"], 0, f"{cfg_root}/wp-config.php\n", "")
+                cfg_path = self.config_path_override or ((self.abspath_override or self._posix_path(self.wp_dir)).rstrip("/") + "/wp-config.php")
+                return subprocess.CompletedProcess(["wp"], 0, f"{cfg_path}\n", "")
             return subprocess.CompletedProcess(["wp"], 1, "", f"unexpected wp subcommand: {tokens}")
 
         # Raw SSH shell command: run hooks, then execute emitted POSIX shell against real temp tree via bash.
@@ -715,20 +737,40 @@ class PluginOnSiteTest(unittest.TestCase):
         self.site.db_error = ""
         self.assertEqual(code, 1)
         self.assertFalse(any("config" in c[1][0] for c in self.site.calls))
-        # Broken bootstrap + WP-CLI path override: BOTH install --yes and remove --yes refuse with zero mutations.
+        # Broken bootstrap + WP-CLI path override (with wp-config.php in the pinned parent OR in src/):
+        # BOTH install --yes and remove --yes refuse with zero mutations.
         installed.write_bytes(b"<?php syntax error !!!")
         self.site.bootstrap_broken = True
         self.site.abspath_override = self.site._posix_path(self.wp_dir) + "/src/"
         self.site.config_constants = [{"name": "DB_NAME", "value": "wp", "type": "constant"}]
         self.site.options[self.pin["url"]] = {"conclave_login_ticket": "keep-opt"}
-        for mut in ("install", "remove"):
-            with self.subTest(crossed=mut):
-                code, _out, err, _ = self.run_cli([mut, "--yes"])
-                self.assertEqual(code, 1)
-                self.assertIn("ssh.wp_path", err)
-                self.assertEqual(installed.read_bytes(), b"<?php syntax error !!!")
-                self.assertEqual(self.site.options[self.pin["url"]].get("conclave_login_ticket"), "keep-opt")
+        for cfg_loc in (self.site._posix_path(self.wp_dir) + "/wp-config.php",
+                        self.site._posix_path(self.wp_dir) + "/src/wp-config.php"):
+            self.site.config_path_override = cfg_loc
+            for mut in ("install", "remove"):
+                with self.subTest(crossed=mut, cfg_loc=cfg_loc):
+                    code, _out, err, _ = self.run_cli([mut, "--yes"])
+                    self.assertEqual(code, 1)
+                    self.assertIn("ssh.wp_path", err)
+                    self.assertEqual(installed.read_bytes(), b"<?php syntax error !!!")
+                    self.assertEqual(self.site.options[self.pin["url"]].get("conclave_login_ticket"), "keep-opt")
+        # Legitimate recovery when SSH and WP-CLI both select /src while wp-config.php sits in the parent directory.
+        src_wp = self.wp_dir / "src"
+        (src_wp / "wp-content" / "mu-plugins").mkdir(parents=True, exist_ok=True)
+        src_plugin = src_wp / "wp-content" / "mu-plugins" / "conclave-ticket-login.php"
+        src_plugin.write_bytes(b"<?php syntax error !!!")
+        self.site.config_path_override = self.site._posix_path(self.wp_dir) + "/wp-config.php"
+        src_pin = {**self.pin, "ssh": {**self.pin["ssh"], "wp_path": "~/htdocs/src"}}
+        code, _out, err, _ = self.run_cli(["install", "--yes"], pin=src_pin)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(src_plugin.read_bytes(), PLUGIN.read_bytes())
+        self.site.bootstrap_broken = True
+        code, _out, err, _ = self.run_cli(["remove", "--yes"], pin=src_pin)
+        self.assertEqual(code, 0, err)
+        self.assertFalse(src_plugin.exists())
         self.site.abspath_override = None
+        self.site.config_path_override = None
+        self.site.bootstrap_broken = True
         # Broken MU-plugin stopping WordPress bootstrap: fallback mirrors WordPress is_multisite() exactly.
         installed.write_bytes(b"<?php syntax error !!!")
         self.site.bootstrap_broken = True

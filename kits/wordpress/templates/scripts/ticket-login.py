@@ -72,6 +72,12 @@ WP_DELETE_OPTION = (
     "echo 'CONCLAVE_DEL:ok';"
 )
 
+WP_FALLBACK_ROOT = (
+    "$r = WP_CLI::get_runner()->find_wp_root(); "
+    "$real = ( is_string( $r ) && '' !== $r && false !== realpath( $r ) ) ? realpath( $r ) : (string) $r; "
+    "echo 'CONCLAVE_ROOT:' . rtrim( str_replace( '\\\\', '/', $real ), '/' );"
+)
+
 
 def native_windows() -> bool:
     """True on Windows outside WSL, where the pinned SSH cannot run."""
@@ -242,17 +248,20 @@ def _truthy_config(value) -> bool:
 
 
 def probe_layout_fallback(pin: dict) -> dict:
-    """Fallback layout check via `wp config path` + `wp config list --format=json` when a broken MU-plugin stops bootstrap."""
+    """Fallback layout check via `wp eval --skip-wordpress` (WP-CLI core root) + `wp config list --format=json`."""
     try:
-        path_done = site_ssh.wp([f"--url={pin['url']}", "config", "path"], timeout=REMOTE_TIMEOUT, pin=pin)
+        root_done = site_ssh.wp([f"--url={pin['url']}", "eval", "--skip-wordpress", WP_FALLBACK_ROOT],
+                                timeout=REMOTE_TIMEOUT, pin=pin)
     except KeyboardInterrupt:
         raise
     except Exception:
         raise Refusal("could not verify the site's WordPress layout before changing files", 1) from None
-    cfg_path = _last_line(path_done.stdout).replace("\\", "/")
-    if path_done.returncode != 0 or not cfg_path.endswith("/wp-config.php"):
+    wp_cli_root = ""
+    for line in (root_done.stdout or "").splitlines():
+        if line.strip().startswith("CONCLAVE_ROOT:"):
+            wp_cli_root = line.strip()[len("CONCLAVE_ROOT:"):].replace("\\", "/").rstrip("/")
+    if root_done.returncode != 0 or not wp_cli_root:
         raise Refusal("could not verify the site's WordPress layout before changing files", 1)
-    cfg_root = cfg_path[:-len("/wp-config.php")].rstrip("/")
     try:
         done = site_ssh.wp([f"--url={pin['url']}", "config", "list", "--format=json"], timeout=REMOTE_TIMEOUT, pin=pin)
     except KeyboardInterrupt:
@@ -276,7 +285,7 @@ def probe_layout_fallback(pin: dict) -> dict:
     else:
         multisite = any(name in constants for name in ("SUBDOMAIN_INSTALL", "VHOST", "SUNRISE"))
     relocated = "WPMU_PLUGIN_DIR" in constants or "WP_CONTENT_DIR" in constants
-    return {"multisite": multisite, "mu_match": not relocated, "mu_dir": f"{cfg_root}/{MU_REL}" if cfg_root else ""}
+    return {"multisite": multisite, "mu_match": not relocated, "mu_dir": f"{wp_cli_root}/{MU_REL}"}
 
 
 def check_supported_layout(pin: dict, *, allow_bootstrap_fallback: bool = False) -> None:
