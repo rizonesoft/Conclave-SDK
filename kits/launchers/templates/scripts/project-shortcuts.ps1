@@ -35,6 +35,7 @@ param(
   [string]$ShortcutDir = [Environment]::GetFolderPath('Desktop'),
   [string]$IconDir = '',
   [switch]$Remove,
+  [switch]$Inspect,
   # For the tests: a stand-in for wsl.exe, and the Python that reads the profile and renders the icons.
   [string]$Wsl = '',
   [string]$Python = ''
@@ -63,13 +64,14 @@ if ($null -ne $linux) {
   $identity = "wsl:$($Distro.ToLowerInvariant()):$linux"
   $name = Split-Path $linux -Leaf
 } else {
-  if ($Remove) {
-    $Project = [IO.Path]::GetFullPath($Project).TrimEnd('\')   # removal works when the folder is gone
-  } else {
-    $found = Resolve-Path -LiteralPath $Project -ErrorAction Ignore
-    if (-not $found) { Refuse "the project folder does not exist: '$Project'" }
+  $found = Resolve-Path -LiteralPath $Project -ErrorAction Ignore
+  if ($found) {
     # ProviderPath: .Path keeps PowerShell's provider prefix on some paths, which no other program reads.
     $Project = $found.ProviderPath.TrimEnd('\')
+  } elseif ($Remove -or $Inspect) {
+    $Project = [IO.Path]::GetFullPath($Project).TrimEnd('\')   # removal/inspection work when the folder is gone
+  } else {
+    Refuse "the project folder does not exist: '$Project'"
   }
   $identity = $Project.ToLowerInvariant()   # Windows paths ignore case
   $name = Split-Path $Project -Leaf
@@ -79,6 +81,35 @@ $mark = "conclave-launcher: $identity"
 $sha = [System.Security.Cryptography.SHA256]::Create()
 # Every comparison of an identity below is exact (-ceq): PowerShell's -eq ignores case.
 $key = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))[0..3] | ForEach-Object { $_.ToString('x2') })
+
+if ($Remove -and $Inspect) { Refuse 'pass either -Remove or -Inspect, not both' }
+
+# --- inspection: reads owned links through ShellLink.cs without launching any of them ----------------------------
+if ($Inspect) {
+  $shellLink = Join-Path $here 'lib\ShellLink.cs'
+  if (-not (Test-Path -LiteralPath $shellLink -PathType Leaf)) {
+    Refuse "missing $shellLink (install the launchers kit)"
+  }
+  Add-Type -Path $shellLink
+  Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Ignore | ForEach-Object {
+    $f = $_
+    try {
+      $l = [Conclave.ShellLink]::Read($f.FullName)
+      if ($l.Description -ceq $mark) {
+        [pscustomobject]@{
+          Link        = $f.Name
+          Target      = $l.Target
+          Arguments   = $l.Arguments
+          IconPath    = $l.IconPath
+          Description = $l.Description
+        }
+      }
+    } catch {
+      [pscustomobject]@{ Link = $f.Name; Error = $_.Exception.Message }
+    }
+  } | Format-List
+  exit 0
+}
 
 function Get-Owned {
   $shell = New-Object -ComObject WScript.Shell

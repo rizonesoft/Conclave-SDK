@@ -4399,9 +4399,10 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertIn("docs/launchers.md", st)
                 self.assertIn("-Remove", st)
                 self.assertIn("pwsh", st)
-                self.assertIn("Add-Type -Path scripts/lib/ShellLink.cs", st)
-                self.assertIn("[Conclave.ShellLink]::Read($f.FullName)", st)
-                self.assertIn("$l.Description -ceq $mark", st)
+                self.assertIn("Add-Type -Path", st)
+                self.assertIn("scripts/lib/ShellLink.cs", st)
+                self.assertIn("[Conclave.ShellLink]::Read", st)
+                self.assertIn("pwsh -NoProfile -File scripts/project-shortcuts.ps1 -Inspect", st)
                 self.assertIn("skip creation and removal", st)
                 self.assertIn("verify that the project's owned `.lnk` files", st)
                 self.assertIn("only ever started by the operator", st)
@@ -4516,13 +4517,13 @@ class LaunchersPageTests(unittest.TestCase):
             for lnk in (site_lnk, claude_lnk, check_lnk):
                 self.assertTrue(lnk.is_file(), f"missing created shortcut: {lnk}")
 
-            # 2. Execute the COMPLETE published read-back command verbatim in a fresh pwsh process.
+            # 2. Execute the published -Inspect command in a fresh pwsh process (sharing project-shortcuts.ps1's identity resolver).
             skill_text = (target / ".claude/skills/project-launchers/SKILL.md").read_text(encoding="utf-8")
             m_cmd = re.search(r"```powershell\s*\n(.*?)\n```", skill_text, re.S)
             self.assertIsNotNone(m_cmd, "SKILL.md must include a PowerShell read-back command")
-            published_cmd = m_cmd.group(1).strip()
-            rb_env = {**os.environ, "CONCLAVE_SHORTCUT_DIR": str(shortcut_dir)}
-            rb = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target, env=rb_env)
+            self.assertEqual(m_cmd.group(1).strip(), "pwsh -NoProfile -File scripts/project-shortcuts.ps1 -Inspect")
+            inspect_base = [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1", "-Inspect"]
+            rb = self._run_tree([*inspect_base, "-ShortcutDir", str(shortcut_dir)], cwd=target)
             self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
             recs = self._parse_format_list(rb.stdout)
             for name in ("Shop App (Claude).lnk", "Shop App (Codex).lnk", "Shop App (Site).lnk", "Shop App (App Check).lnk"):
@@ -4540,7 +4541,7 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertTrue(site_rec["Target"].lower().endswith("rundll32.exe"), site_rec)
             self.assertIn("https://example.test", site_rec["Arguments"])
 
-            # 2b. Verify -Project destination and WSL distro case normalization match project-shortcuts.ps1.
+            # 2b. Verify -Project destination, WSL distro lowercasing, and UNC/distro conflict refusal share creation's resolver.
             dest_b = pathlib.Path(tmp) / "dest-b"
             dest_b.mkdir()
             shortcut_dir_b = pathlib.Path(tmp) / "shortcuts-b"
@@ -4549,17 +4550,13 @@ class LaunchersPageTests(unittest.TestCase):
                 [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
                  "-Project", str(dest_b), "-ShortcutDir", str(shortcut_dir_b), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(created_b.returncode, 0, created_b.stdout + created_b.stderr)
-            rb_b = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target,
-                                  env={**os.environ, "CONCLAVE_SHORTCUT_DIR": str(shortcut_dir_b),
-                                       "CONCLAVE_PROJECT": str(dest_b)})
+            rb_b = self._run_tree([*inspect_base, "-ShortcutDir", str(shortcut_dir_b), "-Project", str(dest_b)], cwd=target)
             self.assertEqual(rb_b.returncode, 0, rb_b.stdout + rb_b.stderr)
             b_recs = self._parse_format_list(rb_b.stdout)
             self.assertIn("Shop App (Site).lnk", b_recs, b_recs)
-            rb_b_wrong = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target,
-                                        env={**os.environ, "CONCLAVE_SHORTCUT_DIR": str(shortcut_dir_b)})
+            rb_b_wrong = self._run_tree([*inspect_base, "-ShortcutDir", str(shortcut_dir_b)], cwd=target)
             self.assertEqual(rb_b_wrong.returncode, 0, rb_b_wrong.stdout + rb_b_wrong.stderr)
             self.assertEqual(self._parse_format_list(rb_b_wrong.stdout), {})
-            # Clean up dest_b's icons before step 4 checks icon_dir is empty for target.
             rem_b = self._run_tree(
                 [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1", "-Remove",
                  "-Project", str(dest_b), "-ShortcutDir", str(shortcut_dir_b), "-IconDir", str(icon_dir)], cwd=target)
@@ -4575,12 +4572,18 @@ class LaunchersPageTests(unittest.TestCase):
                  "[Conclave.ShellLink]::Write($env:WSL_LNK, $d)"],
                 cwd=target, env={**os.environ, "WSL_LNK": str(wsl_lnk)})
             self.assertEqual(mk_wsl.returncode, 0, mk_wsl.stdout + mk_wsl.stderr)
-            rb_wsl = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target,
-                                    env={**rb_env, "CONCLAVE_PROJECT": r"\\wsl.localhost\Ubuntu\home\me\site"})
+            rb_wsl = self._run_tree(
+                [*inspect_base, "-ShortcutDir", str(shortcut_dir), "-Project", r"\\wsl.localhost\Ubuntu\home\me\site"],
+                cwd=target)
             self.assertEqual(rb_wsl.returncode, 0, rb_wsl.stdout + rb_wsl.stderr)
             wsl_recs = self._parse_format_list(rb_wsl.stdout)
             self.assertIn("WSL App (Site).lnk", wsl_recs)
             self.assertNotIn("Other App (Site).lnk", wsl_recs)
+            rb_conflict = self._run_tree(
+                [*inspect_base, "-ShortcutDir", str(shortcut_dir),
+                 "-Distro", "Debian", "-Project", r"\\wsl.localhost\Ubuntu\home\me\site"], cwd=target)
+            self.assertEqual(rb_conflict.returncode, 1)
+            self.assertIn("is in distro 'Ubuntu', not 'Debian'", rb_conflict.stdout + rb_conflict.stderr)
             wsl_lnk.unlink()
 
             # 3. Rename title to one with an apostrophe and $ (O'Brien $x), drop a link, rerun, and verify all records.
@@ -4595,7 +4598,7 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertFalse(check_lnk.exists(), "dropped link shortcut was not removed on rerun")
             obrien_lnk = shortcut_dir / "O'Brien $x (Site).lnk"
             self.assertTrue(obrien_lnk.is_file())
-            rb2 = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target, env=rb_env)
+            rb2 = self._run_tree([*inspect_base, "-ShortcutDir", str(shortcut_dir)], cwd=target)
             self.assertEqual(rb2.returncode, 0, rb2.stdout + rb2.stderr)
             recs2 = self._parse_format_list(rb2.stdout)
             for name in ("O'Brien $x (Claude).lnk", "O'Brien $x (Codex).lnk", "O'Brien $x (Site).lnk"):
