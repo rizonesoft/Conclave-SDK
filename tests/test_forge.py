@@ -5127,15 +5127,17 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
                 self.assertGreater(current_pos, -1)
                 self.assertGreater(install_step_pos, current_pos)
                 current_branch = step[current_pos:install_step_pos]
-                cur_approval_pos = current_branch.lower().find("ask the owner's approval only for the temporary ticket write and removal")
-                cur_check_pos = current_branch.find("`python3 scripts/open-dashboard.py --check`")
-                self.assertGreater(cur_approval_pos, -1, "missing positive owner approval instruction in current-plugin branch")
-                self.assertLess(cur_approval_pos, cur_check_pos, "owner approval must precede --check when plugin is current")
+                cur_clause = (
+                    "if `plugin` is `current`, skip `install --yes`, ask the owner's approval only for "
+                    "the temporary ticket write and removal performed by `python3 scripts/open-dashboard.py --check`"
+                )
+                self.assertIn(cur_clause, current_branch.lower(), "current-plugin branch must require owner approval for --check")
                 install_branch = step[install_step_pos:]
-                approval_pos = install_branch.lower().find("ask the owner's approval before running")
-                install_pos = install_branch.find("`python3 scripts/ticket-login.py install --yes`")
-                self.assertGreater(approval_pos, -1, "missing positive owner approval instruction before install")
-                self.assertLess(approval_pos, install_pos, "owner approval must precede install --yes")
+                install_clause = (
+                    "if `plugin` is `absent` or `differs`, ask the owner's approval before running "
+                    "`python3 scripts/ticket-login.py install --yes`"
+                )
+                self.assertIn(install_clause, install_branch.lower(), "install branch must require owner approval before install --yes")
 
         # 2. wordpress-site-safety across Claude, Antigravity, and Codex copies.
         for agent_dir in (".claude", ".agents", ".codex"):
