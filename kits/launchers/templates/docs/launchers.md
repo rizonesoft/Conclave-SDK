@@ -87,5 +87,6 @@ When the profile is valid, `show` prints one line of JSON and exits 0. When it i
 - `agents: must name at least one of ...` / `is not an agent` / `is named twice`: list distinct values from `claude`, `codex`, `agy`.
 - `links[N].label` / `.mark` / `.run` / `.url` errors: keep labels 1 to 30 valid filename characters (not an agent name, not ending in `campaign`, unique by case and icon slug), use mark `site` or `wordpress`, keep `run` to one line, and use `https://` or `http://` on `localhost`, `.test`, or `.site`.
 - `project-shortcuts: python is not on PATH` / `wsl.exe is not on PATH`: install Python 3 or WSL and put it on `PATH`.
-- `project-shortcuts: a Linux path needs -Distro` / `the project is in distro ...` / `WSL has no distro ...` / `the project path ... does not exist`: pass a matching `-Distro` and existing Linux path.
+- `project-shortcuts: the project folder does not exist: '<Project>'`: the Windows `-Project` path was mistyped or does not exist; pass an existing Windows folder path, or omit `-Project` to use the script's own project folder.
+- `project-shortcuts: a Linux path needs -Distro` / `the project is in distro ...` / `WSL has no distro ...` / `the project path ... does not exist`: pass a matching `-Distro` and existing Linux path in WSL.
 - `project-shortcuts: '<link>' is already there and is not this project's link`: another project or manual shortcut already holds that filename; move it or pick a different `title` or `label`.

@@ -4347,6 +4347,7 @@ class LaunchersPageTests(unittest.TestCase):
                 "Watch run",
                 "Stop run",
                 "python scripts/lib/launchers.py show",
+                "the project folder does not exist",
             ):
                 self.assertIn(required, text, f"missing topic in docs/launchers.md: {required!r}")
 
@@ -4399,8 +4400,9 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertIn("-Remove", st)
                 self.assertIn("pwsh", st)
                 self.assertIn("Add-Type -Path scripts/lib/ShellLink.cs", st)
-                self.assertIn("[Conclave.ShellLink]::Read([Console]::In.ReadLine())", st)
+                self.assertIn("[Conclave.ShellLink]::Read($_.FullName)", st)
                 self.assertIn("skip creation and removal", st)
+                self.assertIn("verify that the project's owned `.lnk` files", st)
                 self.assertIn("only ever started by the operator", st)
                 for pattern in (r"[A-Za-z]:\\", r"/home/[A-Za-z0-9._-]+/", r"/Users/[A-Za-z0-9._-]+/"):
                     self.assertIsNone(re.search(pattern, st), f"machine path {pattern!r} in {agent_dir} SKILL.md")
@@ -4433,12 +4435,13 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertIsNotNone(re.search(rf"^#+\s+{re.escape(m_back.group(2))}\s*$",
                                            back_target.read_text(encoding="utf-8"), re.M | re.I))
 
-    def _run_tree(self, argv, cwd, timeout=60, input_text=None):
+    def _run_tree(self, argv, cwd, timeout=60, env=None):
         no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.PIPE if input_text is not None else subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, creationflags=no_win)
+        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                env=env, creationflags=no_win)
         try:
-            out, err = proc.communicate(input=input_text, timeout=timeout)
+            out, err = proc.communicate(timeout=timeout)
             return subprocess.CompletedProcess(argv, proc.returncode, out, err)
         except subprocess.TimeoutExpired:
             if os.name == "nt":
@@ -4482,24 +4485,25 @@ class LaunchersPageTests(unittest.TestCase):
             for lnk in (site_lnk, claude_lnk, check_lnk):
                 self.assertTrue(lnk.is_file(), f"missing created shortcut: {lnk}")
 
-            # 2. Execute the skill's read-back command in a fresh pwsh process passing the path on stdin.
+            # 2. Execute the COMPLETE published read-back command verbatim in a fresh pwsh process.
             skill_text = (target / ".claude/skills/project-launchers/SKILL.md").read_text(encoding="utf-8")
             m_cmd = re.search(r"```powershell\s*\n(.*?)\n```", skill_text, re.S)
             self.assertIsNotNone(m_cmd, "SKILL.md must include a PowerShell read-back command")
-            m_inner = re.search(r"-Command\s+'([^']+)'", m_cmd.group(1).strip())
-            self.assertIsNotNone(m_inner, f"unexpected read-back command shape: {m_cmd.group(1)!r}")
-            rb = self._run_tree([pwsh, "-NoProfile", "-Command", m_inner.group(1)], cwd=target, input_text=f"{site_lnk}\n")
+            published_cmd = m_cmd.group(1).strip()
+            rb_env = {**os.environ, "CONCLAVE_SHORTCUT_DIR": str(shortcut_dir)}
+            rb = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target, env=rb_env)
             self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
-            self.assertIn("rundll32.exe", rb.stdout.lower())
-            self.assertIn("https://example.test", rb.stdout)
             clean_rb = re.sub(r"\x1b\[[0-9;]*m", "", rb.stdout)
-            m_icon = re.search(r"IconPath\s*:\s*([^\r\n]+)", clean_rb)
-            self.assertIsNotNone(m_icon, clean_rb)
-            saved_icon = pathlib.Path(m_icon.group(1).strip())
-            self.assertTrue(saved_icon.is_file(), f"IconPath does not exist: {saved_icon}")
-            self.assertEqual(saved_icon.parent.resolve(), icon_dir.resolve())
+            self.assertIn("Shop App (Site).lnk", clean_rb)
+            self.assertIn("rundll32.exe", clean_rb.lower())
+            self.assertIn("https://example.test", clean_rb)
+            icons_seen = [pathlib.Path(m.strip()) for m in re.findall(r"IconPath\s*:\s*([^\r\n]+)", clean_rb)]
+            self.assertGreaterEqual(len(icons_seen), 3, clean_rb)
+            for saved_icon in icons_seen:
+                self.assertTrue(saved_icon.is_file(), f"IconPath does not exist: {saved_icon}")
+                self.assertEqual(saved_icon.parent.resolve(), icon_dir.resolve())
 
-            # 3. Rename title to one with an apostrophe and $ (O'Brien $x) and drop a link, rerun, and read back via stdin.
+            # 3. Rename title to one with an apostrophe and $ (O'Brien $x), drop a link, rerun, and run published read-back.
             example["title"] = "O'Brien $x"
             example["links"] = [lnk for lnk in example["links"] if lnk["label"] == "Site"]
             profile_path.write_text(json.dumps(example), encoding="utf-8")
@@ -4511,9 +4515,11 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertFalse(check_lnk.exists(), "dropped link shortcut was not removed on rerun")
             obrien_lnk = shortcut_dir / "O'Brien $x (Site).lnk"
             self.assertTrue(obrien_lnk.is_file())
-            rb2 = self._run_tree([pwsh, "-NoProfile", "-Command", m_inner.group(1)], cwd=target, input_text=f"{obrien_lnk}\n")
+            rb2 = self._run_tree([pwsh, "-NoProfile", "-Command", published_cmd], cwd=target, env=rb_env)
             self.assertEqual(rb2.returncode, 0, rb2.stdout + rb2.stderr)
-            self.assertIn("https://example.test", rb2.stdout)
+            clean_rb2 = re.sub(r"\x1b\[[0-9;]*m", "", rb2.stdout)
+            self.assertIn("O'Brien $x (Site).lnk", clean_rb2)
+            self.assertIn("https://example.test", clean_rb2)
             self.assertTrue(unrelated.is_file())
 
             # 4. Invalidate the profile before running -Remove and verify owned files vanish while unrelated survives.
