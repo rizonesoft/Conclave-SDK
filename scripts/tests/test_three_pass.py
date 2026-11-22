@@ -1104,6 +1104,8 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} {built[:8]}...HEAD"),
             ("SHA plus bare commit URL with no description",
              f"- Implemented: {repaired[:8]} https://example.com/commit/{built[:8]}"),
+            ("SHA plus repo-qualified commit ref with no description",
+             f"- Implemented: {repaired[:8]} owner/repo@{built[:8]}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
             ("backticked SHA with trailing tilde parent selector", f"- Implemented: fixed `{repaired[:8]}`~"),
             ("linked SHA with no description",
@@ -1216,6 +1218,8 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: repaired the guard in [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
             ("bold Markdown-linked SHA",
              f"- Implemented: fixed [**{repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
+            ("bold multi-word linked repair description ending in SHA",
+             f"- Implemented: [**fixed in {repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
             ("full reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference-linked SHA with escaped closing bracket in label",
@@ -1341,6 +1345,11 @@ class ResolutionGuard(ThreePass):
         with unittest.mock.patch.object(module, "ROOT", self.repo):
             long_refs = f"- Implemented: {repaired[:8]} " + " ".join(["HEAD"] * 1050)
             self.assertFalse(module._has_resolution_entry([long_refs]))
+        # Linear-time bracket scanning on deeply nested literal brackets.
+        nested_brackets = "[" * 8000 + "x" + "]" * 8000
+        t0 = time.monotonic()
+        self.assertEqual(module._unwrap_markdown_links(nested_brackets, set()), nested_brackets)
+        self.assertLess(time.monotonic() - t0, 0.15, "_unwrap_markdown_links must stay linear on nested brackets")
 
     def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
         cases = (

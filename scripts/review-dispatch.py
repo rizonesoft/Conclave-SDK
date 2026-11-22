@@ -691,6 +691,7 @@ DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
+REPO_QUALIFIED_REF = re.compile(r"^(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@(.+)$")
 REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
@@ -1962,24 +1963,31 @@ def _unwrap_markdown_links(text, ref_defs=()):
                 i = hm.end()
                 continue
         if ch == "!" and i + 1 < n and text[i + 1] == "[":
-            openers.append([True, len(out), True])
+            openers.append([True, len(out), True, i + 1])
             out.append("![")
             i += 2
             continue
         if ch == "[":
-            openers.append([False, len(out), True])
+            openers.append([False, len(out), True, i])
             out.append("[")
             i += 1
             continue
         if ch == "]" and openers:
-            is_image, start_idx, active = openers.pop()
+            is_image, start_idx, active, br_pos = openers.pop()
             if not active:
                 out.append("]")
                 i += 1
                 continue
-            label = "".join(out[start_idx + 1 :])
             nxt = i + 1
             end_pos = None
+            cached_label = None
+
+            def get_label():
+                nonlocal cached_label
+                if cached_label is None:
+                    cached_label = "".join(out[start_idx + 1 :])
+                return cached_label
+
             if nxt < n and text[nxt] == "(":
                 j = nxt + 1
                 while j < n and text[j].isspace():
@@ -2004,19 +2012,28 @@ def _unwrap_markdown_links(text, ref_defs=()):
                                     j += 1
                         if title_ok and j < n and text[j] == ")":
                             end_pos = j + 1
-            elif nxt < n and text[nxt] == "[":
+            elif ref_defs and nxt < n and text[nxt] == "[":
                 close_ref = _find_close_bracket(text, nxt + 1, allow_code_spans=False)
                 if close_ref != -1:
                     ref_id = text[nxt + 1 : close_ref]
-                    lookup = _norm_ref_label(ref_id or label)
-                    if lookup and lookup in ref_defs:
-                        end_pos = close_ref + 1
-                elif label.strip(" \t") and _norm_ref_label(label) in ref_defs:
+                    if ref_id:
+                        lookup = _norm_ref_label(ref_id)
+                        if lookup in ref_defs:
+                            end_pos = close_ref + 1
+                    elif i - br_pos <= 1000:
+                        lookup = _norm_ref_label(get_label())
+                        if lookup and lookup in ref_defs:
+                            end_pos = close_ref + 1
+                elif i - br_pos <= 1000:
+                    lbl = get_label()
+                    if lbl.strip(" \t") and _norm_ref_label(lbl) in ref_defs:
+                        end_pos = nxt
+            elif ref_defs and i - br_pos <= 1000:
+                lbl = get_label()
+                if lbl.strip(" \t") and _norm_ref_label(lbl) in ref_defs:
                     end_pos = nxt
-            elif label.strip(" \t") and _norm_ref_label(label) in ref_defs:
-                end_pos = nxt
             if end_pos is not None:
-                out[start_idx:] = [" " if is_image else label]
+                out[start_idx:] = [" " if is_image else get_label()]
                 if not is_image:
                     for op in openers:
                         if not op[0]:
@@ -2091,6 +2108,9 @@ def _is_commit_ref_token(raw, seen):
         return _is_revspec_in_git(stripped, seen)
 
     def piece_is_ref(piece):
+        rm = REPO_QUALIFIED_REF.fullmatch(piece)
+        if rm and _is_commit_ref_token(rm.group(1), seen):
+            return True
         base = REVSPEC_SUFFIX.sub("", piece.lstrip("^"))
         if base and base in refs:
             return True
@@ -2308,6 +2328,77 @@ def _strip_inline_html(text):
     return "".join(out)
 
 
+def _strip_inline_emphasis(text):
+    """Strip matched span-level CommonMark/GFM emphasis wrappers (`***`, `**`, `*`, `___`, `__`, `_`, `~~`) outside
+    matched backtick code spans and backslash escapes, respecting flanking rules (and word-boundary rules for `_`)
+    so multi-word emphasized links like `[**fixed in <sha>**](diff)` expose bare SHA tokens while unpaired `**`/`~`
+    and intraword underscores (`fetch_head`) stay untouched."""
+    out = []
+    stack = []  # each [char, count, out_index]
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n and text[i + 1] in ASCII_PUNCT:
+            out.append(text[i : i + 2])
+            i += 2
+            continue
+        if ch == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            close = _find_closing_ticks(text, j, j - i)
+            if close != -1:
+                end = close + (j - i)
+                out.append(text[i:end])
+                i = end
+                continue
+            out.append(text[i:j])
+            i = j
+            continue
+        if ch in "*_~":
+            j = i
+            while j < n and text[j] == ch:
+                j += 1
+            run = j - i
+            if ch == "~" and run != 2:
+                out.append(text[i:j])
+                i = j
+                continue
+            before = text[i - 1] if i > 0 else " "
+            after = text[j] if j < n else " "
+            can_open = not after.isspace() and (ch != "_" or not before.isalnum())
+            can_close = not before.isspace() and (ch != "_" or not after.isalnum())
+            rem = run
+            if can_close and stack:
+                # Match innermost compatible opener runs of the same delimiter character.
+                while rem > 0:
+                    match_idx = None
+                    for k in range(len(stack) - 1, -1, -1):
+                        if stack[k][0] == ch and (ch != "~" or stack[k][1] == rem):
+                            match_idx = k
+                            break
+                    if match_idx is None:
+                        break
+                    op_ch, op_cnt, op_out = stack[match_idx]
+                    take = min(rem, op_cnt)
+                    out[op_out] = op_ch * (op_cnt - take)
+                    if op_cnt == take:
+                        del stack[match_idx:]
+                    else:
+                        stack[match_idx][1] -= take
+                        del stack[match_idx + 1 :]
+                    rem -= take
+            if rem > 0:
+                if can_open and (ch != "~" or rem == 2):
+                    stack.append([ch, rem, len(out)])
+                out.append(ch * rem)
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
     entry with non-empty description text (distinct from commit references, ranges, refs, reflog/search selectors,
@@ -2319,7 +2410,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            visible = _strip_inline_html(_unwrap_markdown_links(m.group(1).strip(), ref_defs))
+            visible = _strip_inline_emphasis(_strip_inline_html(_unwrap_markdown_links(m.group(1).strip(), ref_defs)))
             parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible), seen)
             commit_pos = set()
             for pos, raw in enumerate(parts):
