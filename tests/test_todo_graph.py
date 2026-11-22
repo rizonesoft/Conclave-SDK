@@ -2950,6 +2950,332 @@ class ThreePassStamp(Stamp):
         self.assertIn("another replan is updating", str(ctx.exception))
         self.assertEqual((todo.read_bytes(), own.read_bytes()), (before_todo, before_own))
 
+    def test_replan_refuses_linked_domain_findings_and_retry_archive(self):
+        # D00 T01 §13: replan must refuse symlinks/junctions beneath receipts on both move and retry branches.
+        self.chain(completion=("P2", True))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        own = self.root / self.FILE
+        domain_dir = own.parent
+
+        def _make_dir_link(link_path, target_path):
+            if os.name == "nt":
+                subprocess.run(["cmd", "/c", "mklink", "/J", str(link_path), str(target_path)],
+                               check=True, capture_output=True, text=True,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            else:
+                os.symlink(target_path, link_path, target_is_directory=True)
+
+        with tempfile.TemporaryDirectory() as ext_tmp:
+            ext = pathlib.Path(ext_tmp)
+            # 1. Linked domain directory (Windows junction / POSIX symlink) containing the canonical findings filename.
+            ext_domain = ext / "outside-domain"
+            ext_domain.mkdir()
+            ext_file = ext_domain / own.name
+            ext_file.write_text("# external findings\n", encoding="utf-8")
+            ext_bytes = ext_file.read_bytes()
+            saved_own = own.read_bytes()
+            shutil.rmtree(domain_dir)
+            _make_dir_link(domain_dir, ext_domain)
+            try:
+                todo_before = todo.read_bytes()
+                with self.assertRaises(tg.Refused) as ctx:
+                    self.replan_now()
+                self.assertIn("symlink or junction", str(ctx.exception))
+                self.assertEqual(ext_file.read_bytes(), ext_bytes)
+                self.assertEqual(sorted(p.name for p in ext_domain.iterdir()), [own.name])
+                self.assertEqual(todo.read_bytes(), todo_before)
+            finally:
+                if os.name == "nt":
+                    os.rmdir(domain_dir)
+                else:
+                    domain_dir.unlink()
+                domain_dir.mkdir(parents=True)
+                own.write_bytes(saved_own)
+
+            # 2. Canonical findings file symlink on move branch, and linked kept archive on retry branch.
+            ext_findings = ext / "outside-findings.md"
+            ext_findings.write_bytes(saved_own)
+            try:
+                own.unlink()
+                os.symlink(ext_findings, own)
+                symlink_supported = True
+            except OSError:
+                own.write_bytes(saved_own)
+                symlink_supported = False
+            if symlink_supported:
+                try:
+                    todo_before = todo.read_bytes()
+                    with self.assertRaises(tg.Refused) as ctx:
+                        self.replan_now()
+                    self.assertIn("symlink or junction", str(ctx.exception))
+                    self.assertEqual(ext_findings.read_bytes(), saved_own)
+                    self.assertEqual(sorted(p.name for p in domain_dir.iterdir()), [own.name])
+                    self.assertEqual(todo.read_bytes(), todo_before)
+                finally:
+                    own.unlink()
+                # 3. Retry branch (own absent): linked kept chain archive must be refused untouched.
+                chain1 = domain_dir / own.name.replace(".md", "-chain1.md")
+                os.symlink(ext_findings, chain1)
+                try:
+                    todo_before = todo.read_bytes()
+                    with self.assertRaises(tg.Refused) as ctx:
+                        self.replan_now()
+                    self.assertIn("symlink or junction", str(ctx.exception))
+                    self.assertEqual(ext_findings.read_bytes(), saved_own)
+                    self.assertEqual(sorted(p.name for p in domain_dir.iterdir()), [chain1.name])
+                    self.assertEqual(todo.read_bytes(), todo_before)
+                finally:
+                    chain1.unlink()
+                    own.write_bytes(saved_own)
+            else:
+                # Even if Windows file symlinks are restricted without Developer Mode, verify linked() check on both branches.
+                real_linked = tg.linked
+                with unittest.mock.patch.object(tg, "linked", side_effect=lambda r, rel: rel.endswith(".md") or real_linked(r, rel)):
+                    todo_before = todo.read_bytes()
+                    with self.assertRaises(tg.Refused) as ctx:
+                        self.replan_now()
+                    self.assertIn("symlink or junction", str(ctx.exception))
+                    self.assertEqual(todo.read_bytes(), todo_before)
+                    # Retry branch (own archived already, chain1 treated as linked).
+                    chain1 = domain_dir / own.name.replace(".md", "-chain1.md")
+                    os.replace(own, chain1)
+                    try:
+                        with self.assertRaises(tg.Refused) as ctx:
+                            self.replan_now()
+                        self.assertIn("symlink or junction", str(ctx.exception))
+                        self.assertEqual(todo.read_bytes(), todo_before)
+                    finally:
+                        os.replace(chain1, own)
+
+    def test_replan_stale_lock_takeover_and_missing_lock_race(self):
+        # D00 T01 §13: stale-lock takeover must never unlink a fresh live owner's lock after an abandoned lock vanishes.
+        self.chain(completion=("P2", True))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        dispatch = tg.review_dispatch()
+        todo_lock = dispatch.section_lock_path(todo)
+        takeover = todo_lock.with_name(todo_lock.name + ".takeover")
+        stale = "999999 1 stale000"
+        fresh_live = f"{os.getpid()} {time.time() + 120:.0f} freshlive1"
+        self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
+        self.addCleanup(lambda: todo_lock.unlink(missing_ok=True))
+
+        # Force the exact missing-lock race: contender 2 observes the stale lock, then right as it claims takeover,
+        # contender 1 finishes & releases the stale lock and fresh worker 3 acquires todo_lock live.
+        real_create = dispatch._create_exclusive
+        injected = [False]
+
+        def racing_create(path, content):
+            if path == takeover and not injected[0]:
+                injected[0] = True
+                ok = real_create(path, content)
+                # Simulate contender 1 releasing the abandoned lock and fresh worker 3 acquiring todo_lock live.
+                todo_lock.unlink(missing_ok=True)
+                self.assertTrue(real_create(todo_lock, fresh_live))
+                return ok
+            return real_create(path, content)
+
+        with unittest.mock.patch.object(dispatch, "_create_exclusive", side_effect=racing_create), \
+                unittest.mock.patch.object(tg, "REPLAN_LOCK_SECONDS", 60):
+            with self.assertRaises(tg.Refused) as ctx:
+                tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                      action="replan", wait_seconds=0.25)
+        self.assertIn("another replan is updating", str(ctx.exception))
+        self.assertTrue(injected[0])
+        self.assertTrue(todo_lock.is_file(), "fresh live owner's lock must never be unlinked")
+        self.assertEqual(todo_lock.read_text(encoding="ascii"), fresh_live)
+        self.assertFalse(takeover.exists(), "takeover lock must be released")
+        # Now place an uncontested stale lock and verify takeover succeeds cleanly.
+        todo_lock.unlink()
+        self.assertTrue(real_create(todo_lock, stale))
+        lock_path, owned = tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                                 action="replan", wait_seconds=1.0)
+        try:
+            self.assertEqual(lock_path, todo_lock)
+            self.assertEqual(todo_lock.read_text(encoding="ascii"), owned)
+        finally:
+            dispatch.release_section(lock_path, owned)
+        self.assertFalse(todo_lock.exists())
+
+    def test_queued_replan_racing_behind_stamp_refuses_without_archiving(self):
+        # D00 T01 §13: if stamp closes a section while replan waits on todo_lock, replan rechecks under lock and refuses.
+        sha = self.chain()
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        own = self.root / self.FILE
+        own_before = own.read_bytes()
+        real_acquire = tg._acquire_todo_lock
+        stamped_first = [False]
+
+        def stamp_before_replan_locks(dispatch, path, rel, action="update", **kwargs):
+            if action == "replan" and not stamped_first[0]:
+                stamped_first[0] = True
+                # stamp runs to completion on §1 while replan already passed its pre-lock row.done check.
+                self.stamp3(sha)
+            return real_acquire(dispatch, path, rel, action=action, **kwargs)
+
+        with unittest.mock.patch.object(tg, "_acquire_todo_lock", side_effect=stamp_before_replan_locks):
+            with self.assertRaises(tg.Refused) as ctx:
+                self.replan_now()
+        self.assertIn("is stamped", str(ctx.exception))
+        self.assertTrue(stamped_first[0])
+        self.assertTrue(own.is_file(), "canonical findings must not be archived after stamp closed the section")
+        self.assertEqual(own.read_bytes(), own_before)
+        self.assertEqual(list(own.parent.glob("*-chain*.md")), [])
+        rows = tg.graph(self.root)
+        self.assertTrue(rows["D00 T01 §1"].done)
+        self.assertTrue((self.root / rows["D00 T01 §1"].receipt).is_file())
+
+    def test_stamp_and_unstamp_serialize_with_sibling_replan_including_rollback(self):
+        # D00 T01 §13: stamp, unstamp, and replan share todo_lock across write and rollback so sibling updates never clobber.
+        import threading
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        # Give §2 a Started line and a findings file so it can be replanned while §1 is stamped/unstamped.
+        text = todo.read_text(encoding="utf-8")
+        sec2 = tg.section_text(text, 2)
+        sec2_started = sec2.replace("**Phase:**", "> **Started:** 2026-10-23T00:00Z\n\n**Phase:**", 1)
+        todo.write_text(text.replace(sec2, sec2_started, 1), encoding="utf-8")
+        s2_file = self.root / "docs/reviews/00-workspace/D00-T01-s2.md"
+        s2_file.parent.mkdir(parents=True, exist_ok=True)
+        s2_file.write_text("# Review findings\n", encoding="utf-8")
+        tg.projections(self.root, sync=True)
+        self.commit("start §2 for sibling lock test")
+        sha = self.chain()
+
+        # Disable module-global _RUN_CACHE while two in-process threads simulate two concurrent CLI processes.
+        with unittest.mock.patch.object(tg, "CACHE_RUNS", False):
+            # 1. Stamp rollback under lock: fail projections() after stamp writes TODO while a sibling replan waits on lock.
+            in_stamp_write = threading.Event()
+            replan_started = threading.Event()
+            replan_err = []
+
+            def failing_projections(root, sync=False):
+                in_stamp_write.set()
+                replan_started.wait(timeout=5.0)
+                time.sleep(0.15)  # keep todo_lock held while sibling replan is actively waiting on it
+                raise OSError("simulated disk full during plan sync")
+
+            def run_replan_s2():
+                in_stamp_write.wait(timeout=5.0)
+                replan_started.set()
+                try:
+                    tg.replan(self.root, "D00 T01 §2", "2026-10-25", "2026-10-25T00:00Z")
+                except BaseException as exc:
+                    replan_err.append(exc)
+
+            t_rb = threading.Thread(target=run_replan_s2)
+            t_rb.start()
+            try:
+                with unittest.mock.patch.object(tg, "projections", side_effect=failing_projections):
+                    with self.assertRaises(OSError):
+                        self.stamp3(sha)
+            finally:
+                in_stamp_write.set()
+                t_rb.join(timeout=30.0)
+            self.assertFalse(t_rb.is_alive())
+            self.assertEqual(replan_err, [], f"sibling replan failed: {replan_err}")
+            rows = tg.graph(self.root)
+            self.assertFalse(rows["D00 T01 §1"].done, "failed stamp must have rolled back §1")
+            self.assertIn("D00-T01-s2-chain1.md", rows["D00 T01 §2"].body, "sibling replan must survive stamp rollback")
+
+            # 2. Retry stamp on §1 concurrently with a second replan on §2: both writes survive.
+            s2_file.write_text("# Review findings chain 2\n", encoding="utf-8")
+            stamp_err, replan2_err = [], []
+
+            def run_stamp_s1():
+                try:
+                    self.stamp3(sha)
+                except BaseException as exc:
+                    stamp_err.append(exc)
+
+            def run_replan_s2_again():
+                try:
+                    tg.replan(self.root, "D00 T01 §2", "2026-10-25", "2026-10-25T01:00Z")
+                except BaseException as exc:
+                    replan2_err.append(exc)
+
+            t_stamp = threading.Thread(target=run_stamp_s1)
+            t_rep2 = threading.Thread(target=run_replan_s2_again)
+            t_stamp.start()
+            t_rep2.start()
+            t_stamp.join(timeout=30.0)
+            t_rep2.join(timeout=30.0)
+            self.assertFalse(t_stamp.is_alive())
+            self.assertFalse(t_rep2.is_alive())
+            self.assertEqual(stamp_err, [], stamp_err)
+            self.assertEqual(replan2_err, [], replan2_err)
+            rows = tg.graph(self.root)
+            self.assertTrue(rows["D00 T01 §1"].done, "§1 stamp must survive concurrent sibling replan")
+            self.assertIn("D00-T01-s2-chain2.md", rows["D00 T01 §2"].body, "§2 replan must survive concurrent sibling stamp")
+
+            # 3. Concurrent unstamp on §1 + third replan on §2: revoked receipt and §2's chain3 note both survive.
+            s2_file.write_text("# Review findings chain 3\n", encoding="utf-8")
+            unstamp_out, replan3_err = [], []
+
+            def run_unstamp_s1():
+                try:
+                    unstamp_out.append(tg.unstamp(self.root, "D00 T01 §1", "sibling lock test", "2026-10-26"))
+                except BaseException as exc:
+                    unstamp_out.append(exc)
+
+            def run_replan_s2_third():
+                try:
+                    tg.replan(self.root, "D00 T01 §2", "2026-10-26", "2026-10-26T02:00Z")
+                except BaseException as exc:
+                    replan3_err.append(exc)
+
+            t_un = threading.Thread(target=run_unstamp_s1)
+            t_rep3 = threading.Thread(target=run_replan_s2_third)
+            t_un.start()
+            t_rep3.start()
+            t_un.join(timeout=30.0)
+            t_rep3.join(timeout=30.0)
+            self.assertFalse(t_un.is_alive())
+            self.assertFalse(t_rep3.is_alive())
+            self.assertEqual(replan3_err, [], replan3_err)
+            self.assertEqual(len(unstamp_out), 1)
+            self.assertIsInstance(unstamp_out[0], str, unstamp_out[0])
+            self.assertTrue((self.root / unstamp_out[0]).is_file(), "revoked receipt must exist")
+            rows = tg.graph(self.root)
+            self.assertFalse(rows["D00 T01 §1"].done)
+            self.assertIn("D00-T01-s2-chain3.md", rows["D00 T01 §2"].body, "§2 replan must survive concurrent sibling unstamp")
+
+    def test_same_minute_double_replan_followed_by_checklist_edit_resolves_second_correction(self):
+        # D00 T01 §13: two replans with identical UTC minute followed by an ordinary checklist edit resolve to correction 2.
+        self.chain(completion=("P2", True))
+        same_instant = "2026-10-25T12:00Z"
+        self.replan_now(same_instant)
+        c1 = self.commit("replan 1 (same minute)")
+        own = self.root / self.FILE
+        own.write_text("# Review findings chain 2\n", encoding="utf-8")
+        self.passed("plan", c1)
+        self.replan_now(same_instant)
+        c2 = self.commit("replan 2 (same minute)")
+        # Subsequent ordinary checklist edit retaining the same Started and chain2 note must NOT become build_start.
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        todo.write_text(todo.read_text(encoding="utf-8").replace("Done when: ", "Done when: refined ", 1),
+                        encoding="utf-8")
+        c3 = self.commit("ordinary checklist refinement after replan 2")
+        row = tg.graph(self.root)["D00 T01 §1"]
+        self.assertEqual(tg.build_start(self.root, row.path, row.body, "D00 T01 §1"), c2)
+        sha = self.build("rebuild after replan 2")
+        # Plan review on c1 (first same-minute correction) is refused.
+        own.write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", c1)
+        self.passed("round", sha)
+        self.passed("completion", sha)
+        self.stamp3_refuses(sha, f"must review the correction commit ({c2})")
+        # Plan review on c3 (later checklist commit after c2) is refused.
+        own.write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", c3)
+        self.passed("round", sha)
+        self.passed("completion", sha)
+        self.stamp3_refuses(sha, "is not the commit the build began at")
+        # Plan review on c2 (exact second correction commit) succeeds.
+        own.write_text("# Review findings\n", encoding="utf-8")
+        self.passed("plan", c2)
+        self.passed("round", sha)
+        self.passed("completion", sha)
+        self.stamp3(sha)
+
     def test_replan_waits_for_a_pass_that_holds_the_sections_lock(self):
         # Round 1: replan moved the file while a reviewer was answering, so the pass landed in a new canonical file.
         self.chain(completion=("P2", True))
