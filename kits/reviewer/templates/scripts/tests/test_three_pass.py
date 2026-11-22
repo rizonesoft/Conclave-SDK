@@ -4,6 +4,7 @@ repository."""
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -1165,20 +1166,30 @@ class ResolutionGuard(ThreePass):
              '## Writer note:\n<span\n  class="draft"><!-- draft --></span>'),
             ("Writer note body with heading inside multiline HTML attribute refused",
              '## Writer note:\n<div title="draft\n## obsolete\n"></div>'),
+            ("Writer note body with raw HTML img widget without prose refused",
+             '## Writer note:\n\n<img src="proof.png" alt="Screenshot of the repaired dialog">'),
+            ("Writer note body with raw HTML progress indicator without prose refused",
+             '## Writer note:\n\n<progress value="8" max="8"></progress>'),
+            ("Writer note body with CSS-styled progress indicator without prose refused",
+             '## Writer note:\n\n<progress style="display:none; display:block" value="8" max="8"></progress>'),
+            ("Writer note body with CSS custom-property progress indicator without prose refused",
+             '## Writer note:\n<progress style="--state:none;display:var(--state)"></progress>'),
             ("Writer note body with hidden HTML progress indicator refused",
              '## Writer note:\n<progress hidden value="8" max="8"></progress>'),
             ("Writer note body with hidden ancestor wrapping progress indicator refused",
              '## Writer note:\n<div hidden><progress value="8" max="8"></progress></div>'),
-            ("Writer note body with indented progress inside hidden div across blank lines refused",
-             '## Writer note:\n<div hidden>\n\n    <progress value="8" max="8"></progress>\n\n</div>'),
             ("Empty Writer note with closed div cannot borrow following section text",
              "## Writer note:\n<div></div>\n## Other work\nUnrelated text."),
-            ("Writer note with mistyped CSS display override stays hidden",
-             '## Writer note:\n<progress style="display:none; display:blocks"></progress>'),
-            ("Writer note with semicolon inside quoted CSS font-family stays hidden",
-             "## Writer note:\n<progress style=\"display:none; font-family:'a;display:block;b'\"></progress>"),
-            ("Writer note with superseded heading inside hidden div stays refused",
-             "## Writer note:\n<div hidden>\n## Writer note: superseded\n</div>"),
+            ("Empty Writer note with unclosed paragraph cannot borrow following section text",
+             "## Writer note:\n<p>\n\n## Other work\nUnrelated text."),
+            ("Empty Writer note with open div ends at following heading",
+             "## Writer note:\n<div>\n## Repair verified\n</div>"),
+            ("Writer note body with script block only refused",
+             "## Writer note:\n<script>\n## Repair verified\n</script>"),
+            ("Writer note body with style block only refused",
+             "## Writer note:\n<style>body { color: red; }</style>"),
+            ("Writer note body with whitespace entity only refused",
+             "## Writer note:\n\n&nbsp;"),
             ("Writer note body with hidden HTML input refused",
              '## Writer note:\n<input type="hidden" value="draft">'),
             ("paired link-only description refused when prose sits only inside link label",
@@ -1291,6 +1302,7 @@ class ResolutionGuard(ThreePass):
                 before_bytes = self.record.read_bytes()
                 res = self.refused("reconciliation", repaired, "has no resolution entry")
                 self.assertIn("plain-text description outside links", res.stderr)
+                self.assertIn("## Writer note: <plain-text reason>", res.stderr)
                 self.assertEqual(self.record.read_bytes(), before_bytes, "refusal must leave findings file unchanged")
         if subprocess.run(["git", "rev-parse", "--verify", "--quiet", "fetch_head^{commit}"],
                           cwd=self.repo, capture_output=True).returncode == 0:
@@ -1505,14 +1517,14 @@ class ResolutionGuard(ThreePass):
              "docs/reconciliation-review-prompt.md"),
             ("writer note body with visible prose after inline HTML comment",
              "## Writer note:\n\n<!-- internal --> The pending stamp accounts for this gap."),
-            ("writer note body with visible HTML img evidence",
-             '## Writer note:\n\n<img src="proof.png" alt="Screenshot of the repaired dialog">'),
-            ("writer note body with visible HTML progress indicator",
-             '## Writer note:\n\n<progress value="8" max="8"></progress>'),
-            ("writer note body with display:none overridden by later display:block",
-             '## Writer note:\n\n<progress style="display:none; display:block" value="8" max="8"></progress>'),
-            ("writer note body with visible heading inside open div container",
-             "## Writer note:\n<div>\n## Repair verified\n</div>"),
+            ("writer note body with plain-text prose inside CSS-styled span",
+             '## Writer note:\n\n<span style="display:none">Repair verified</span>'),
+            ("writer note body with indented code block",
+             "## Writer note:\n\n    repaired_fn()"),
+            ("writer note body with fenced code block",
+             "## Writer note:\n\n```\nrepaired_fn()\n```"),
+            ("writer note title with inline code span",
+             "## Writer note: `repaired_fn()`"),
             ("writer note title with literal underscore placeholder",
              "## Writer note: <repair_commit>"),
             ("writer note title with literal hashes directly after colon",
@@ -1525,6 +1537,32 @@ class ResolutionGuard(ThreePass):
                 self.to_completion(top="P2", gaps=True)
                 repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
                 self.resolve(repaired, note)
+                before_calls = len(self.calls())
+                self.ok("reconciliation", repaired)
+                self.assertEqual(len(self.calls()), before_calls + 1)
+
+    def test_documented_skill_examples_are_read_from_skill_and_accepted(self):
+        candidates = (
+            SCRIPTS_DIR.parent / ".claude/skills/review-todo-section/SKILL.md",
+            SCRIPTS_DIR.parents[2] / "todo/templates/.claude/skills/review-todo-section/SKILL.md",
+        )
+        skill_path = next((p for p in candidates if p.is_file()), None)
+        if skill_path is None:
+            self.skipTest("review-todo-section/SKILL.md not present in standalone reviewer-only install")
+        text = skill_path.read_text(encoding="utf-8")
+        m_note = re.search(r"\(`(## Writer note: [^`]+)`\)", text)
+        m_impl = re.search(r"\(`(- Implemented: [^`]+)`\)", text)
+        self.assertIsNotNone(m_note, f"missing copyable ## Writer note: example in {skill_path}")
+        self.assertIsNotNone(m_impl, f"missing copyable - Implemented: example in {skill_path}")
+        for label, template in (("skill Writer note example", m_note.group(1)),
+                                ("skill Implemented example", m_impl.group(1))):
+            with self.subTest(case=label):
+                self.tearDown()
+                self.setUp()
+                self.to_completion(top="P2", gaps=True)
+                repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+                entry = template.replace("<gap>", "gap 1").replace("<commit>", repaired[:8])
+                self.resolve(repaired, entry)
                 before_calls = len(self.calls())
                 self.ok("reconciliation", repaired)
                 self.assertEqual(len(self.calls()), before_calls + 1)

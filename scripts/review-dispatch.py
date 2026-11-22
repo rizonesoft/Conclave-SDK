@@ -73,7 +73,6 @@ import ctypes
 from datetime import datetime, timezone
 import hashlib
 import html
-import html.parser
 import importlib.util
 import json
 import os
@@ -737,15 +736,25 @@ HTML_INLINE_TAG = re.compile(
     r"|!\[CDATA\[[\s\S]*?\]\])>",
     re.IGNORECASE,
 )
-VOID_HTML_TAGS = frozenset({
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr",
-})
-VISIBLE_HTML_TAGS = frozenset({
-    "img", "svg", "video", "audio", "canvas", "iframe", "object", "embed", "picture", "input",
-    "progress", "meter", "textarea", "select", "button", "math", "details",
-})
-INVISIBLE_HTML_CONTAINERS = frozenset({"script", "style", "template", "head", "title"})
-HTML_TAG_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
+CM_HTML_TAG = re.compile(
+    r"<(?:"
+    r"[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*/?"
+    r"|/[A-Za-z][A-Za-z0-9-]*\s*"
+    r"|\?[\s\S]*?\?"
+    r"|![A-Za-z][^>]*"
+    r"|!\[CDATA\[[\s\S]*?\]\])>"
+)
+HTML_SCRIPT_STYLE_OPEN = re.compile(
+    r"^[ ]{0,3}<(script|style)(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*>",
+    re.IGNORECASE,
+)
+HTML_SCRIPT_STYLE_BLOCK = re.compile(
+    r"<(script|style)(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*>[\s\S]*?(?:</\1\s*>|$)",
+    re.IGNORECASE,
+)
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1448,7 +1457,7 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         ):
             raise Refused("the findings file has no resolution entry after the last returned gaps pass; append "
                           "`- Implemented: <plain-text description outside links> in <commit SHA>`, "
-                          "`- Filed: <section ref> (<gap>)`, or `## Writer note: <reason>` "
+                          "`- Filed: <section ref> (<gap>)`, or `## Writer note: <plain-text reason>` "
                           "(for a contested grade or rule-exempt finding) before dispatching a reconciliation")
 
 
@@ -2757,222 +2766,73 @@ def _strip_comments_line(line, in_comment=False, allow_multiline=True):
     return "".join(out), False
 
 
-CSS_WIDE_VALUES = frozenset({"initial", "inherit", "unset", "revert", "revert-layer"})
-CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
-CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby"})
-CSS_DISPLAY_SINGLE = CSS_WIDE_VALUES | CSS_DISPLAY_OUTSIDE | CSS_DISPLAY_INSIDE | frozenset({
-    "none", "contents", "list-item",
-    "inline-block", "inline-table", "inline-flex", "inline-grid",
-    "table-row-group", "table-header-group", "table-footer-group", "table-row", "table-cell",
-    "table-column-group", "table-column", "table-caption",
-    "ruby-base", "ruby-text", "ruby-base-container", "ruby-text-container",
-})
-CSS_VISIBILITY_VALUES = CSS_WIDE_VALUES | frozenset({"visible", "hidden", "collapse"})
-
-
-def _valid_css_display(val):
-    """True when `val` (lowercased, comments already stripped) is a valid CSS Display Level 3 value."""
-    tokens = val.split()
-    if len(tokens) == 1:
-        return tokens[0] in CSS_DISPLAY_SINGLE
-    if len(tokens) == 2:
-        a, b = tokens
-        if (a in CSS_DISPLAY_OUTSIDE and b in CSS_DISPLAY_INSIDE) or (
-            b in CSS_DISPLAY_OUTSIDE and a in CSS_DISPLAY_INSIDE
-        ):
-            return True
-        if "list-item" in tokens:
-            other = b if a == "list-item" else a
-            return other in CSS_DISPLAY_OUTSIDE or other in ("flow", "flow-root")
+def _has_visible_note_content(text, allow_multiline_comment=True):
+    """True when `text` (a `## Writer note:` title or collected body) carries plain-text Markdown prose or code
+    (at least one non-whitespace decoded text character or matched backtick code span) after stripping HTML comments,
+    `<script>`/`<style>` blocks, and complete CommonMark §6.6 HTML tags (raw HTML elements and widgets without prose
+    do not satisfy the guard, and no HTML5 layout or CSS evaluation is performed)."""
+    if not text.strip():
         return False
-    if len(tokens) == 3 and tokens.count("list-item") == 1:
-        rest = [t for t in tokens if t != "list-item"]
-        return ((rest[0] in CSS_DISPLAY_OUTSIDE and rest[1] in ("flow", "flow-root"))
-                or (rest[1] in CSS_DISPLAY_OUTSIDE and rest[0] in ("flow", "flow-root")))
-    return False
-
-
-def _split_css_declarations(style):
-    """Split inline CSS `style` into declarations on top-level `;` outside quoted strings, comments, and
-    parenthesized/bracketed/braced groups, replacing CSS comments outside strings with a space."""
-    decls = []
-    buf = []
-    i, n = 0, len(style)
-    quote = None
-    depth = 0
-    while i < n:
-        ch = style[i]
-        if quote is not None:
-            buf.append(ch)
-            if ch == "\\" and i + 1 < n:
-                buf.append(style[i + 1])
-                if style[i + 1] == "\r" and i + 2 < n and style[i + 2] == "\n":
-                    buf.append("\n")
-                    i += 3
-                else:
-                    i += 2
-                continue
-            if ch == quote or ch in ("\n", "\r", "\f"):
-                quote = None
-            i += 1
-            continue
-        if style.startswith("/*", i):
-            close = style.find("*/", i + 2)
-            buf.append(" ")
-            if close == -1:
-                break
-            i = close + 2
-            continue
-        if ch in ('"', "'"):
-            quote = ch
-            buf.append(ch)
-            i += 1
-            continue
-        if ch in "([{":
-            depth += 1
-            buf.append(ch)
-            i += 1
-            continue
-        if ch in ")]}":
-            depth = max(0, depth - 1)
-            buf.append(ch)
-            i += 1
-            continue
-        if ch == ";" and depth == 0:
-            decls.append("".join(buf))
-            buf = []
-            i += 1
-            continue
-        buf.append(ch)
-        i += 1
-    if buf:
-        decls.append("".join(buf))
-    return decls
-
-
-def _is_style_hidden(style):
-    """True when inline CSS `style` resolves to `display: none` or `visibility: hidden`/`collapse` after evaluating
-    top-level declarations, CSS comments, quoted strings, valid keyword values, and `!important` precedence."""
-    if not style:
-        return False
-    final = {}  # prop -> (value, important)
-    for decl in _split_css_declarations(style):
-        if ":" not in decl:
-            continue
-        prop, _, val = decl.partition(":")
-        prop = prop.strip().lower()
-        if prop not in ("display", "visibility"):
-            continue
-        val = val.strip().lower()
-        imp = bool(re.search(r"!\s*important$", val))
-        if imp:
-            val = re.sub(r"!\s*important$", "", val).strip()
-        if not val or "!" in val:
-            continue
-        if prop == "display":
-            if not _valid_css_display(val):
-                continue
-            norm = " ".join(val.split())
-        else:
-            if val not in CSS_VISIBILITY_VALUES:
-                continue
-            norm = val
-        prev = final.get(prop)
-        if prev is None or imp or not prev[1]:
-            final[prop] = (norm, imp)
-    return (final.get("display", ("", False))[0] == "none"
-            or final.get("visibility", ("", False))[0] in ("hidden", "collapse"))
-
-
-class _NoteVisibilityParser(html.parser.HTMLParser):
-    """Stdlib HTML parser deciding whether a `## Writer note:` title or body produces any visible rendered text or
-    unhidden replaced/widget element, ignoring comments, empty formatting containers, `<script>`/`<style>`/`<template>`,
-    `hidden` attributes (including on ancestors), `input[type=hidden]`, and `display:none`/`visibility:hidden`."""
-
-    def __init__(self):
-        super().__init__(convert_charrefs=False)
-        self.visible = False
-        self.stack = []  # each (tag, is_hidden)
-        self.hidden_depth = 0
-
-    def _is_hidden(self, tag, attrs):
-        if tag in INVISIBLE_HTML_CONTAINERS:
-            return True
-        attr_map = {k.lower(): ("" if v is None else v) for k, v in attrs}
-        if "hidden" in attr_map:
-            return True
-        if tag == "input" and attr_map.get("type", "").strip().lower() == "hidden":
-            return True
-        if _is_style_hidden(attr_map.get("style", "")):
-            return True
-        return False
-
-    def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-        if not HTML_TAG_NAME.fullmatch(tag):
-            if self.hidden_depth == 0:
-                self.visible = True
-            return
-        hid = self._is_hidden(tag, attrs)
-        if self.hidden_depth == 0 and not hid and tag in VISIBLE_HTML_TAGS:
-            self.visible = True
-        if tag not in VOID_HTML_TAGS:
-            self.stack.append((tag, hid))
-            if hid:
-                self.hidden_depth += 1
-
-    def handle_startendtag(self, tag, attrs):
-        tag = tag.lower()
-        if not HTML_TAG_NAME.fullmatch(tag):
-            if self.hidden_depth == 0:
-                self.visible = True
-            return
-        hid = self._is_hidden(tag, attrs)
-        if self.hidden_depth == 0 and not hid and tag in VISIBLE_HTML_TAGS:
-            self.visible = True
-
-    def handle_endtag(self, tag):
-        tag = tag.lower()
-        for pos in range(len(self.stack) - 1, -1, -1):
-            if self.stack[pos][0] == tag:
-                for _, hid in self.stack[pos:]:
-                    if hid:
-                        self.hidden_depth -= 1
-                del self.stack[pos:]
-                break
-
-    def handle_data(self, data):
-        if self.hidden_depth == 0 and data.strip():
-            self.visible = True
-
-    def handle_entityref(self, name):
-        if self.hidden_depth == 0 and html.unescape(f"&{name};").strip():
-            self.visible = True
-
-    def handle_charref(self, name):
-        if self.hidden_depth == 0 and _decode_cm_entity(re.match(r".*", f"&#{name};")).strip():
-            self.visible = True
-
-
-def _mask_line_and_advance_html(line, in_comment, in_open_tag, tag_quote, allow_multiline_comment=True):
-    """Single-pass scanner over `line`: masks matched CommonMark §6.1 backtick code spans outside HTML comments and
-    opening tags to visible `" code "`, escapes unclosed `<!--` when `allow_multiline_comment` is False, and returns
-    `(masked_line, in_comment, in_open_tag, tag_quote)`."""
     out = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            close = _find_closing_ticks(text, j, j - i)
+            if close != -1:
+                out.append(" code ")
+                i = close + (j - i)
+                continue
+            out.append(text[i:j])
+            i = j
+            continue
+        if text.startswith("<!--", i):
+            close = text.find("-->", i + 4)
+            if close == -1:
+                if text.startswith("<!-->", i):
+                    i += 5
+                    continue
+                if text.startswith("<!--->", i):
+                    i += 6
+                    continue
+                if allow_multiline_comment:
+                    break
+                out.append("<!--")
+                i += 4
+                continue
+            i = close + 3
+            continue
+        if text[i] == "<":
+            m_ss = HTML_SCRIPT_STYLE_BLOCK.match(text, i)
+            if m_ss:
+                i = m_ss.end()
+                continue
+            m_tag = CM_HTML_TAG.match(text, i)
+            if m_tag:
+                i = m_tag.end()
+                continue
+        out.append(text[i])
+        i += 1
+    decoded = CM_ENTITY.sub(_decode_cm_entity, "".join(out))
+    return bool(decoded.strip())
+
+
+def _advance_html_tag_state(line, in_comment, in_open_tag, tag_quote):
+    """Advance multiline HTML comment and open-tag/attribute-quote state across `line` (outside code spans) so
+    `## ` inside a multiline HTML comment or open-tag attribute does not split a `## Writer note:` body early."""
     i, n = 0, len(line)
     while i < n:
         if in_comment:
             close = line.find("-->", i)
             if close == -1:
-                out.append(line[i:])
-                return "".join(out), True, in_open_tag, tag_quote
-            out.append(line[i : close + 3])
+                return True, in_open_tag, tag_quote
             in_comment = False
             i = close + 3
             continue
         if in_open_tag:
             ch = line[i]
-            out.append(ch)
             if tag_quote:
                 if ch == tag_quote:
                     tag_quote = None
@@ -2988,54 +2848,29 @@ def _mask_line_and_advance_html(line, in_comment, in_open_tag, tag_quote, allow_
                 j += 1
             close = _find_closing_ticks(line, j, j - i)
             if close != -1:
-                out.append(" code ")
                 i = close + (j - i)
                 continue
-            out.append(line[i:j])
             i = j
             continue
         if line.startswith("<!--", i):
             close = line.find("-->", i + 4)
             if close == -1:
                 if line.startswith("<!-->", i):
-                    out.append("<!-->")
                     i += 5
                     continue
                 if line.startswith("<!--->", i):
-                    out.append("<!--->")
                     i += 6
                     continue
-                if allow_multiline_comment:
-                    out.append(line[i:])
-                    return "".join(out), True, False, None
-                out.append("&lt;!--")
-                i += 4
-                continue
-            out.append(line[i : close + 3])
+                return True, False, None
             i = close + 3
             continue
         if line[i] == "<" and i + 1 < n and (line[i + 1].isalpha() or line[i + 1] == "/"):
             in_open_tag = True
             tag_quote = None
-            out.append(line[i : i + 2])
             i += 2
             continue
-        out.append(line[i])
         i += 1
-    return "".join(out), in_comment, in_open_tag, tag_quote
-
-
-def _has_visible_note_content(text, allow_multiline_comment=True):
-    """True when `text` (a `## Writer note:` title or collected body) renders visible text or an unhidden widget."""
-    if not text.strip():
-        return False
-    masked, _, _, _ = _mask_line_and_advance_html(
-        text, False, False, None, allow_multiline_comment=allow_multiline_comment
-    )
-    parser = _NoteVisibilityParser()
-    parser.feed(masked)
-    parser.close()
-    return parser.visible
+    return in_comment, in_open_tag, tag_quote
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
@@ -3124,9 +2959,9 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             body_fence = None
             in_open_tag = False
             tag_quote = None
-            in_html_t1 = False
+            in_script_style = None
             at_block_start = True
-            parser = _NoteVisibilityParser()
+            body_chunks = []
             while k < total:
                 body_line = lines[k]
                 if body_fence is not None:
@@ -3136,20 +2971,21 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                         body_fence = None
                         at_block_start = True
                     elif body_line.strip():
-                        parser.feed(" code ")
+                        body_chunks.append(" code ")
                     k += 1
                     continue
-                if not body_comment and not in_open_tag and not in_html_t1:
+                scan_line = body_line
+                if not body_comment and not in_open_tag and in_script_style is None:
                     if not body_line.strip():
-                        parser.feed("\n")
+                        body_chunks.append("")
                         at_block_start = True
                         k += 1
                         continue
-                    if body_line.startswith("## ") and not parser.stack:
+                    if body_line.startswith("## "):
                         break
                     body_exp = _expand_leading_tabs(body_line, 0)
                     if at_block_start and body_exp.startswith("    "):
-                        parser.feed(" code ")
+                        body_chunks.append(" code ")
                         k += 1
                         continue
                     fm_body = FENCE_OPEN.match(body_exp)
@@ -3157,21 +2993,22 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                         body_fence = (fm_body.group(1)[0], len(fm_body.group(1)))
                         k += 1
                         continue
-                    if HTML_TYPE1_OPEN.match(body_exp) and not HTML_TYPE1_CLOSE.search(body_exp):
-                        in_html_t1 = True
-                elif in_html_t1 and HTML_TYPE1_CLOSE.search(body_line):
-                    in_html_t1 = False
-                if in_html_t1:
-                    parser.feed(body_line + "\n")
-                else:
-                    masked, body_comment, in_open_tag, tag_quote = _mask_line_and_advance_html(
-                        body_line, body_comment, in_open_tag, tag_quote, allow_multiline_comment=True
+                    m_ss = HTML_SCRIPT_STYLE_OPEN.match(body_exp)
+                    if m_ss and not re.search(rf"</{m_ss.group(1)}\s*>", body_exp[m_ss.end():], re.IGNORECASE):
+                        in_script_style = m_ss.group(1).lower()
+                elif in_script_style is not None:
+                    m_close_ss = re.search(rf"</{in_script_style}\s*>", body_line, re.IGNORECASE)
+                    if m_close_ss:
+                        in_script_style = None
+                        scan_line = body_line[m_close_ss.end():]
+                body_chunks.append(body_line)
+                if in_script_style is None:
+                    body_comment, in_open_tag, tag_quote = _advance_html_tag_state(
+                        scan_line, body_comment, in_open_tag, tag_quote
                     )
-                    parser.feed(masked + "\n")
                 at_block_start = False
                 k += 1
-            parser.close()
-            if parser.visible:
+            if _has_visible_note_content("\n".join(body_chunks), allow_multiline_comment=True):
                 return True
             idx = k
             in_comment = body_comment
