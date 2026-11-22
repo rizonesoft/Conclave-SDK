@@ -1502,19 +1502,17 @@ def _strip_bq_at_most(line, limit):
     return count, rest, col
 
 
-def _strip_containers(line, start_bq=0, start_indent=0, start_col=0):
+def _strip_containers(line):
     """Strip leading CommonMark blockquote (`>`) and list-item (`- `, `* `, `+ `, `1. `) container markers from
-    `line` starting at `(start_bq, start_indent, start_col)`, expanding leading tabs before and after each marker
-    per CommonMark §2.2 and following §5.2 (5+ spaces after a list marker consume only 1 space so the remaining 4+
-    spaces stay an indented code block). Returns `(bq_depth, list_indent, rest, col, opened_lists)`."""
-    bq, list_indent, rest, col = start_bq, start_indent, line, start_col
-    opened = []
+    `line`, expanding leading tabs before and after each marker per CommonMark §2.2 and following §5.2 (5+ spaces
+    after a list marker consume only 1 space so the remaining 4+ spaces stay an indented code block). Returns
+    `(bq_depth, list_indent, rest, col)`."""
+    bq, list_indent, rest, col = 0, 0, line, 0
     while True:
         matched, next_rest, next_col = _strip_one_bq(rest, col)
         if matched:
             bq += 1
             list_indent = 0
-            opened = []
             rest, col = next_rest, next_col
             continue
         expanded = next_rest
@@ -1528,24 +1526,21 @@ def _strip_containers(line, start_bq=0, start_indent=0, start_col=0):
                 if after.lstrip(" ") == "":
                     list_indent += marker_end + 1
                     col += marker_end + 1
-                    opened.append([bq, list_indent, True])
                     rest = ""
                     break
                 if sp_len <= 4:
                     list_indent += marker_end + sp_len
                     col += marker_end + sp_len
-                    opened.append([bq, list_indent, False])
                     rest = after[sp_len:]
                     continue
                 # CommonMark §5.2: 5+ spaces after list marker means 1 space + indented code (4+ spaces).
                 list_indent += marker_end + 1
                 col += marker_end + 1
-                opened.append([bq, list_indent, False])
                 rest = after[1:]
                 break
         rest = expanded
         break
-    return bq, list_indent, rest, col, opened
+    return bq, list_indent, rest, col
 
 
 def _fence_step(line, fence, start_col=0):
@@ -1611,12 +1606,11 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
 
 def _collect_ref_defs(raw_lines):
     """Collect valid CommonMark link reference definitions from `raw_lines` in linear time, skipping fenced code
-    blocks and HTML comment blocks (tracking active list-item containers, blockquote depth, and §2.2 tab stops so
-    exiting a container closes inner blocks while indented continuation lines stay inside open list items),
+    blocks and HTML comment blocks (tracking both blockquote depth and list-item indent with §2.2 tab stops so
+    exiting either container closes inner blocks while deeper markers inside an outer block cannot close it),
     unwrapping blockquote and list-item container markers outside them, and supporting next-line destinations and
     multiline link titles."""
     defs = set()
-    open_lists = []
     fence, fence_bq, fence_indent = None, 0, 0
     in_comment, comment_bq, comment_indent = False, 0, 0
     i, n = 0, len(raw_lines)
@@ -1630,8 +1624,6 @@ def _collect_ref_defs(raw_lines):
             else:
                 fence, inside = _fence_step(inner, fence, inner_col)
                 if inside:
-                    for item in open_lists:
-                        item[2] = False
                     i += 1
                     continue
         if in_comment:
@@ -1641,45 +1633,11 @@ def _collect_ref_defs(raw_lines):
             if not still_in:
                 in_comment = False
             else:
-                for item in open_lists:
-                    item[2] = False
                 if "-->" in inner:
                     in_comment = False
                 i += 1
                 continue
-        if not raw_lines[i].strip():
-            while open_lists and open_lists[-1][2]:
-                open_lists.pop()
-            i += 1
-            continue
-        base_bq, base_indent, base_text, base_col = 0, 0, raw_lines[i], 0
-        blank_in_container = False
-        while open_lists:
-            cbq, cindent, _ = open_lists[-1]
-            bq_here, inner, bq_col = _strip_bq_at_most(raw_lines[i], cbq)
-            if bq_here == cbq and not inner.strip():
-                while open_lists and open_lists[-1][0] == cbq and open_lists[-1][2]:
-                    open_lists.pop()
-                blank_in_container = True
-                break
-            still_in, stripped, stripped_col = _strip_indent(inner, cindent, bq_col) \
-                if bq_here == cbq else (False, inner, bq_col)
-            if still_in:
-                open_lists[-1][2] = False
-                base_bq, base_indent, base_text, base_col = cbq, cindent, stripped, stripped_col
-                break
-            open_lists.pop()
-        if blank_in_container:
-            i += 1
-            continue
-        bq, list_indent, content, content_col, opened = _strip_containers(base_text, base_bq, base_indent, base_col)
-        if bq > base_bq:
-            open_lists = opened
-        elif opened:
-            open_lists.extend(opened)
-        if not content.strip():
-            i += 1
-            continue
+        bq, list_indent, content, content_col = _strip_containers(raw_lines[i])
         new_fence, inside = _fence_step(content, None, content_col)
         if inside:
             fence, fence_bq, fence_indent = new_fence, bq, list_indent
@@ -1839,19 +1797,33 @@ def _is_commit_ref_token(raw, seen):
     stripped = _strip_paired_md(raw)
     if not stripped:
         return False
-    pieces = [p for chunk in stripped.split(",") for p in re.split(r"\.{2,3}", chunk) if p]
+    refs = _repo_refs(seen)
+    if stripped in refs:
+        return True
+    if stripped.startswith(":/"):
+        return _is_revspec_in_git(stripped, seen)
+    pieces = [p for chunk in re.split(r"[,;]", stripped) for p in re.split(r"\.{2,3}", chunk) if p]
     if not pieces:
         return False
-    refs = _repo_refs(seen)
-    for piece in pieces:
+
+    def piece_is_ref(piece):
         base = REVSPEC_SUFFIX.sub("", piece.lstrip("^"))
         if base and base in refs:
-            continue
+            return True
         if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
-            continue
+            return True
         if any(ch in piece for ch in "@^~:/{}") and piece.count("{") == piece.count("}") \
                 and _is_revspec_in_git(piece.lstrip("^"), seen):
+            return True
+        return False
+
+    for piece in pieces:
+        if piece_is_ref(piece):
             continue
+        if "/" in piece:
+            sub = [s for s in piece.split("/") if s]
+            if sub and all(piece_is_ref(s) for s in sub):
+                continue
         return False
     return True
 
@@ -1910,12 +1882,14 @@ def _split_revspec_tokens(text):
             if not is_code:
                 glued = False
             return
+        if is_code and len(seg) >= 2 and seg[0] == " " and seg[-1] == " " and seg.strip(" "):
+            seg = seg[1:-1]
         parts = _split_plain_revspecs(seg)
         if not parts:
             glued = False
             return
-        lead_ws = (not is_code) and seg[0].isspace()
-        trail_ws = (not is_code) and seg[-1].isspace()
+        lead_ws = seg[0].isspace()
+        trail_ws = seg[-1].isspace()
         if glued and not lead_ws and tokens:
             tokens[-1] += parts[0]
             tokens.extend(parts[1:])
@@ -1968,6 +1942,36 @@ def _all_commit_refs(tokens, seen):
     return dp[0]
 
 
+def _expand_commit_sep_tokens(tokens, seen):
+    """Expand comma/semicolon-separated commit lists (such as ``[`sha1`](/a),[`sha2`](/b)``) and slash-separated
+    pure-commit lists (such as `` `sha1`/`sha2` ``) while leaving URLs, file paths (`src/<sha>`), brace selectors,
+    and `:/` search selectors untouched."""
+    out = []
+    for raw in tokens:
+        if "://" in raw or "{" in raw or "}" in raw or raw.startswith(":/"):
+            out.append(raw)
+            continue
+        if "," in raw or ";" in raw:
+            sub = [p for p in re.split(r"[,;]", raw) if p]
+            if len(sub) > 1 and any(
+                "/" not in p and COMMIT_TOKEN.fullmatch(_strip_paired_md(p))
+                and _is_commit_in_git(_strip_paired_md(p), seen)
+                for p in sub
+            ):
+                out.extend(sub)
+                continue
+        if "/" in raw:
+            sub = [p for p in raw.split("/") if p]
+            if len(sub) > 1 and all(
+                COMMIT_TOKEN.fullmatch(_strip_paired_md(p)) and _is_commit_in_git(_strip_paired_md(p), seen)
+                for p in sub
+            ):
+                out.extend(sub)
+                continue
+        out.append(raw)
+    return out
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
     entry with non-empty description text (distinct from commit references, ranges, refs, reflog/search selectors,
@@ -1980,7 +1984,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
         m = IMPLEMENTED_LINE.match(line)
         if m:
             visible = _unwrap_markdown_links(m.group(1).strip(), ref_defs)
-            parts = _split_revspec_tokens(visible)
+            parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible), seen)
             commit_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or "://" in raw:

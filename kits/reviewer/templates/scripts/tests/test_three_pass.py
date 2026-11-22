@@ -1065,6 +1065,8 @@ class ResolutionGuard(ThreePass):
             ("nonexistent commit SHA", "- Implemented: fixed the gap in deadbeef"),
             ("bare SHA with no description", f"- Implemented: `{repaired[:8]}`"),
             ("two pasted SHAs with no description", f"- Implemented: {built[:8]} {repaired[:8]}"),
+            ("SHA plus slash-separated backticked SHAs with no description",
+             f"- Implemented: {repaired[:8]} `{built[:8]}`/`{repaired[:8]}`"),
             ("SHA plus git range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..{repaired[:8]}"),
             ("SHA plus branch range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..main"),
             ("SHA plus reflog selector with no description", f"- Implemented: {repaired[:8]} HEAD@{{0}}"),
@@ -1115,6 +1117,9 @@ class ResolutionGuard(ThreePass):
              f"[repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition indented as code inside list item",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n-     [repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition on four-space paragraph continuation in list item",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- example\n"
+             f"    [repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition inside multiline HTML comment",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<!--\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}\n-->"),
@@ -1127,6 +1132,8 @@ class ResolutionGuard(ThreePass):
             ("parenthesized titled linked SHA with no description",
              f"- Implemented: [{repaired[:8]}](https://example.com/commit/{repaired[:8]} (repair))"),
             ("malformed identifier suffix", f"- Implemented: {repaired[:8]}oops"),
+            ("SHA split across visible space inside code span",
+             f"- Implemented: fixed {repaired[:3]}` {repaired[3:8]}`"),
             ("bare commit URL", f"- Implemented: https://example.com/commit/{repaired[:8]}"),
             ("bare Filed without ref", "- Filed: later"),
             ("Filed with double space", "- Filed:  D00 T01 §2 (extra space mismatches stamp)"),
@@ -1192,6 +1199,9 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: fixed [{repaired[:8]}](<https://example.com/commit/{repaired[:8]}> (repair))"),
             ("Markdown-linked backticked SHA",
              f"- Implemented: repaired the guard in [`{repaired[:8]}`](https://example.com/commit/{repaired[:8]})."),
+            ("comma-separated Markdown-linked backticked SHAs",
+             f"- Implemented: fixed [`{built[:8]}`](https://example.com/commit/{built[:8]}),"
+             f"[`{repaired[:8]}`](https://example.com/commit/{repaired[:8]})"),
             ("short=4 SHA", f"- Implemented: fixed in {short4}"),
             ("uppercase SHA", f"- Implemented: fixed in {repaired[:8].upper()}"),
             ("non-ASCII Unicode description", f"- Implemented: 修復 {repaired[:8]}"),
