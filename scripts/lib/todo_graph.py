@@ -2267,25 +2267,111 @@ _HELD_OS_LOCKS_GUARD = threading.Lock()
 _HELD_OS_LOCKS: dict[tuple[Path, str], object] = {}
 
 
+def _git_lock_dir(target_path):
+    """Return `(git_dir, git_dir / 'conclave-locks')` for a git checkout containing `target_path`, or `(None, None)`."""
+    cur = Path(target_path).resolve()
+    if not cur.is_dir():
+        cur = cur.parent
+    for parent in (cur, *cur.parents):
+        dot_git = parent / ".git"
+        if dot_git.is_dir() and not dot_git.is_symlink():
+            return dot_git, dot_git / "conclave-locks"
+        if dot_git.is_file() and not dot_git.is_symlink():
+            try:
+                line = dot_git.read_text(encoding="utf-8", errors="replace").splitlines()[0]
+            except (OSError, IndexError):
+                return None, None
+            if line.startswith("gitdir:"):
+                gd = Path(line[len("gitdir:"):].strip())
+                if not gd.is_absolute():
+                    gd = (parent / gd).resolve()
+                if gd.is_dir():
+                    return gd, gd / "conclave-locks"
+            return None, None
+    return None, None
+
+
+def _posix_os_lock_location(target_path, oslock_path):
+    """Locate the per-file POSIX `.oslock` directory and filename inside `.git/conclave-locks` (inheriting `.git`'s
+    sharing permissions via atomic directory publish, avoiding shared `/tmp` for git checkouts)."""
+    git_dir, lock_dir = _git_lock_dir(target_path)
+    if git_dir is not None and lock_dir is not None:
+        dir_mode = stat.S_IMODE(git_dir.stat().st_mode) | 0o700
+        if not lock_dir.exists():
+            tmp_dir = git_dir / f".conclave-locks.{os.getpid()}.{os.urandom(4).hex()}"
+            os.mkdir(tmp_dir, dir_mode)
+            try:
+                os.chmod(tmp_dir, dir_mode)
+                try:
+                    os.rename(tmp_dir, lock_dir)
+                except OSError:
+                    if not lock_dir.is_dir():
+                        raise
+            finally:
+                if tmp_dir.exists():
+                    try:
+                        os.rmdir(tmp_dir)
+                    except OSError:
+                        pass
+        file_mode = 0o600 | (0o040 if dir_mode & 0o040 else 0) | (0o004 if dir_mode & 0o004 else 0)
+        return lock_dir, oslock_path.name, file_mode
+    oslock_path.parent.mkdir(parents=True, exist_ok=True)
+    return oslock_path.parent, oslock_path.name, 0o644
+
+
 def _open_os_lock(target_path, oslock_path):
-    """Open the OS-lock target: on POSIX, open the existing checkout directory (`target_path` if a directory, else its
-    parent) read-only with `O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK` so no shared `/tmp` lock file is created or
-    chmodded (eliminating umask/legacy-0600, cross-account hard-link, `/tmp` FIFO, and temp-file residue); on Windows,
-    open the per-user temp `.oslock` file for `msvcrt.locking`."""
+    """Open the per-file OS-lock target: on POSIX, open `<.git/conclave-locks>/<hash>.lock.oslock` read-only with
+    `O_NOFOLLOW | O_NONBLOCK` (publishing newly created lock files atomically with `fchmod` before `os.link` so
+    umask `077` never exposes `0600` and pre-existing entries are never chmodded, refusing symlinks and FIFOs); on
+    Windows, open the per-user temp `.oslock` file for `msvcrt.locking`."""
     if os.name == "nt":
         oslock_path.parent.mkdir(parents=True, exist_ok=True)
         return open(oslock_path, "a+b")
-    target = Path(target_path)
-    lock_dir = target if (target.is_dir() or target.is_symlink()) else target.parent
-    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    lock_dir, lock_name, file_mode = _posix_os_lock_location(target_path, oslock_path)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    open_flags = os.O_RDONLY | nofollow | nonblock
     try:
-        return os.open(lock_dir, flags)
+        dir_fd = os.open(lock_dir, os.O_RDONLY | os.O_DIRECTORY | nofollow)
     except OSError as exc:
         if exc.errno in (errno.ELOOP, errno.ENOTDIR):
-            raise Refused(
-                f"lock directory {lock_dir} is a symlink or not a directory: refusing to use it"
-            ) from None
+            raise Refused(f"lock directory {lock_dir} is a symlink or not a directory: refusing to use it") from None
         raise
+    try:
+        try:
+            try:
+                fd = os.open(lock_name, open_flags, dir_fd=dir_fd)
+            except FileNotFoundError:
+                tmp_name = f"{lock_name}.{os.getpid()}.{os.urandom(6).hex()}.tmp"
+                tmp_fd = os.open(tmp_name, open_flags | os.O_CREAT | os.O_EXCL, file_mode, dir_fd=dir_fd)
+                try:
+                    os.fchmod(tmp_fd, file_mode)
+                    try:
+                        os.link(tmp_name, lock_name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+                        fd = tmp_fd
+                        tmp_fd = None
+                    except FileExistsError:
+                        fd = os.open(lock_name, open_flags, dir_fd=dir_fd)
+                finally:
+                    if tmp_fd is not None:
+                        os.close(tmp_fd)
+                    try:
+                        os.unlink(tmp_name, dir_fd=dir_fd)
+                    except FileNotFoundError:
+                        pass
+        except OSError as exc:
+            if exc.errno == errno.ELOOP:
+                raise Refused(f"lock entry {lock_dir / lock_name} is a symlink: refusing to use it") from None
+            raise
+    finally:
+        os.close(dir_fd)
+    try:
+        st = os.fstat(fd)
+        require(stat.S_ISREG(st.st_mode), f"lock entry {lock_dir / lock_name} is not a regular file: refusing to use it")
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
 
 
 def _try_os_lock(handle):
