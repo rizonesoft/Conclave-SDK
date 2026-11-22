@@ -736,23 +736,25 @@ HTML_INLINE_TAG = re.compile(
     r"|!\[CDATA\[[\s\S]*?\]\])>",
     re.IGNORECASE,
 )
-CM_HTML_TAG = re.compile(
-    r"<(?:"
-    r"[A-Za-z][A-Za-z0-9-]*(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
-    r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*/?"
-    r"|/[A-Za-z][A-Za-z0-9-]*\s*"
-    r"|\?[\s\S]*?\?"
-    r"|![A-Za-z][^>]*"
-    r"|!\[CDATA\[[\s\S]*?\]\])>"
+_CM_WS = r"[ \t\n\r\f]"
+_CM_HTML_ATTRS = (
+    rf"(?:{_CM_WS}+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    rf"(?:{_CM_WS}*={_CM_WS}*(?:[^ \t\n\r\f\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
 )
-HTML_SCRIPT_STYLE_OPEN = re.compile(
-    r"^[ ]{0,3}<(script|style)(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
-    r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*>",
+CM_HTML_TAG = re.compile(
+    rf"<(?:"
+    rf"[A-Za-z][A-Za-z0-9-]*{_CM_HTML_ATTRS}{_CM_WS}*/?"
+    rf"|/[A-Za-z][A-Za-z0-9-]*{_CM_WS}*"
+    rf"|\?[\s\S]*?\?"
+    rf"|![A-Za-z][^>]*"
+    rf"|!\[CDATA\[[\s\S]*?\]\])>"
+)
+HTML_SCRIPT_STYLE_TAG = re.compile(
+    rf"<(script|style){_CM_HTML_ATTRS}{_CM_WS}*>",
     re.IGNORECASE,
 )
 HTML_SCRIPT_STYLE_BLOCK = re.compile(
-    r"<(script|style)(?:\s+[A-Za-z_:][A-Za-z0-9_.:-]*"
-    r"(?:\s*=\s*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*\s*>[\s\S]*?(?:</\1\s*>|$)",
+    rf"<(script|style){_CM_HTML_ATTRS}{_CM_WS}*>[\s\S]*?(?:</\1{_CM_WS}*>|$)",
     re.IGNORECASE,
 )
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
@@ -2746,14 +2748,14 @@ def _strip_comments_line(line, in_comment=False, allow_multiline=True):
             i = j
             continue
         if line.startswith("<!--", i):
+            if line.startswith("<!-->", i):
+                i += 5
+                continue
+            if line.startswith("<!--->", i):
+                i += 6
+                continue
             close = line.find("-->", i + 4)
             if close == -1:
-                if line.startswith("<!-->", i):
-                    i += 5
-                    continue
-                if line.startswith("<!--->", i):
-                    i += 6
-                    continue
                 if allow_multiline:
                     return "".join(out), True
                 out.append(line[i : i + 4])
@@ -2773,38 +2775,35 @@ def _has_visible_note_content(text, allow_multiline_comment=True):
     do not satisfy the guard, and no HTML5 layout or CSS evaluation is performed)."""
     if not text.strip():
         return False
-    out = []
     i, n = 0, len(text)
     while i < n:
-        if text[i] == "`":
+        ch = text[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch == "`":
             j = i
             while j < n and text[j] == "`":
                 j += 1
             close = _find_closing_ticks(text, j, j - i)
             if close != -1:
-                out.append(" code ")
-                i = close + (j - i)
-                continue
-            out.append(text[i:j])
-            i = j
-            continue
+                return True
+            return True
         if text.startswith("<!--", i):
+            if text.startswith("<!-->", i):
+                i += 5
+                continue
+            if text.startswith("<!--->", i):
+                i += 6
+                continue
             close = text.find("-->", i + 4)
             if close == -1:
-                if text.startswith("<!-->", i):
-                    i += 5
-                    continue
-                if text.startswith("<!--->", i):
-                    i += 6
-                    continue
                 if allow_multiline_comment:
-                    break
-                out.append("<!--")
-                i += 4
-                continue
+                    return False
+                return True
             i = close + 3
             continue
-        if text[i] == "<":
+        if ch == "<":
             m_ss = HTML_SCRIPT_STYLE_BLOCK.match(text, i)
             if m_ss:
                 i = m_ss.end()
@@ -2813,26 +2812,64 @@ def _has_visible_note_content(text, allow_multiline_comment=True):
             if m_tag:
                 i = m_tag.end()
                 continue
-        out.append(text[i])
-        i += 1
-    decoded = CM_ENTITY.sub(_decode_cm_entity, "".join(out))
-    return bool(decoded.strip())
+            return True
+        if ch == "&":
+            m_ent = CM_ENTITY.match(text, i)
+            if m_ent:
+                if _decode_cm_entity(m_ent).strip():
+                    return True
+                i = m_ent.end()
+                continue
+            return True
+        return True
+    return False
 
 
-def _advance_html_tag_state(line, in_comment, in_open_tag, tag_quote):
-    """Advance multiline HTML comment and open-tag/attribute-quote state across `line` (outside code spans) so
-    `## ` inside a multiline HTML comment or open-tag attribute does not split a `## Writer note:` body early."""
+def _advance_html_tag_state(line, state):
+    """Advance multiline HTML comment, open-tag/attribute, `<script>`/`<style>`, processing-instruction (`<?...?>`),
+    CDATA (`<![CDATA[...]]>`), and declaration (`<!NAME ...>`) state across `line` (outside code spans) so `## `
+    inside any open CommonMark §6.6 raw-HTML construct does not split a `## Writer note:` body early."""
+    in_comment, in_open_tag, tag_quote, tag_buf, in_script_style, in_pi, in_cdata, in_decl = state
     i, n = 0, len(line)
     while i < n:
+        if in_script_style is not None:
+            m_close = re.search(rf"</{in_script_style}[ \t\n\r\f]*>", line[i:], re.IGNORECASE)
+            if not m_close:
+                break
+            in_script_style = None
+            i += m_close.end()
+            continue
         if in_comment:
             close = line.find("-->", i)
             if close == -1:
-                return True, in_open_tag, tag_quote
+                break
             in_comment = False
             i = close + 3
             continue
+        if in_pi:
+            close = line.find("?>", i)
+            if close == -1:
+                break
+            in_pi = False
+            i = close + 2
+            continue
+        if in_cdata:
+            close = line.find("]]>", i)
+            if close == -1:
+                break
+            in_cdata = False
+            i = close + 3
+            continue
+        if in_decl:
+            close = line.find(">", i)
+            if close == -1:
+                break
+            in_decl = False
+            i = close + 1
+            continue
         if in_open_tag:
             ch = line[i]
+            tag_buf += ch
             if tag_quote:
                 if ch == tag_quote:
                     tag_quote = None
@@ -2840,6 +2877,10 @@ def _advance_html_tag_state(line, in_comment, in_open_tag, tag_quote):
                 tag_quote = ch
             elif ch == ">":
                 in_open_tag = False
+                m_ss = HTML_SCRIPT_STYLE_TAG.fullmatch(tag_buf)
+                if m_ss:
+                    in_script_style = m_ss.group(1).lower()
+                tag_buf = ""
             i += 1
             continue
         if line[i] == "`":
@@ -2853,24 +2894,49 @@ def _advance_html_tag_state(line, in_comment, in_open_tag, tag_quote):
             i = j
             continue
         if line.startswith("<!--", i):
+            if line.startswith("<!-->", i):
+                i += 5
+                continue
+            if line.startswith("<!--->", i):
+                i += 6
+                continue
             close = line.find("-->", i + 4)
             if close == -1:
-                if line.startswith("<!-->", i):
-                    i += 5
-                    continue
-                if line.startswith("<!--->", i):
-                    i += 6
-                    continue
-                return True, False, None
+                in_comment = True
+                break
             i = close + 3
             continue
-        if line[i] == "<" and i + 1 < n and (line[i + 1].isalpha() or line[i + 1] == "/"):
+        if line.startswith("<![CDATA[", i):
+            close = line.find("]]>", i + 9)
+            if close == -1:
+                in_cdata = True
+                break
+            i = close + 3
+            continue
+        if line.startswith("<?", i):
+            close = line.find("?>", i + 2)
+            if close == -1:
+                in_pi = True
+                break
+            i = close + 2
+            continue
+        if line.startswith("<!", i) and i + 2 < n and line[i + 2].isascii() and line[i + 2].isalpha():
+            close = line.find(">", i + 3)
+            if close == -1:
+                in_decl = True
+                break
+            i = close + 1
+            continue
+        if line[i] == "<" and i + 1 < n and ((line[i + 1].isascii() and line[i + 1].isalpha()) or line[i + 1] == "/"):
             in_open_tag = True
             tag_quote = None
+            tag_buf = line[i : i + 2]
             i += 2
             continue
         i += 1
-    return in_comment, in_open_tag, tag_quote
+    if in_open_tag:
+        tag_buf += "\n"
+    return (in_comment, in_open_tag, tag_quote, tag_buf, in_script_style, in_pi, in_cdata, in_decl)
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
@@ -2955,11 +3021,8 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             if _has_visible_note_content(title, allow_multiline_comment=False):
                 return True
             k = idx + 1
-            body_comment = False
             body_fence = None
-            in_open_tag = False
-            tag_quote = None
-            in_script_style = None
+            html_state = (False, False, None, "", None, False, False, False)
             at_block_start = True
             body_chunks = []
             while k < total:
@@ -2974,8 +3037,9 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                         body_chunks.append(" code ")
                     k += 1
                     continue
-                scan_line = body_line
-                if not body_comment and not in_open_tag and in_script_style is None:
+                in_raw_html = (html_state[0] or html_state[1] or html_state[4] is not None
+                               or html_state[5] or html_state[6] or html_state[7])
+                if not in_raw_html:
                     if not body_line.strip():
                         body_chunks.append("")
                         at_block_start = True
@@ -2993,25 +3057,14 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                         body_fence = (fm_body.group(1)[0], len(fm_body.group(1)))
                         k += 1
                         continue
-                    m_ss = HTML_SCRIPT_STYLE_OPEN.match(body_exp)
-                    if m_ss and not re.search(rf"</{m_ss.group(1)}\s*>", body_exp[m_ss.end():], re.IGNORECASE):
-                        in_script_style = m_ss.group(1).lower()
-                elif in_script_style is not None:
-                    m_close_ss = re.search(rf"</{in_script_style}\s*>", body_line, re.IGNORECASE)
-                    if m_close_ss:
-                        in_script_style = None
-                        scan_line = body_line[m_close_ss.end():]
                 body_chunks.append(body_line)
-                if in_script_style is None:
-                    body_comment, in_open_tag, tag_quote = _advance_html_tag_state(
-                        scan_line, body_comment, in_open_tag, tag_quote
-                    )
+                html_state = _advance_html_tag_state(body_line, html_state)
                 at_block_start = False
                 k += 1
             if _has_visible_note_content("\n".join(body_chunks), allow_multiline_comment=True):
                 return True
             idx = k
-            in_comment = body_comment
+            in_comment = html_state[0]
             fence = body_fence
             continue
         idx += 1

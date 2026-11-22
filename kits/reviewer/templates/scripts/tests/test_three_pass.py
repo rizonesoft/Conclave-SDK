@@ -1186,6 +1186,14 @@ class ResolutionGuard(ThreePass):
              "## Writer note:\n<div>\n## Repair verified\n</div>"),
             ("Writer note body with script block only refused",
              "## Writer note:\n<script>\n## Repair verified\n</script>"),
+            ("Writer note body with multiline script opener containing Writer note refused",
+             '## Writer note:\n<script\n type="text/javascript">\n## Writer note: draft\n</script>'),
+            ("Writer note body with multiline CDATA containing heading refused",
+             "## Writer note:\n<![CDATA[\n## Other work\n]]>"),
+            ("Writer note body with multiline processing instruction containing heading refused",
+             "## Writer note:\n<?draft\n## Other work\n?>"),
+            ("Writer note body with image unquoted attribute containing nonbreaking space refused",
+             "## Writer note:\n<img alt=Figure\u00a01>"),
             ("Writer note body with style block only refused",
              "## Writer note:\n<style>body { color: red; }</style>"),
             ("Writer note body with whitespace entity only refused",
@@ -1517,14 +1525,20 @@ class ResolutionGuard(ThreePass):
              "docs/reconciliation-review-prompt.md"),
             ("writer note body with visible prose after inline HTML comment",
              "## Writer note:\n\n<!-- internal --> The pending stamp accounts for this gap."),
+            ("writer note body with prose between short HTML comment and trailing comment",
+             "## Writer note:\n<!-->Repair verified<!-- later -->"),
+            ("writer note body with prose after multiline script containing heading",
+             '## Writer note:\n<script\n type="text/javascript">\n## internal\n</script>\nRepair verified'),
+            ("writer note body with nonbreaking space after tag name stays literal text",
+             "## Writer note:\n<div\u00a0hidden>"),
             ("writer note body with plain-text prose inside CSS-styled span",
              '## Writer note:\n\n<span style="display:none">Repair verified</span>'),
-            ("writer note body with indented code block",
-             "## Writer note:\n\n    repaired_fn()"),
-            ("writer note body with fenced code block",
-             "## Writer note:\n\n```\nrepaired_fn()\n```"),
-            ("writer note title with inline code span",
-             "## Writer note: `repaired_fn()`"),
+            ("writer note body with indented code block showing literal img tag",
+             '## Writer note:\n\n    <img src="proof.png">'),
+            ("writer note body with fenced code block showing literal img tag",
+             '## Writer note:\n\n```\n<img src="proof.png">\n```'),
+            ("writer note title with inline code span showing literal img tag",
+             '## Writer note: `<img src="proof.png">`'),
             ("writer note title with literal underscore placeholder",
              "## Writer note: <repair_commit>"),
             ("writer note title with literal hashes directly after colon",
@@ -1541,12 +1555,18 @@ class ResolutionGuard(ThreePass):
                 self.ok("reconciliation", repaired)
                 self.assertEqual(len(self.calls()), before_calls + 1)
 
+    @staticmethod
+    def _skill_candidates(scripts_dir):
+        candidates = [scripts_dir.parent / ".claude/skills/review-todo-section/SKILL.md"]
+        if len(scripts_dir.parents) > 2:
+            candidates.append(scripts_dir.parents[2] / "todo/templates/.claude/skills/review-todo-section/SKILL.md")
+        return candidates
+
     def test_documented_skill_examples_are_read_from_skill_and_accepted(self):
-        candidates = (
-            SCRIPTS_DIR.parent / ".claude/skills/review-todo-section/SKILL.md",
-            SCRIPTS_DIR.parents[2] / "todo/templates/.claude/skills/review-todo-section/SKILL.md",
-        )
-        skill_path = next((p for p in candidates if p.is_file()), None)
+        # Installing directly under a drive root (e.g. D:/project/scripts) has only 2 parents and must not crash.
+        shallow = Path("D:/project/scripts") if os.name == "nt" else Path("/project/scripts")
+        self.assertEqual(len(self._skill_candidates(shallow)), 1)
+        skill_path = next((p for p in self._skill_candidates(SCRIPTS_DIR) if p.is_file()), None)
         if skill_path is None:
             self.skipTest("review-todo-section/SKILL.md not present in standalone reviewer-only install")
         text = skill_path.read_text(encoding="utf-8")
