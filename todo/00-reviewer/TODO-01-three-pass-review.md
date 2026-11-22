@@ -527,6 +527,8 @@ Filed 2026-11-21 from `D07 T01 §9` Reconciliation 1 (`docs/reviews/07-launchers
 
 ## 13. Shadow-audit repairs for `replan` path check and lock safety
 
+> **Started:** 2026-11-22T16:43Z
+
 Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D00 T01 §9` (`docs/reviews/00-reviewer/audit-d00-t01-s9.md`), which found 1 P1, 4 P2s, and 1 P3 missed by repair-diff.
 
 **Phase:** 9
