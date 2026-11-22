@@ -1067,6 +1067,8 @@ class ResolutionGuard(ThreePass):
             ("two pasted SHAs with no description", f"- Implemented: {built[:8]} {repaired[:8]}"),
             ("SHA plus slash-separated backticked SHAs with no description",
              f"- Implemented: {repaired[:8]} `{built[:8]}`/`{repaired[:8]}`"),
+            ("SHA plus arrow-separated commit pair with no description",
+             f"- Implemented: {repaired[:8]} {built[:8]}\u2192{repaired[:8]}"),
             ("SHA plus git range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..{repaired[:8]}"),
             ("SHA plus branch range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..main"),
             ("SHA plus reflog selector with no description", f"- Implemented: {repaired[:8]} HEAD@{{0}}"),
@@ -1120,6 +1122,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition on four-space paragraph continuation in list item",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- example\n"
              f"    [repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition inside fenced block after blank line in list item",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- example\n\n    ~~~\n"
+             f"  [repair]: https://example.com/commit/{repaired[:8]}\n  ~~~"),
             ("reference definition inside multiline HTML comment",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<!--\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}\n-->"),
@@ -1135,6 +1140,7 @@ class ResolutionGuard(ThreePass):
             ("SHA split across visible space inside code span",
              f"- Implemented: fixed {repaired[:3]}` {repaired[3:8]}`"),
             ("bare commit URL", f"- Implemented: https://example.com/commit/{repaired[:8]}"),
+            ("root-relative path keyed by two SHAs", f"- Implemented: fixed /{built[:8]}/{repaired[:8]}"),
             ("bare Filed without ref", "- Filed: later"),
             ("Filed with double space", "- Filed:  D00 T01 §2 (extra space mismatches stamp)"),
             ("empty Writer note", "## Writer note:"),
@@ -1180,6 +1186,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition outside tab-marked list-item fence",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n-\t~~~\n"
              f"  [repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition indented in list item after blank line",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- example\n\n"
+             f"    [repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
             ("multiline quoted title reference-linked SHA",
