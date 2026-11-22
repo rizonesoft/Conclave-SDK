@@ -191,7 +191,11 @@ def _preserve_posix_metadata(path, out_fd, existing_mode, existing_uid, existing
                 f"cannot preserve special mode bits on {path}: refusing to replace it")
 
 
+_ATOMIC_STATE = threading.local()
+
+
 def atomic(path, data):
+    _ATOMIC_STATE.replaced = False
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = data if isinstance(data, bytes) else data.encode("utf-8")
@@ -222,6 +226,7 @@ def atomic(path, data):
         if os.name != "nt":
             handoff_list, handoff_fd = _handoff_os_lock(path, temporary)
         os.replace(temporary, path)
+        _ATOMIC_STATE.replaced = True
         handoff_fd = None  # ownership stays in handoff_list until _release_todo_lock
     finally:
         if handoff_fd is not None:
@@ -2674,13 +2679,22 @@ def replan(root, ref, date, now):
             updated = text.replace(fresh_row.body, body)
             if moved is not None:
                 _replace_contained(root, findings_rel, moved_rel)
+            _ATOMIC_STATE.replaced = False
             try:
                 atomic(path, updated)
-            except BaseException:
-                # Undo the archive move only if the TODO was not published; if cancellation arrived after
-                # os.replace(temporary, path) published the updated TODO naming moved_rel, keep moved_rel in place.
-                if (moved is not None and moved.exists() and not own.exists()
-                        and path.is_file() and path.read_bytes() == original_bytes):
+            except BaseException as exc:
+                # Undo the archive move unless atomic() already published the updated TODO.
+                # For Exception (Refused, PermissionError/sharing violation), os.replace did not publish when
+                # _ATOMIC_STATE.replaced is False, so rollback succeeds even if path cannot be reopened on Windows.
+                # For async BaseException (KeyboardInterrupt), also inspect path bytes in case interruption landed
+                # between os.replace and setting _ATOMIC_STATE.replaced.
+                already_published = getattr(_ATOMIC_STATE, "replaced", False)
+                if not already_published and not isinstance(exc, Exception):
+                    try:
+                        already_published = path.is_file() and path.read_bytes() != original_bytes
+                    except OSError:
+                        already_published = False
+                if not already_published and moved is not None and moved.exists() and not own.exists():
                     _replace_contained(root, moved_rel, findings_rel)
                 raise
             return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}

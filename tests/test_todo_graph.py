@@ -3733,6 +3733,74 @@ class ThreePassStamp(Stamp):
             self.assertEqual(own.stat().st_ino, before_own_stat.st_ino)
             self.assertEqual(stat.S_IMODE(own.stat().st_mode), 0o644)
 
+        # D00 T01 §13 Rec 13 finding 31: a Windows sharing violation (or any unreadable-destination failure during
+        # os.replace) denies both TODO publication and reopening the TODO during rollback, yet replan still restores
+        # the canonical findings file while the destination remains locked.
+        real_replace_contained = tg._replace_contained
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CreateFileW.restype = wintypes.HANDLE
+            k32.CreateFileW.argtypes = (
+                wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+            )
+            k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            invalid = wintypes.HANDLE(-1).value
+            held_handle = [invalid]
+
+            def lock_todo_after_archive(root_arg, src_rel, dst_rel):
+                res = real_replace_contained(root_arg, src_rel, dst_rel)
+                if held_handle[0] == invalid and src_rel == self.FILE:
+                    # GENERIC_READ with dwShareMode=0 denies both os.replace and read_bytes() until closed.
+                    h = k32.CreateFileW(str(todo), 0x80000000, 0, None, 3, 0x80, None)
+                    self.assertNotEqual(h, invalid, f"CreateFileW failed: {ctypes.get_last_error()}")
+                    held_handle[0] = h
+                return res
+
+            try:
+                with unittest.mock.patch.object(tg, "_replace_contained", side_effect=lock_todo_after_archive):
+                    with self.assertRaises(PermissionError):
+                        tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+                self.assertNotEqual(held_handle[0], invalid)
+                # While the exclusive handle is STILL open, canonical findings are already back and no archive remains.
+                self.assertTrue(own.is_file())
+                self.assertEqual(own.read_bytes(), before_own)
+                self.assertEqual(list(own.parent.glob("*-chain*.md")), [])
+                self.assertEqual(own.stat().st_ino, before_own_stat.st_ino)
+            finally:
+                if held_handle[0] != invalid:
+                    k32.CloseHandle(held_handle[0])
+            self.assertEqual(todo.read_bytes(), before_todo)
+        else:
+            real_os_replace = os.replace
+            real_read_bytes = pathlib.Path.read_bytes
+            todo_locked = [False]
+            todo_resolved = todo.resolve()
+
+            def deny_replace(src, dst, *args, **kwargs):
+                if not args and not kwargs and pathlib.Path(dst).resolve() == todo_resolved:
+                    todo_locked[0] = True
+                    raise PermissionError(errno.EACCES, "simulated sharing violation on replace")
+                return real_os_replace(src, dst, *args, **kwargs)
+
+            def deny_read(p):
+                if todo_locked[0] and p.resolve() == todo_resolved:
+                    raise PermissionError(errno.EACCES, "simulated sharing violation on read")
+                return real_read_bytes(p)
+
+            with unittest.mock.patch.object(os, "replace", side_effect=deny_replace), \
+                    unittest.mock.patch.object(pathlib.Path, "read_bytes", deny_read):
+                with self.assertRaises(PermissionError):
+                    tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+            self.assertTrue(todo_locked[0])
+            self.assertTrue(own.is_file())
+            self.assertEqual(own.read_bytes(), before_own)
+            self.assertEqual(list(own.parent.glob("*-chain*.md")), [])
+            self.assertEqual(own.stat().st_ino, before_own_stat.st_ino)
+            self.assertEqual(todo.read_bytes(), before_todo)
+
         # D00 T01 §13 Rec 12 finding 29: cancellation arriving after atomic() publishes the updated TODO must keep the
         # archived chain file in place so a retry reports "already" with the referenced archive still present.
         def interrupt_after_publish(p, data):
