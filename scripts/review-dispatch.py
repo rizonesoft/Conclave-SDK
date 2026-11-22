@@ -1523,19 +1523,18 @@ def _strip_bq_at_most(line, limit):
     return count, rest, col
 
 
-def _strip_containers(line, start_bq=0, start_indent=0, start_col=0):
+def _strip_containers(line, start_col=0):
     """Strip leading CommonMark blockquote (`>`) and list-item (`- `, `* `, `+ `, `1. `) container markers from
-    `line` starting at `(start_bq, start_indent, start_col)`, expanding leading tabs before and after each marker
-    per CommonMark §2.2 and following §5.2 (5+ spaces after a list marker consume only 1 space so the remaining 4+
-    spaces stay an indented code block). Returns `(bq_depth, list_indent, rest, col, opened_lists)`."""
-    bq, list_indent, rest, col = start_bq, start_indent, line, start_col
+    `line` starting at global column `start_col`, expanding leading tabs before and after each marker per
+    CommonMark §2.2 and following §4.1 (thematic breaks take precedence over list markers) and §5.2 (5+ spaces
+    after a list marker consume only 1 space so the remaining 4+ spaces stay an indented code block). Returns
+    `(rest, col, opened_containers)` where each container is `["bq", 0]` or `["list", rel_indent, empty_first]`."""
+    rest, col = line, start_col
     opened = []
     while True:
         matched, next_rest, next_col = _strip_one_bq(rest, col)
         if matched:
-            bq += 1
-            list_indent = 0
-            opened = []
+            opened.append(["bq", 0])
             rest, col = next_rest, next_col
             continue
         expanded = next_rest
@@ -1550,26 +1549,48 @@ def _strip_containers(line, start_bq=0, start_indent=0, start_col=0):
             sp_len = len(after) - len(after.lstrip(" "))
             if sp_len > 0 or after == "":
                 if after.lstrip(" ") == "":
-                    list_indent += marker_end + 1
+                    opened.append(["list", marker_end + 1, True])
                     col += marker_end + 1
-                    opened.append([bq, list_indent, True])
                     rest = ""
                     break
                 if sp_len <= 4:
-                    list_indent += marker_end + sp_len
+                    opened.append(["list", marker_end + sp_len, False])
                     col += marker_end + sp_len
-                    opened.append([bq, list_indent, False])
                     rest = after[sp_len:]
                     continue
                 # CommonMark §5.2: 5+ spaces after list marker means 1 space + indented code (4+ spaces).
-                list_indent += marker_end + 1
+                opened.append(["list", marker_end + 1, False])
                 col += marker_end + 1
-                opened.append([bq, list_indent, False])
                 rest = after[1:]
                 break
         rest = expanded
         break
-    return bq, list_indent, rest, col, opened
+    return rest, col, opened
+
+
+def _match_containers(line, containers):
+    """Match a prefix of `containers` (each `["bq", 0]` or `["list", rel_indent, empty_first]`) against `line`
+    in exact nesting order, expanding tabs per CommonMark §2.2 and using CommonMark §2.1 ASCII blank-line rules
+    (`" \\t"` only, never U+00A0). Returns `(matched_count, rest, col, blank_at)`."""
+    rest, col = line, 0
+    for idx, frame in enumerate(containers):
+        if frame[0] == "bq":
+            matched, next_rest, next_col = _strip_one_bq(rest, col)
+            if not matched:
+                return idx, rest, col, None
+            rest, col = next_rest, next_col
+            if not rest.strip(" \t"):
+                return idx + 1, "", col, idx + 1
+        else:
+            if not rest.strip(" \t"):
+                return idx + 1, "", col + frame[1], idx
+            if THEMATIC_BREAK.match(_expand_leading_tabs(rest, col)):
+                return idx, rest, col, None
+            still_in, next_rest, next_col = _strip_indent(rest, frame[1], col)
+            if not still_in:
+                return idx, rest, col, None
+            rest, col = next_rest, next_col
+    return len(containers), rest, col, (len(containers) if not rest.strip(" \t") else None)
 
 
 def _fence_step(line, fence, start_col=0):
@@ -1596,7 +1617,7 @@ def _strip_indent(line, indent, start_col=0):
     expanding leading tabs at global column `start_col` per CommonMark §2.2."""
     if indent <= 0:
         return True, line, start_col
-    if not line.strip():
+    if not line.strip(" \t"):
         return True, "", start_col + indent
     expanded = _expand_leading_tabs(line, start_col)
     lead = len(expanded) - len(expanded.lstrip(" "))
@@ -1626,7 +1647,7 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
             return None
         next_bq, next_content, next_col = _strip_bq_at_most(raw_lines[line_idx], bq)
         next_exp = _expand_leading_tabs(next_content, next_col)
-        if next_bq != bq or BLOCKQUOTE_ONE.match(next_exp) or not next_exp.strip():
+        if next_bq != bq or BLOCKQUOTE_ONE.match(next_exp) or not next_exp.strip(" \t"):
             return None
         if _fence_step(next_exp, None, next_col)[1]:
             return None
@@ -1656,114 +1677,85 @@ def _html_block_start(content, in_para):
 
 def _collect_ref_defs(raw_lines):
     """Collect valid CommonMark link reference definitions from `raw_lines` in linear time, skipping fenced code
-    blocks, all seven CommonMark §4.6 HTML block types, and open paragraphs per CommonMark §4.7 (tracking active
-    list-item containers, blockquote depth, and §2.2 tab stops so exiting a container closes inner blocks while
-    indented continuation lines after a blank line stay inside open list items without interrupting paragraphs),
-    and supporting next-line destinations and multiline link titles."""
+    blocks, all seven CommonMark §4.6 HTML block types, and open paragraphs per CommonMark §4.7 (tracking the exact
+    container nesting stack of blockquotes and list items with §2.1 ASCII blank lines and §2.2 tab stops), and
+    supporting next-line destinations and multiline link titles."""
     defs = set()
-    open_lists = []
+    containers = []
     in_para = False
-    prev_bq = 0
-    fence, fence_bq, fence_indent = None, 0, 0
-    html_end, html_bq, html_indent = None, 0, 0
+    fence, fence_containers = None, []
+    html_end, html_containers = None, []
     i, n = 0, len(raw_lines)
     while i < n:
+        line = raw_lines[i]
         if fence is not None:
-            bq_here, inner, bq_col = _strip_bq_at_most(raw_lines[i], fence_bq)
-            still_in, inner, inner_col = _strip_indent(inner, fence_indent, bq_col) \
-                if bq_here == fence_bq else (False, inner, bq_col)
-            if not still_in:
+            matched, inner, inner_col, _ = _match_containers(line, fence_containers)
+            if matched < len(fence_containers):
                 fence = None
             else:
                 fence, inside = _fence_step(inner, fence, inner_col)
                 if inside:
-                    for item in open_lists:
-                        item[2] = False
+                    for frame in containers[:matched]:
+                        if frame[0] == "list":
+                            frame[2] = False
                     in_para = False
-                    prev_bq = bq_here
                     i += 1
                     continue
         if html_end is not None:
-            bq_here, inner, bq_col = _strip_bq_at_most(raw_lines[i], html_bq)
-            still_in, inner, _ = _strip_indent(inner, html_indent, bq_col) \
-                if bq_here == html_bq else (False, inner, bq_col)
-            if not still_in:
+            matched, inner, _, blank_at = _match_containers(line, html_containers)
+            if matched < len(html_containers):
                 html_end = None
             elif html_end == "blank":
-                if not inner.strip():
+                if blank_at is not None or not inner.strip(" \t"):
                     html_end = None
                     in_para = False
-                    prev_bq = bq_here
                     i += 1
                     continue
-                for item in open_lists:
-                    item[2] = False
+                for frame in containers[:matched]:
+                    if frame[0] == "list":
+                        frame[2] = False
                 in_para = False
-                prev_bq = bq_here
                 i += 1
                 continue
             else:
-                for item in open_lists:
-                    item[2] = False
+                for frame in containers[:matched]:
+                    if frame[0] == "list":
+                        frame[2] = False
                 in_para = False
-                prev_bq = bq_here
                 if html_end(inner):
                     html_end = None
                 i += 1
                 continue
-        if not raw_lines[i].strip():
-            while open_lists and open_lists[-1][2]:
-                open_lists.pop()
-            in_para = False
-            prev_bq = 0
-            i += 1
-            continue
-        base_bq, base_indent, base_text, base_col = 0, 0, raw_lines[i], 0
-        blank_in_container = False
-        while open_lists:
-            cbq, cindent, _ = open_lists[-1]
-            bq_here, inner, bq_col = _strip_bq_at_most(raw_lines[i], cbq)
-            if bq_here == cbq and not inner.strip():
-                while open_lists and open_lists[-1][0] == cbq and open_lists[-1][2]:
-                    open_lists.pop()
-                blank_in_container = True
-                prev_bq = bq_here
-                break
-            if bq_here == cbq and THEMATIC_BREAK.match(_expand_leading_tabs(inner, bq_col)):
-                open_lists.pop()
-                continue
-            still_in, stripped, stripped_col = _strip_indent(inner, cindent, bq_col) \
-                if bq_here == cbq else (False, inner, bq_col)
-            if still_in:
-                open_lists[-1][2] = False
-                base_bq, base_indent, base_text, base_col = cbq, cindent, stripped, stripped_col
-                break
-            open_lists.pop()
-        if blank_in_container:
+        matched, base_text, base_col, blank_at = _match_containers(line, containers)
+        if blank_at is not None:
+            # Close any container after the matched prefix, and any empty list item at/after the blank line.
+            containers = containers[:matched]
+            while containers and containers[-1][0] == "list" and containers[-1][2]:
+                containers.pop()
             in_para = False
             i += 1
             continue
-        bq, list_indent, content, content_col, opened = _strip_containers(base_text, base_bq, base_indent, base_col)
-        if bq > base_bq:
-            open_lists = opened
-        elif opened:
-            open_lists.extend(opened)
-        if bq > prev_bq or opened:
+        containers = containers[:matched]
+        for frame in containers:
+            if frame[0] == "list":
+                frame[2] = False
+        content, content_col, opened = _strip_containers(base_text, base_col)
+        if opened:
+            containers.extend(opened)
             in_para = False
-        prev_bq = bq
-        if not content.strip():
+        if not content.strip(" \t"):
             in_para = False
             i += 1
             continue
         new_fence, inside = _fence_step(content, None, content_col)
         if inside:
-            fence, fence_bq, fence_indent = new_fence, bq, list_indent
+            fence, fence_containers = new_fence, [list(f) for f in containers]
             in_para = False
             i += 1
             continue
         html_started, next_html_end = _html_block_start(content, in_para)
         if html_started:
-            html_end, html_bq, html_indent = next_html_end, bq, list_indent
+            html_end, html_containers = next_html_end, [list(f) for f in containers]
             in_para = False
             i += 1
             continue
@@ -1783,6 +1775,7 @@ def _collect_ref_defs(raw_lines):
             in_para = True
             i += 1
             continue
+        bq = sum(1 for f in containers if f[0] == "bq")
         rest = m.group(2)
         start = i
         if not rest:
@@ -1792,7 +1785,7 @@ def _collect_ref_defs(raw_lines):
                 continue
             next_bq, next_content, next_col = _strip_bq_at_most(raw_lines[i + 1], bq)
             next_exp = _expand_leading_tabs(next_content, next_col)
-            if next_bq != bq or BLOCKQUOTE_ONE.match(next_exp) or not next_exp.strip() \
+            if next_bq != bq or BLOCKQUOTE_ONE.match(next_exp) or not next_exp.strip(" \t") \
                     or _fence_step(next_exp, None, next_col)[1] or _html_block_start(next_exp, True)[0]:
                 in_para = True
                 i += 1
@@ -1906,6 +1899,8 @@ def _is_commit_in_git(tok, seen):
 
 
 def _is_revspec_in_git(expr, seen):
+    if not expr or expr.startswith("-"):
+        return False
     key = ("rev", expr)
     if key not in seen:
         if expr.startswith(":/"):
@@ -1947,13 +1942,9 @@ def _is_commit_ref_token(raw, seen):
             return True
         if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
             return True
-        if base and base.isupper() and _is_revspec_in_git(base, seen):
+        if base and base.count("{") == base.count("}") and _is_revspec_in_git(base, seen):
             return True
-        if base and any(ch in base for ch in "@^~:/{}") and base.count("{") == base.count("}") \
-                and _is_revspec_in_git(base, seen):
-            return True
-        if any(ch in piece for ch in "@^~:/{}") and piece.count("{") == piece.count("}") \
-                and _is_revspec_in_git(piece.lstrip("^"), seen):
+        if piece.count("{") == piece.count("}") and _is_revspec_in_git(piece.lstrip("^"), seen):
             return True
         return False
 

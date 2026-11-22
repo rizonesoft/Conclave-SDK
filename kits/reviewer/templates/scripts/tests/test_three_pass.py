@@ -1137,6 +1137,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition after thematic break inside HTML div block",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<div>\n---\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}\n</div>"),
+            ("reference definition after nonbreaking-space line inside HTML div block",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<div>\n\u00a0\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}\n</div>"),
             ("malformed angle-bracket reference definition",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: <unterminated"),
             ("blank line before reference destination",
@@ -1162,6 +1165,13 @@ class ResolutionGuard(ThreePass):
                 before_bytes = self.record.read_bytes()
                 self.refused("reconciliation", repaired, "has no resolution entry")
                 self.assertEqual(self.record.read_bytes(), before_bytes, "refusal must leave findings file unchanged")
+        if subprocess.run(["git", "rev-parse", "--verify", "--quiet", "fetch_head^{commit}"],
+                          cwd=self.repo, capture_output=True).returncode == 0:
+            self.record.write_bytes(baseline)
+            self.resolve(repaired, f"- Implemented: {repaired[:8]} fetch_head")
+            before_bytes = self.record.read_bytes()
+            self.refused("reconciliation", repaired, "has no resolution entry")
+            self.assertEqual(self.record.read_bytes(), before_bytes, "refusal must leave findings file unchanged")
         short4 = self.git("rev-parse", "--short=4", repaired)
         good_impl_cases = (
             ("backticked short SHA", f"- Implemented: fixed the gap in `{repaired[:8]}`"),
@@ -1204,6 +1214,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition immediately below single-line HTML pre block",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<pre>example</pre>\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition in top-level blockquote after list-quoted HTML block",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- > <div>\n"
+             f"> [repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
             ("multiline quoted title reference-linked SHA",
