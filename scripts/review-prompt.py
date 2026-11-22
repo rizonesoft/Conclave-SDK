@@ -130,57 +130,54 @@ def _find_todo_at_commit(root: Path, candidate: str, ref: str) -> str | None:
     return matches[0] if len(matches) == 1 else None
 
 
-_GIT_REPO_ENV_VARS = (
+_GIT_STORE_ENV_VARS = (
     "GIT_DIR",
     "GIT_WORK_TREE",
     "GIT_COMMON_DIR",
     "GIT_OBJECT_DIRECTORY",
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_INDEX_FILE",
 )
-
-
-def _has_git_marker_within_ceiling(root: Path, env: dict[str, str]) -> bool:
-    """True when `root` or an ancestor before any `GIT_CEILING_DIRECTORIES` entry holds a `.git` file or directory."""
-    ceilings = {
-        os.path.normcase(os.path.realpath(entry))
-        for entry in env.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep)
-        if entry and os.path.isabs(entry)
-    }
-    cur = Path(os.path.realpath(root))
-    while True:
-        if (cur / ".git").exists():
-            return True
-        parent = cur.parent
-        if parent == cur or os.path.normcase(str(parent)) in ceilings:
-            return False
-        cur = parent
 
 
 def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, ref: str,
                             explicit_todo: str | None = None) -> str | None:
-    """Read `ref`'s section body from `candidate` when `root` is a git work tree. Inside a git repository, an
-    unavailable candidate or git failure/timeout refuses rather than silently falling back to the working tree.
-    Returns None only when `root` is provably outside any git repository (no `GIT_*` repo/store overrides, no `.git`
-    within `GIT_CEILING_DIRECTORIES`, and Git's C-locale discovery-only diagnostic)."""
+    """Read `ref`'s section body from `candidate` when `root` is inside a git repository. Inside a git repository
+    (including when `GIT_WORK_TREE` points elsewhere), an unavailable candidate or git failure/timeout refuses rather
+    than silently falling back to the working tree. Returns None only when Git's own `rev-parse --git-dir` (respecting
+    `GIT_CEILING_DIRECTORIES` and filesystem boundaries, both with caller env and with repo/store overrides stripped)
+    proves `root` is outside any git repository."""
     c_env = {**os.environ, "LC_ALL": "C", "LANG": "C", "LANGUAGE": "C"}
     try:
-        inside = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+        probe_repo = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--git-dir"],
             capture_output=True, text=True, timeout=60, env=c_env,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise Refused(f"--fidelity is needed: checking git repository for candidate {candidate} failed ({error})")
-    if inside.returncode != 0:
-        err = (inside.stderr or "").strip()
-        repo_env_set = any(os.environ.get(var) for var in _GIT_REPO_ENV_VARS)
-        has_marker = _has_git_marker_within_ceiling(root, os.environ)
-        if not repo_env_set and not has_marker and "not a git repository (or any" in err.lower():
-            return None
-        raise Refused(
-            f"--fidelity is needed: git repository check failed for {root} (exit {inside.returncode}: {err or 'no stderr'})"
-        )
-    if inside.stdout.strip().lower() != "true":
+    if probe_repo.returncode != 0:
+        err = (probe_repo.stderr or "").strip()
+        if "not a git repository (or any" not in err.lower():
+            raise Refused(
+                f"--fidelity is needed: git repository check failed for {root} "
+                f"(exit {probe_repo.returncode}: {err or 'no stderr'})"
+            )
+        if any(os.environ.get(var) for var in _GIT_STORE_ENV_VARS):
+            clean_env = {k: v for k, v in c_env.items() if k not in _GIT_STORE_ENV_VARS}
+            try:
+                clean_probe = subprocess.run(
+                    ["git", "-C", str(root), "rev-parse", "--git-dir"],
+                    capture_output=True, text=True, timeout=60, env=clean_env,
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                raise Refused(
+                    f"--fidelity is needed: checking git repository for candidate {candidate} failed ({error})"
+                )
+            clean_err = (clean_probe.stderr or "").strip()
+            if clean_probe.returncode == 0 or "not a git repository (or any" not in clean_err.lower():
+                raise Refused(
+                    f"--fidelity is needed: git repository check failed for {root} "
+                    f"(exit {probe_repo.returncode}: {err or 'no stderr'})"
+                )
         return None
     try:
         probe = subprocess.run(
