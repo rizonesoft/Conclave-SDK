@@ -693,6 +693,12 @@ IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
 REPO_QUALIFIED_REF = re.compile(r"^(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@(.+)$")
+COMMIT_POINTER_WORDS = frozenset({
+    "commit", "commits", "diff", "diffs", "patch", "patches", "link", "links",
+    "url", "urls", "permalink", "permalinks", "rev", "revs", "revision", "revisions",
+    "sha", "shas", "ref", "refs", "changeset", "changesets", "pr", "mr",
+    "here", "see", "view", "details", "compare",
+})
 REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
@@ -2075,11 +2081,8 @@ def _strip_outer_url_punct(raw):
     return raw[i:j]
 
 
-def _is_www_url(trimmed):
-    """True when `trimmed` is a GFM §6.9 / IDN extended `www.` autolink (`www.<domain>[:/?#...]`)."""
-    if len(trimmed) < 5 or trimmed[:4].lower() != "www.":
-        return False
-    rest = trimmed[4:]
+def _has_domain_host(rest):
+    """True when `rest` starts with a valid dotted domain host (ASCII or IDN) before any `/`, `?`, `#`, or `:`."""
     end = len(rest)
     for sep in ("/", "?", "#", ":"):
         pos = rest.find(sep)
@@ -2110,12 +2113,22 @@ def _is_www_url(trimmed):
     return True
 
 
+def _is_www_url(trimmed):
+    """True when `trimmed` is a GFM §6.9 / IDN extended `www.` autolink (`www.<domain>[:/?#...]`)."""
+    return len(trimmed) >= 5 and trimmed[:4].lower() == "www." and _has_domain_host(trimmed[4:])
+
+
+def _is_proto_rel_url(trimmed):
+    """True when `trimmed` is a protocol-relative URL (`//<domain>[:/?#...]`)."""
+    return len(trimmed) >= 5 and trimmed.startswith("//") and _has_domain_host(trimmed[2:])
+
+
 def _is_url_token(raw):
-    """True when `raw` is an explicit scheme URL (`://`) or GFM extended autolink (`www.<host>[:port]...`)."""
+    """True when `raw` is a scheme URL (`://`), protocol-relative URL (`//<host>...`), or GFM `www.<host>...` link."""
     if "://" in raw:
         return True
     trimmed = _strip_outer_url_punct(raw)
-    return bool(trimmed and _is_www_url(trimmed))
+    return bool(trimmed and (_is_www_url(trimmed) or _is_proto_rel_url(trimmed)))
 
 
 def _strip_paired_md(raw):
@@ -2254,6 +2267,8 @@ def _split_plain_revspecs(text):
                 if (ch == "/" and len(buf) >= 4 and buf[-3:] == [":", "/", "/"]
                         and buf[-4].isascii() and (buf[-4].isalnum() or buf[-4] in "+-.")):
                     in_url = True
+                elif ch == "/" and len(buf) == lead_delims + 2 and buf[-2:] == ["/", "/"]:
+                    in_url = True
                 elif ch == "." and len(buf) == lead_delims + 4 and "".join(buf[-4:-1]).lower() == "www":
                     in_url = True
         i += 1
@@ -2360,7 +2375,7 @@ def _all_commit_refs(tokens, seen):
                 if dp[end] and _is_revspec_in_git(_strip_paired_md(" ".join(tokens[k:end])), seen):
                     dp[k] = True
                     break
-        elif dp[k + 1] and _is_commit_ref_token(tok, seen):
+        elif dp[k + 1] and (stripped.lower() in COMMIT_POINTER_WORDS or _is_commit_ref_token(tok, seen)):
             dp[k] = True
     return dp[0]
 
@@ -2592,9 +2607,8 @@ def _strip_inline_emphasis_segments(segments):
             continue
         if prev_sid is not None and sid != prev_sid and (prev_sid or sid):
             left_ch, right_ch = prev_text[-1], text[0]
-            left_ok = left_ch == "`" or left_ch.isalnum() or unicodedata.category(left_ch).startswith("M")
-            right_ok = right_ch == "`" or right_ch.isalnum() or unicodedata.category(right_ch).startswith("M")
-            if left_ok and right_ok:
+            if (not left_ch.isspace() and not right_ch.isspace()
+                    and left_ch not in "/@.~^*-_" and right_ch not in "/@.~^*-_:"):
                 pieces.append(" ")
         pieces.append(text)
         prev_text, prev_sid = text, sid

@@ -1118,6 +1118,10 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} www.m\u00fcnchen.de/project/commit/{built[:8]}"),
             ("SHA plus zero-padded-port www commit permalink with no description",
              f"- Implemented: {repaired[:8]} www.git.example.com:000443/commit/{built[:8]}"),
+            ("SHA plus protocol-relative commit URL with no description",
+             f"- Implemented: {repaired[:8]} //git.example.com/commit/{built[:8]}"),
+            ("SHA plus generic commit-labeled link with no description",
+             f"- Implemented: {repaired[:8]} [commit](https://example.com/commit/{built[:8]})"),
             ("localized filename containing SHA is not a standalone repair SHA",
              f"- Implemented: fixed src/\u4fee\u5fa9{repaired[:8]}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
@@ -1326,6 +1330,10 @@ class ResolutionGuard(ThreePass):
             ("linked backticked SHA directly adjacent to mixed prose", f"- Implemented: 修復API[`{repaired[:8]}`](diff)。"),
             ("linked SHA directly adjacent to Thai word ending in combining tone mark",
              f"- Implemented: \u0e41\u0e01\u0e49[{repaired[:8]}](diff)"),
+            ("linked SHA directly adjacent to decomposed-accent prose",
+             f"- Implemented: corrig\u0065\u0301[{repaired[:8]}](diff)"),
+            ("linked SHA directly after prose colon",
+             f"- Implemented: fixed:[{repaired[:8]}](diff)"),
             ("linked SHA directly adjacent to following CJK prose", f"- Implemented: [{repaired[:8]}](diff)已修復。"),
         )
         for label, note in good_impl_cases:
