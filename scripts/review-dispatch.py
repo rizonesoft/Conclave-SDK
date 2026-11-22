@@ -703,6 +703,7 @@ SETEXT_UNDERLINE = re.compile(r"^[ ]{0,3}(?:=+|-+)[ \t]*$")
 ATX_HEADING = re.compile(r"^[ ]{0,3}#{1,6}(?:[ \t]|$)")
 ASCII_PUNCT = frozenset("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
 CM_ENTITY = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
+CM_URI_AUTOLINK = re.compile(r"^<[A-Za-z][A-Za-z0-9+.-]{1,31}:[^\s<>]*>$")
 HTML_TYPE1_OPEN = re.compile(r"^[ ]{0,3}<(?:pre|script|style|textarea)(?:[ \t>]|$)", re.IGNORECASE)
 HTML_TYPE1_CLOSE = re.compile(r"</(?:pre|script|style|textarea)>", re.IGNORECASE)
 HTML_TYPE2_OPEN = re.compile(r"^[ ]{0,3}<!--")
@@ -1366,7 +1367,8 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
     the stamp holds the receipt to the same order. A findings file not named for a section has no order."""
     if not section_record(record_path):
         return
-    found = read_findings(existing_findings(Path(record_path), f"{kind} review"))
+    raw_text = existing_findings(Path(record_path), f"{kind} review")
+    found = read_findings(raw_text)
     if found is None:
         raise Unrecorded(f"{record_path} cannot be read back ({RESERVED_NAMES}), so no {kind} review was run")
     plans = [e for e in found["plans"] if returned_one_pass(e, "plan")]
@@ -1431,7 +1433,9 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if not descends(chain[-1]["candidate"], candidate):
             raise Refused(f"the reconciliation's candidate does not descend from the last pass's "
                           f"{chain[-1]['candidate']}")
-        if ended_gaps(chain[-1]) and not _tails_have_resolution(_writer_tails_after(found, chain[-1])):
+        if ended_gaps(chain[-1]) and not _tails_have_resolution(
+            _writer_tails_after(found, chain[-1]), doc_ref_defs=_collect_ref_defs(raw_text.splitlines())
+        ):
             raise Refused("the findings file has no resolution entry after the last returned gaps pass; append "
                           "`- Implemented: <plain-text description outside links> in <commit SHA>`, "
                           "`- Filed: <section ref> (<gap>)`, or `## Writer note: <reason>` "
@@ -1455,9 +1459,9 @@ def _writer_tails_after(found, last_returned):
     return tails
 
 
-def _tails_have_resolution(tails):
+def _tails_have_resolution(tails, doc_ref_defs=None):
     seen = {}
-    return any(_has_resolution_entry(nonblank, seen, raw) for nonblank, raw in tails)
+    return any(_has_resolution_entry(nonblank, seen, raw, ref_defs=doc_ref_defs) for nonblank, raw in tails)
 
 
 def _norm_ref_label(label):
@@ -1527,19 +1531,6 @@ def _strip_one_bq(rest, col):
     if after.startswith(" "):
         return True, after[1:], gt_col + 1
     return True, after, gt_col
-
-
-def _strip_bq_at_most(line, limit):
-    """Strip at most `limit` leading CommonMark blockquote markers `>` from `line`, preserving column offset for
-    tab expansion. Returns `(count, rest, col)`."""
-    count, rest, col = 0, line, 0
-    while count < limit:
-        matched, next_rest, next_col = _strip_one_bq(rest, col)
-        if not matched:
-            break
-        rest, col = next_rest, next_col
-        count += 1
-    return count, rest, col
 
 
 def _strip_containers(line, start_col=0):
@@ -1935,6 +1926,7 @@ def _unwrap_markdown_segments(text, ref_defs=()):
     cross link boundaries, while outer emphasis around links (`**[sha](diff)**`) still pairs cleanly."""
     out = []  # each (chunk_str, is_link_label)
     openers = []  # each [is_image, out_index, active, text_index]
+    active_links = []  # subset of openers where not is_image and active (O(N) deactivation)
     i, n = 0, len(text)
     while i < n:
         ch = text[i]
@@ -1967,12 +1959,17 @@ def _unwrap_markdown_segments(text, ref_defs=()):
             i += 2
             continue
         if ch == "[":
-            openers.append([False, len(out), True, i])
+            op = [False, len(out), True, i]
+            openers.append(op)
+            active_links.append(op)
             out.append(("[", False))
             i += 1
             continue
         if ch == "]" and openers:
-            is_image, start_idx, active, br_pos = openers.pop()
+            op = openers.pop()
+            is_image, start_idx, active, br_pos = op
+            if not is_image and active:
+                active_links.pop()
             if not active:
                 out.append(("]", False))
                 i += 1
@@ -2036,9 +2033,9 @@ def _unwrap_markdown_segments(text, ref_defs=()):
                     out[start_idx:] = [(" ", False)]
                 else:
                     out[start_idx:] = [(get_label(), True)]
-                    for op in openers:
-                        if not op[0]:
-                            op[2] = False
+                    for prev_op in active_links:
+                        prev_op[2] = False
+                    active_links.clear()
                 i = end_pos
                 continue
         out.append((ch, False))
@@ -2133,12 +2130,41 @@ def _is_proto_rel_url(trimmed):
     )
 
 
+def _strip_outer_angle_punct(raw):
+    i, j = 0, len(raw)
+    while i < j and (raw[i] in ".,:;()\"'!?" or _is_outer_unicode_punct(raw[i])):
+        i += 1
+    while j > i and (raw[j - 1] in ".,:;()\"'!?" or _is_outer_unicode_punct(raw[j - 1])):
+        j -= 1
+    return raw[i:j]
+
+
+def _is_email_token(trimmed):
+    """True when `trimmed` is a CommonMark §6.5 / GFM §6.9 email autolink (`user@domain.tld`)."""
+    if "@" not in trimmed or "/" in trimmed:
+        return False
+    local, _, domain = trimmed.partition("@")
+    if not local or not domain or "@" in domain:
+        return False
+    if not all(ch.isalnum() or ch in ".!#$%&'*+/=?^_`{|}~-" for ch in local):
+        return False
+    return _has_domain_host(domain)
+
+
 def _is_url_token(raw):
-    """True when `raw` is a scheme URL (`://`), protocol-relative URL (`//<host>...`), or GFM `www.<host>...` link."""
+    """True when `raw` is a scheme URL (`://`), protocol-relative URL (`//<host>...`), GFM `www.<host>...` link,
+    CommonMark §6.5 angle-bracket URI autolink (`<scheme:...>`), or email/mailto autolink."""
     if "://" in raw:
         return True
+    angle = _strip_outer_angle_punct(raw)
+    if angle and CM_URI_AUTOLINK.fullmatch(angle):
+        return True
     trimmed = _strip_outer_url_punct(raw)
-    return bool(trimmed and (_is_www_url(trimmed) or _is_proto_rel_url(trimmed)))
+    if not trimmed:
+        return False
+    if trimmed.lower().startswith("mailto:") and "@" in trimmed:
+        return True
+    return _is_www_url(trimmed) or _is_proto_rel_url(trimmed) or _is_email_token(trimmed)
 
 
 def _strip_paired_md(raw):
@@ -2673,19 +2699,53 @@ def _strip_inline_emphasis_segments(segments, seen=None):
     return "".join(pieces), "".join(outer_pieces)
 
 
-def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
-    """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
-    entry with at least one plain-text description word outside Markdown links (distinct from commit references,
-    ranges, refs, reflog/search selectors, and URLs) and a standalone or Markdown-linked commit SHA resolving in git,
-    a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or
-    body before the next `## `)."""
+def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
+    """True when one pass's writer-authored lines hold at least one valid resolution outside fenced code blocks:
+    a populated `- Implemented:` list item (including continuation lines) with at least one plain-text description
+    word outside Markdown links (distinct from commit references, ranges, refs, reflog/search selectors, and
+    URLs/autolinks) and a standalone or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line
+    matching `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or body before the next `## `)."""
     if seen is None:
         seen = {}
-    ref_defs = _collect_ref_defs(writer_lines if raw_lines is None else raw_lines)
-    for idx, line in enumerate(writer_lines):
+    lines = writer_lines if raw_lines is None else raw_lines
+    if ref_defs is None:
+        ref_defs = _collect_ref_defs(lines)
+    fence = None  # (char, length)
+    idx, total = 0, len(lines)
+    while idx < total:
+        line = lines[idx]
+        if fence is not None:
+            stripped = _expand_leading_tabs(line, 0)
+            m_close = re.match(r"^[ ]{0,3}(`{3,}|~{3,})[ \t]*$", stripped)
+            if m_close and m_close.group(1)[0] == fence[0] and len(m_close.group(1)) >= fence[1]:
+                fence = None
+            idx += 1
+            continue
+        expanded = _expand_leading_tabs(line, 0)
+        fm = FENCE_OPEN.match(expanded)
+        if fm and not (fm.group(1)[0] == "`" and "`" in fm.group(2)):
+            fence = (fm.group(1)[0], len(fm.group(1)))
+            idx += 1
+            continue
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            segments = _unwrap_markdown_segments(m.group(1).strip(), ref_defs)
+            item_lines = [m.group(1)]
+            j = idx + 1
+            while j < total:
+                nxt = lines[j]
+                if not nxt.strip(" \t"):
+                    break
+                nxt_exp = _expand_leading_tabs(nxt, 0)
+                if (FENCE_OPEN.match(nxt_exp) or ATX_HEADING.match(nxt_exp)
+                        or BLOCKQUOTE_ONE.match(nxt_exp) or THEMATIC_BREAK.match(nxt_exp)
+                        or LIST_ITEM_ONE.match(nxt_exp) or HTML_TYPE1_OPEN.match(nxt_exp)
+                        or HTML_TYPE2_OPEN.match(nxt_exp) or HTML_TYPE3_OPEN.match(nxt_exp)
+                        or HTML_TYPE4_OPEN.match(nxt_exp) or HTML_TYPE5_OPEN.match(nxt_exp)
+                        or HTML_TYPE6_OPEN.match(nxt_exp) or HTML_TYPE7_OPEN.match(nxt_exp)):
+                    break
+                item_lines.append(nxt)
+                j += 1
+            segments = _unwrap_markdown_segments("\n".join(item_lines).strip(), ref_defs)
             visible_all, visible_outer = _strip_inline_emphasis_segments(segments, seen)
             parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible_all), seen)
             commit_pos = set()
@@ -2700,14 +2760,20 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
                 outer_non_url = [tok for tok in outer_parts if not _is_url_token(tok)]
                 if outer_non_url and not _all_commit_refs(outer_non_url, seen):
                     return True
+            idx = j
+            continue
         if FILED_LINE.match(line):
             return True
         wn = WRITER_NOTE.match(line)
         if wn:
             if wn.group(1).strip():
                 return True
-            if idx + 1 < len(writer_lines) and not writer_lines[idx + 1].startswith("## "):
+            k = idx + 1
+            while k < total and not lines[k].strip():
+                k += 1
+            if k < total and not lines[k].startswith("## "):
                 return True
+        idx += 1
     return False
 
 

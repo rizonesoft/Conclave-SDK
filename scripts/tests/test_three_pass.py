@@ -1127,6 +1127,22 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} [commit](https://example.com/commit/{built[:8]})"),
             ("SHA plus View on GitHub link with no plain-text description outside links",
              f"- Implemented: {repaired[:8]} [View on GitHub](https://github.com/o/r/commit/{built[:8]})"),
+            ("SHA plus angle-bracket email autolink with no description",
+             f"- Implemented: <owner@example.com> {repaired[:8]}"),
+            ("SHA plus mailto URI autolink with no description",
+             f"- Implemented: <mailto:owner@example.com> {repaired[:8]}"),
+            ("SHA plus bare email autolink with no description",
+             f"- Implemented: owner@example.com {repaired[:8]}"),
+            ("SHA plus angle-bracket URN autolink with no description",
+             f"- Implemented: <urn:isbn:0451450523> {repaired[:8]}"),
+            ("multiline wrapped link covering entire description and SHA",
+             f"- Implemented: [Corrected parser {repaired[:8]}\n  here](diff)"),
+            ("fenced code block quoting Implemented entry refused",
+             f"```text\n- Implemented: corrected parser {repaired[:8]}\n```"),
+            ("tilde fenced code block quoting Filed entry refused",
+             "~~~\n- Filed: D00 T01 §2\n~~~"),
+            ("fenced code block quoting Writer note refused",
+             "```\n## Writer note: quoted example\n```"),
             ("paired link-only description refused when prose sits only inside link label",
              f"- Implemented: [Corrected parser](diff) {repaired[:8]}"),
             ("Git rev:path expression with linked hash filename refused",
@@ -1268,6 +1284,8 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: Corrected parser.[{repaired[:8]}](diff)"),
             ("documented SKILL.md implemented format",
              f"- Implemented: repaired gap 1 in {repaired[:8]}"),
+            ("multiline wrapped implemented item with plain-text description and linked SHA",
+             f"- Implemented: fixed the bug in\n  [{repaired[:8]}](diff)"),
             ("linked SHA followed by sentence-ending exclamation mark",
              f"- Implemented: Fixed the crash in [{repaired[:8]}](diff)!"),
             ("full reference-linked SHA",
@@ -1429,6 +1447,13 @@ class ResolutionGuard(ThreePass):
         self.assertEqual(module._split_plain_revspecs(www_repeat), [www_repeat])
         t_www = time.monotonic() - t0
         self.assertLess(t_www, 0.10, f"_split_plain_revspecs took {t_www:.3f}s on 16k repeated www. tokens")
+        # Linear-time opener deactivation when unmatched "[" or "![" precede repeated links.
+        for prefix in ("[", "!["):
+            many_links = (prefix * 8000) + ("[x](d)" * 8000)
+            t0 = time.monotonic()
+            self.assertEqual(module._unwrap_markdown_links(many_links, set()), (prefix * 8000) + ("x" * 8000))
+            t_links = time.monotonic() - t0
+            self.assertLess(t_links, 0.25, f"_unwrap_markdown_links took {t_links:.3f}s on 8k {prefix}+links")
 
     def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
         cases = (
@@ -1480,6 +1505,18 @@ class ResolutionGuard(ThreePass):
         before_calls = len(self.calls())
         self.ok("reconciliation", repaired2)
         self.assertEqual(len(self.calls()), before_calls + 1)
+
+    def test_document_level_ref_def_from_earlier_pass_resolves_in_later_reconciliation(self):
+        self.to_completion(top="P2", gaps=True)
+        repaired = self.commit("repair1", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired, f"- Implemented: fixed gap 1 in {repaired[:8]}\n\n[repair]: /diff")
+        self.ok("reconciliation", repaired, top="P2", gaps=True)
+        repaired2 = self.commit("repair2", {"src/app/a.py": "x = 3\n"})
+        self.resolve(repaired2, f"- Implemented: [repair] {repaired2[:8]}")
+        before_bytes = self.record.read_bytes()
+        res = self.refused("reconciliation", repaired2, "has no resolution entry")
+        self.assertIn("plain-text description outside links", res.stderr)
+        self.assertEqual(self.record.read_bytes(), before_bytes)
 
     def test_retry_after_no_review_reconciliation_keeps_resolution_and_accepts_post_attempt_note(self):
         self.to_completion(top="P2", gaps=True)
