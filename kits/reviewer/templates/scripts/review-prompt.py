@@ -87,8 +87,8 @@ def resolve_section(ref: str, option: str) -> tuple[dict, int]:
     return data, result.returncode
 
 
-def resolve_todo(ref: str) -> str:
-    data, code = resolve_section(ref, "--todo")
+def resolve_todo(ref: str, resolved: tuple[dict, int] | None = None) -> str:
+    data, code = resolved if resolved is not None else resolve_section(ref, "--todo")
     path = data.get("path")
     if not isinstance(path, str) or not path:
         raise Refused(f"--todo is needed: {GRAPH.name} resolve {ref!r} named no file (exit {code})")
@@ -96,66 +96,129 @@ def resolve_todo(ref: str) -> str:
 
 
 def section_field(body: str, name: str) -> str | None:
-    """The one value of a `**Name:** value` line of a section (as todo-graph.py reads them), or None."""
-    values = re.findall(r"^(?:> )?\*\*" + re.escape(name) + r":\*\*[ \t]*(\S.*)$", body, re.M)
-    return values[0].strip() if len(values) == 1 else None
+    """The one non-empty value of a `**Name:** value` line of a section (matching todo_graph.py: empty or duplicate
+    occurrences return None)."""
+    matches = re.findall(r"^(?:> )?\*\*" + re.escape(name) + r":\*\*(?:[ \t]*(.*))?$", body, re.M)
+    if len(matches) != 1:
+        return None
+    value = matches[0].strip()
+    return value if value else None
 
 
 def _extract_section_body(text: str, number: int) -> str | None:
-    """Body of `## <number>. ...` up to the next `## ` heading (matching todo_graph.section_text)."""
-    m = re.search(rf"^## {number}\. [^\n]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    """Body of `## <number>. ...` up to the next `##` heading (matching todo_graph.section_text)."""
+    m = re.search(rf"^## {number}\. [^\n]*\n(.*?)(?=^##(?:\s|$)|\Z)", text, re.M | re.S)
     return m.group(1) if m else None
 
 
-def _section_body_at_commit(root: Path, candidate: str, rel_path: str, ref: str) -> str | None:
-    """Read `ref`'s section body from `candidate:rel_path` when `candidate` is a commit in `root`; None when `root`
-    has no git commit for `candidate` (for example synthetic SHA fixtures outside a git checkout)."""
+def _find_todo_at_commit(root: Path, candidate: str, ref: str) -> str | None:
+    """Locate `ref`'s TODO file inside `candidate` when the file was renamed after `candidate`."""
+    m = re.fullmatch(r"D(\d{2}) T(\d{2}) §([1-9]\d*)", ref)
+    if not m:
+        return None
+    try:
+        listed = subprocess.run(
+            ["git", "-C", str(root), "ls-tree", "-r", "--name-only", candidate, "--", "todo/"],
+            capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"--fidelity is needed: listing todo/ at candidate {candidate} failed ({error})")
+    if listed.returncode != 0:
+        return None
+    pat = re.compile(rf"^todo/{m[1]}-[^/]+/TODO-{m[2]}-[^/]+\.md$")
+    matches = sorted(line.strip() for line in listed.stdout.splitlines() if pat.fullmatch(line.strip()))
+    return matches[0] if len(matches) == 1 else None
+
+
+def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, ref: str,
+                            explicit_todo: str | None = None) -> str | None:
+    """Read `ref`'s section body from `candidate` when `root` is a git work tree. Inside a git repository, an
+    unavailable candidate or git failure/timeout refuses rather than silently falling back to the working tree.
+    Returns None only when `root` is not inside a git work tree (such as standalone synthetic fixtures)."""
+    try:
+        inside = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"--fidelity is needed: checking git repository for candidate {candidate} failed ({error})")
+    if inside.returncode != 0 or inside.stdout.strip().lower() != "true":
+        return None
     try:
         probe = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}"],
             capture_output=True, text=True, timeout=60,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if probe.returncode != 0:
-        return None
-    try:
-        shown = subprocess.run(
-            ["git", "-C", str(root), "show", f"{candidate}:{rel_path}"],
-            capture_output=True, timeout=60,
-        )
     except (OSError, subprocess.SubprocessError) as error:
-        raise Refused(f"--fidelity is needed: reading {rel_path} at {candidate} failed ({error})")
-    if shown.returncode != 0:
-        raise Refused(f"--fidelity is needed: {rel_path} is not in candidate {candidate}")
+        raise Refused(f"--fidelity is needed: verifying candidate {candidate} in git failed ({error})")
+    if probe.returncode != 0:
+        raise Refused(f"--fidelity is needed: candidate {candidate} is not an available commit in {root}")
+    candidates_to_try = []
+    for p in (explicit_todo, rel_path):
+        if isinstance(p, str) and p and p not in candidates_to_try:
+            candidates_to_try.append(p)
+    shown = None
+    used_path = None
+    for p in candidates_to_try:
+        try:
+            res = subprocess.run(
+                ["git", "-C", str(root), "show", f"{candidate}:{p}"],
+                capture_output=True, timeout=60,
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            raise Refused(f"--fidelity is needed: reading {p} at {candidate} failed ({error})")
+        if res.returncode == 0:
+            shown = res
+            used_path = p
+            break
+    if shown is None:
+        # Handle a TODO file renamed after `candidate` while keeping its DNN TNN identity.
+        historical = _find_todo_at_commit(root, candidate, ref)
+        if historical:
+            try:
+                res = subprocess.run(
+                    ["git", "-C", str(root), "show", f"{candidate}:{historical}"],
+                    capture_output=True, timeout=60,
+                )
+            except (OSError, subprocess.SubprocessError) as error:
+                raise Refused(f"--fidelity is needed: reading {historical} at {candidate} failed ({error})")
+            if res.returncode == 0:
+                shown = res
+                used_path = historical
+    if shown is None:
+        named = explicit_todo or rel_path or ref
+        raise Refused(f"--fidelity is needed: {named} is not in candidate {candidate}")
     num_match = re.search(r"§(\d+)$", ref)
     if not num_match:
         raise Refused(f"--fidelity is needed: cannot parse section number from {ref!r}")
     body = _extract_section_body(shown.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n"),
                                  int(num_match.group(1)))
     if body is None:
-        raise Refused(f"--fidelity is needed: {ref} is not in {rel_path} at candidate {candidate}")
+        raise Refused(f"--fidelity is needed: {ref} is not in {used_path} at candidate {candidate}")
     return body
 
 
-def resolve_fidelity(ref: str, candidate: str | None = None) -> str | None:
+def resolve_fidelity(ref: str, candidate: str | None = None, resolved: tuple[dict, int] | None = None,
+                     explicit_todo: str | None = None) -> str | None:
     """The design source the section itself names, so the reviewer reads the contract the section was planned
     against without the writer retyping it: its `**Fidelity:**` value on `Surface: yes`, None (the template's
-    `none (Surface: no)`) only on an explicit, unambiguous `Surface: no`. When `candidate` is a commit in this repo,
-    the section is read from `candidate` rather than the working tree. A missing body, missing/ambiguous Surface, or
-    `Surface: yes` with no Fidelity is refused, never sent as `none (Surface: no)`. Without todo-graph.py beside this
+    `none (Surface: no)`) only on an explicit, unambiguous `Surface: no`. Always requires the graph response to carry
+    a non-empty `body` (so graphs without body support refuse instead of silently defaulting), and when `root` is a
+    git repository reads the section from `candidate` rather than the working tree. Without todo-graph.py beside this
     script, there is nothing to look up and the default stands."""
     if not GRAPH.is_file():
         return None
-    data, _code = resolve_section(ref, "--fidelity")
-    body = None
-    rel_path = data.get("path")
-    if candidate and isinstance(rel_path, str) and rel_path:
-        body = _section_body_at_commit(Path(__file__).resolve().parent.parent, candidate, rel_path, ref)
-    if body is None:
-        body = data.get("body")
-    if not isinstance(body, str) or not body.strip():
+    data, _code = resolved if resolved is not None else resolve_section(ref, "--fidelity")
+    graph_body = data.get("body")
+    if not isinstance(graph_body, str) or not graph_body.strip():
         raise Refused(f"--fidelity is needed: {GRAPH.name} resolve {ref!r} printed no section body")
+    body = None
+    if candidate:
+        body = _section_body_at_commit(
+            Path(__file__).resolve().parent.parent, candidate, data.get("path"), ref, explicit_todo=explicit_todo
+        )
+    if body is None:
+        body = graph_body
     surface = section_field(body, "Surface")
     if surface == "no":
         return None
@@ -338,15 +401,20 @@ def run(args: argparse.Namespace) -> Path:
         args.last = args.failed
     body = read_template(args.kind)
     todo = one_line(args.todo)
+    explicit_todo = todo or None
+    resolved = None
     if not todo and args.ref and TODO_FILE in body:
-        todo = resolve_todo(args.ref)
+        resolved = resolve_section(args.ref, "--todo")
+        todo = resolve_todo(args.ref, resolved=resolved)
     if not args.findings and args.ref and "`<docs/reviews/" in body:
         args.findings = section_findings(args.ref)
     given_fidelity = args.fidelity
     if args.fidelity is not None and not one_line(args.fidelity):
         raise Refused("--fidelity must not be blank (omit it to let --ref read the section's Surface and Fidelity)")
     if args.fidelity is None and args.ref and FIDELITY_SPAN in body:
-        args.fidelity = resolve_fidelity(args.ref, args.candidate)
+        if resolved is None and GRAPH.is_file():
+            resolved = resolve_section(args.ref, "--fidelity")
+        args.fidelity = resolve_fidelity(args.ref, args.candidate, resolved=resolved, explicit_todo=explicit_todo)
     gates = None
     if args.gates is not None:
         try:

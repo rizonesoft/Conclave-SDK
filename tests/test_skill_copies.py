@@ -459,9 +459,10 @@ class DesignContractWordingTests(unittest.TestCase):
             ".agents/rules/design-contract.md",
             ".claude/rules/design-contract.md",
             "--lenses round --no-surface --paths",
+            "owes two design checks in its checkpoint, both named by the project's design contract rule, and both outputs quoted in the commit body",
             "python scripts/design-lint.py",
             "real rendered check",
-            "Reading the code is not a rendered check",
+            "Reading the code is not a rendered check, and one that cannot run leaves the section not done",
         ):
             self.assertIn(clause, process_text)
 
@@ -469,7 +470,7 @@ class DesignContractWordingTests(unittest.TestCase):
         for clause in (
             ".agents/rules/design-contract.md",
             ".claude/rules/design-contract.md",
-            "static lint and rendered check",
+            "static lint and rendered check: on a section that touched a surface, run both checks and confirm the commit body quotes both outputs",
             "[[schedule.conditional]]",
             "never drop `--surface` or reword a section to `Surface: no`",
         ):

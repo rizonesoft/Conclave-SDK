@@ -440,6 +440,8 @@ class FidelityLookup(Filler):
             "D00 T02 §1": "## 1. Quoted fields\\n\\n> **Surface:** yes\\n> **Fidelity:** docs/design/mockup.md\\n",
             "D00 T02 §2": "## 2. Missing surface\\n\\n**Job:** No surface field.\\n",
             "D00 T02 §3": "## 3. Ambiguous surface\\n\\n**Surface:** yes\\n**Surface:** no\\n",
+            "D00 T02 §4": "## 4. Empty duplicate surface\\n\\n**Surface:**\\n**Surface:** no\\n",
+            "D00 T02 §5": "## 5. Empty duplicate fidelity\\n\\n**Surface:** yes\\n**Fidelity:**\\n**Fidelity:** docs/x.md\\n",
         }
         ref = sys.argv[2] if sys.argv[1:2] == ["resolve"] and len(sys.argv) == 3 else None
         if ref == "D00 T03 §1":
@@ -498,10 +500,13 @@ class FidelityLookup(Filler):
                 self.assertIn("--fidelity must not be blank", message)
 
     def test_missing_or_ambiguous_surface_field_is_refused(self):
-        for ref in ("D00 T02 §2", "D00 T02 §3"):
+        for ref in ("D00 T02 §2", "D00 T02 §3", "D00 T02 §4"):
             with self.subTest(ref=ref):
                 message = self.refused("round", "--fidelity is needed", "--ref", ref)
                 self.assertIn("unambiguous Surface", message)
+        # Empty duplicate Fidelity on Surface: yes is also refused (Round 1 finding 4).
+        message = self.refused("round", "--fidelity is needed", "--ref", "D00 T02 §5")
+        self.assertIn("names no one Fidelity", message)
 
     def test_candidate_commit_fidelity_wins_over_working_tree(self):
         import subprocess
@@ -514,7 +519,8 @@ class FidelityLookup(Filler):
         todo_file = self.root / "todo/00-x/TODO-01-y.md"
         todo_file.parent.mkdir(parents=True, exist_ok=True)
         todo_file.write_text(
-            "## 7. A surface\n\n**Surface:** yes\n**Fidelity:** `docs/design/v1.md` section 1\n",
+            "## 7. A surface\n\n**Surface:** yes\n**Fidelity:** `docs/design/v1.md` section 1\n"
+            "##\tAppendix\n**Surface:** no\n",
             encoding="utf-8",
         )
         git("add", "todo/00-x/TODO-01-y.md")
@@ -535,6 +541,69 @@ class FidelityLookup(Filler):
         self.assertIn("- Fidelity: `docs/design/v1.md` section 1.", text)
         self.assertNotIn("docs/design/v2.md", text)
         self.assertNotIn("docs/design/contract.md", text)
+
+        # Round 1 finding 1: unavailable full SHA inside a git repo refuses instead of falling back to checkout.
+        missing_sha = "f" * 40
+        bad = self.run_filler([
+            "--kind", "round", "--candidate", missing_sha, "--ref", REF,
+            "--purpose", "Verify unavailable SHA refusal.", "--governing", "docs/plan.md", "--out", str(out),
+        ])
+        self.assertEqual(bad.returncode, 2)
+        self.assertIn("not an available commit", bad.stderr)
+
+        # Round 1 finding 3: missing graph body still refuses even on a real git candidate commit.
+        todo3 = self.root / "todo/00-x/TODO-03-z.md"
+        todo3.write_text("## 1. No body\n\n**Surface:** no\n", encoding="utf-8")
+        git("add", "todo/00-x/TODO-03-z.md")
+        git("commit", "-q", "-m", "add todo3")
+        cand3 = git("rev-parse", "HEAD").stdout.strip()
+        no_body = self.run_filler([
+            "--kind", "round", "--candidate", cand3, "--ref", "D00 T03 §1",
+            "--purpose", "Verify missing body refusal on real commit.", "--governing", "docs/plan.md", "--out", str(out),
+        ])
+        self.assertEqual(no_body.returncode, 2)
+        self.assertIn("printed no section body", no_body.stderr)
+
+        # Round 1 finding 2: renaming the TODO file after candidate still resolves candidate's file via DNN TNN.
+        renamed = self.root / "todo/00-x/TODO-01-renamed.md"
+        todo_file.rename(renamed)
+        (self.root / "scripts/todo-graph.py").write_text(
+            self.graph.replace("todo/00-x/TODO-01-y.md", "todo/00-x/TODO-01-renamed.md"),
+            encoding="utf-8",
+        )
+        done_renamed = self.run_filler([
+            "--kind", "round", "--candidate", cand, "--ref", REF,
+            "--purpose", "Verify renamed TODO lookup.", "--governing", "docs/plan.md", "--out", str(out),
+        ])
+        self.assertEqual(done_renamed.returncode, 0, done_renamed.stderr)
+        self.assertIn("- Fidelity: `docs/design/v1.md` section 1.", out.read_text(encoding="utf-8"))
+
+        # Round 1 finding 5: ##<tab> heading ends section 7 so Surface in Appendix is not consumed.
+        todo_tab = self.root / "todo/00-x/TODO-01-y.md"
+        todo_tab.write_text("## 7. Heading only\n##\tAppendix\n**Surface:** no\n", encoding="utf-8")
+        git("add", "todo/00-x/TODO-01-y.md")
+        git("commit", "-q", "-m", "tab heading boundary")
+        cand_tab = git("rev-parse", "HEAD").stdout.strip()
+        tab_res = self.run_filler([
+            "--kind", "round", "--candidate", cand_tab, "--ref", REF,
+            "--purpose", "Verify tab heading stop.", "--governing", "docs/plan.md", "--out", str(out),
+        ])
+        self.assertEqual(tab_res.returncode, 2)
+        self.assertIn("unambiguous Surface", tab_res.stderr)
+
+    def test_plan_prompt_calls_todo_graph_resolve_only_once(self):
+        # Round 1 finding 8: reusing resolve_section() avoids running todo-graph.py resolve twice per prompt.
+        counter = self.root / "resolve-calls.txt"
+        logged_graph = (
+            f"from pathlib import Path\n"
+            f"with open({str(counter)!r}, 'a', encoding='utf-8') as f: f.write('1\\n')\n"
+            + self.graph
+        )
+        (self.root / "scripts/todo-graph.py").write_text(logged_graph, encoding="utf-8")
+        text = self.ok("plan", "--ref", REF)
+        self.assertIn("`todo/00-x/TODO-01-y.md`", text)
+        self.assertIn("- Fidelity: `docs/design/contract.md` section 4.", text)
+        self.assertEqual(len(counter.read_text(encoding="utf-8").splitlines()), 1)
 
 
 class NoGraph(Filler):
