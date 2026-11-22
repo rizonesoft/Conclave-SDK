@@ -605,6 +605,29 @@ class FidelityLookup(Filler):
         self.assertIn("- Fidelity: `docs/design/contract.md` section 4.", text)
         self.assertEqual(len(counter.read_text(encoding="utf-8").splitlines()), 1)
 
+    def test_git_repository_access_error_refuses_instead_of_checkout_fallback(self):
+        # Completion review Gap 1: exit-128 repository-access failure (e.g. dubious ownership) must refuse rather than
+        # falling back to working-tree Fidelity, while non-git directories still work.
+        import importlib.util
+        import unittest.mock
+        spec = importlib.util.spec_from_file_location("review_prompt_under_test", self.root / "scripts/review-prompt.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        fake_128 = subprocess.CompletedProcess(
+            ["git"], 128, stdout="", stderr="fatal: detected dubious ownership in repository at '/repo'\n"
+        )
+        with unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_128):
+            with self.assertRaises(mod.Refused) as ctx:
+                mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF)
+        self.assertIn("git repository check failed", str(ctx.exception))
+        self.assertIn("dubious ownership", str(ctx.exception))
+        # Outside a git repo ("not a git repository" with no .git dir), standalone fixtures still return None.
+        fake_not_git = subprocess.CompletedProcess(
+            ["git"], 128, stdout="", stderr="fatal: not a git repository (or any of the parent directories): .git\n"
+        )
+        with unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
+            self.assertIsNone(mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF))
+
 
 class NoGraph(Filler):
     def test_no_lookup_script_asks_for_todo(self):

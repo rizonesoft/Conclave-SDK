@@ -1596,6 +1596,7 @@ class SeverityRubricDispatch(Harness):
                 filled = subprocess.run(
                     [sys.executable, "-B", str(SCRIPTS / "review-prompt.py"), "--kind", "reconciliation",
                      "--candidate", self.CANDIDATE, "--failed", self.CANDIDATE, "--ref", "D00 T01 §11",
+                     "--fidelity", "none (Surface: no)",
                      "--findings", case_rec.name, "--gates", str(gates_file), "--governing", "AGENTS.md",
                      "--out", str(filled_prompt)],
                     cwd=self.repo, capture_output=True, text=True, timeout=60,

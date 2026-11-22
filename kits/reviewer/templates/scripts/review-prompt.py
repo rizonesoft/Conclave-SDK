@@ -142,7 +142,14 @@ def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, re
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise Refused(f"--fidelity is needed: checking git repository for candidate {candidate} failed ({error})")
-    if inside.returncode != 0 or inside.stdout.strip().lower() != "true":
+    if inside.returncode != 0:
+        err = (inside.stderr or "").strip()
+        if "not a git repository" in err.lower() and not (root / ".git").exists():
+            return None
+        raise Refused(
+            f"--fidelity is needed: git repository check failed for {root} (exit {inside.returncode}: {err or 'no stderr'})"
+        )
+    if inside.stdout.strip().lower() != "true":
         return None
     try:
         probe = subprocess.run(
