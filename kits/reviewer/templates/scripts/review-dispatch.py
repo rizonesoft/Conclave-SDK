@@ -693,12 +693,6 @@ IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
 REPO_QUALIFIED_REF = re.compile(r"^(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@(.+)$")
-COMMIT_POINTER_WORDS = frozenset({
-    "commit", "commits", "diff", "diffs", "patch", "patches", "link", "links",
-    "url", "urls", "permalink", "permalinks", "rev", "revs", "revision", "revisions",
-    "sha", "shas", "ref", "refs", "changeset", "changesets", "pr", "mr",
-    "here", "see", "view", "details", "compare",
-})
 REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
@@ -1439,9 +1433,9 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
                           f"{chain[-1]['candidate']}")
         if ended_gaps(chain[-1]) and not _tails_have_resolution(_writer_tails_after(found, chain[-1])):
             raise Refused("the findings file has no resolution entry after the last returned gaps pass; append "
-                          "`- Implemented: <what changed> in <commit SHA>`, `- Filed: <section ref> (<gap>)`, or "
-                          "`## Writer note: <reason>` (for a contested grade or rule-exempt finding) before "
-                          "dispatching a reconciliation")
+                          "`- Implemented: <plain-text description outside links> in <commit SHA>`, "
+                          "`- Filed: <section ref> (<gap>)`, or `## Writer note: <reason>` "
+                          "(for a contested grade or rule-exempt finding) before dispatching a reconciliation")
 
 
 def _writer_tails_after(found, last_returned):
@@ -2119,8 +2113,24 @@ def _is_www_url(trimmed):
 
 
 def _is_proto_rel_url(trimmed):
-    """True when `trimmed` is a protocol-relative URL (`//<domain>[:/?#...]`)."""
-    return len(trimmed) >= 5 and trimmed.startswith("//") and _has_domain_host(trimmed[2:])
+    """True when `trimmed` is a protocol-relative URL (`//<host>[:/?#...]`), including single-label hosts such as
+    `//localhost/commit/...` when followed by `/`, `?`, `#`, or `:`."""
+    if len(trimmed) < 5 or not trimmed.startswith("//"):
+        return False
+    rest = trimmed[2:]
+    if _has_domain_host(rest):
+        return True
+    end = len(rest)
+    for sep in ("/", "?", "#", ":"):
+        pos = rest.find(sep)
+        if pos != -1 and pos < end:
+            end = pos
+    if end == 0 or end == len(rest):
+        return False
+    host = rest[:end]
+    return all(ch == "-" or ch.isalnum() or unicodedata.category(ch) in ("Mn", "Mc") for ch in host) and any(
+        ch.isalnum() for ch in host
+    )
 
 
 def _is_url_token(raw):
@@ -2132,18 +2142,16 @@ def _is_url_token(raw):
 
 
 def _strip_paired_md(raw):
-    """Strip outer ASCII and Unicode sentence punctuation (never ASCII brackets, git revspec operators `~`/`^`/`^!`,
-    or a leading `:/` search prefix) and matched inline-code backticks (` `` `, `` ` ``). Span-level emphasis
-    (`*`, `_`, `~~`) is already resolved by `_strip_inline_emphasis_segments` respecting link boundaries."""
+    """Strip outer ASCII and Unicode sentence punctuation (never leading `.` or `:`, ASCII brackets, or git revspec
+    operators `~`/`^`/`^!`) and matched inline-code backticks (` `` `, `` ` ``). Span-level emphasis (`*`, `_`, `~~`)
+    is already resolved by `_strip_inline_emphasis_segments` respecting link boundaries."""
     i, j = 0, len(raw)
-    while i < j and (raw[i] in ".,;()<>\"'" or _is_outer_unicode_punct(raw[i])):
+    while i < j and (raw[i] in ",;()<>\"'" or _is_outer_unicode_punct(raw[i])):
         i += 1
     while j > i and (raw[j - 1] in ".,:;()<>\"'?" or _is_outer_unicode_punct(raw[j - 1])
                      or (raw[j - 1] == "!" and not raw[:j].endswith("^!"))):
         j -= 1
     tok = raw[i:j]
-    if tok.startswith(":") and not tok.startswith(":/"):
-        tok = tok.lstrip(":")
     changed = True
     while changed and tok:
         changed = False
@@ -2375,7 +2383,7 @@ def _all_commit_refs(tokens, seen):
                 if dp[end] and _is_revspec_in_git(_strip_paired_md(" ".join(tokens[k:end])), seen):
                     dp[k] = True
                     break
-        elif dp[k + 1] and (stripped.lower() in COMMIT_POINTER_WORDS or _is_commit_ref_token(tok, seen)):
+        elif dp[k + 1] and _is_commit_ref_token(tok, seen):
             dp[k] = True
     return dp[0]
 
@@ -2514,11 +2522,56 @@ def _strip_inline_emphasis(text):
     return "".join(out)
 
 
-def _strip_inline_emphasis_segments(segments):
+def _should_separate_link_boundary(pieces, left_ch, right_ch, seen):
+    """True when a space should separate an adjacent outer segment and link-label segment so standalone linked SHAs
+    next to prose or sentence punctuation stay tokenizable while paths, revspecs, ranges, `<rev>:<path>` expressions,
+    and malformed emphasis stay glued."""
+    if left_ch.isspace() or right_ch.isspace():
+        return False
+    if left_ch in "/@~^*-_" or right_ch in "/@.~^*-_:":
+        return False
+    if left_ch == ".":
+        # Separate after a single sentence-ending period (e.g. `Corrected parser.[sha](diff)`), never after `..`
+        # ranges or leading dotfiles (`.sha`).
+        tail = (pieces[-2] if len(pieces) >= 2 else "") + pieces[-1]
+        if len(tail) < 2:
+            return False
+        before_dot = tail[-2]
+        return before_dot != "." and (
+            before_dot.isalnum() or unicodedata.category(before_dot).startswith("M") or before_dot in ")]\"'"
+        )
+    if left_ch == ":":
+        # Separate after a prose colon (`fixed:[sha](diff)`), never after a Git `<rev>:` or index `:0:` prefix.
+        # Walk backwards only to the preceding whitespace so repeated `:` links stay O(N).
+        chars_rev = []
+        for piece in reversed(pieces):
+            stop = False
+            for ch in reversed(piece):
+                if ch.isspace():
+                    stop = True
+                    break
+                chars_rev.append(ch)
+            if stop:
+                break
+        prefix = "".join(reversed(chars_rev))[:-1]
+        if not prefix or prefix.startswith(":") or prefix.isdigit() or prefix.endswith(":"):
+            return False
+        if seen is not None:
+            if prefix in _repo_refs(seen):
+                return False
+            if COMMIT_TOKEN.fullmatch(prefix) and _is_commit_in_git(prefix, seen):
+                return False
+            if _is_revspec_in_git(prefix, seen):
+                return False
+        return True
+    return True
+
+
+def _strip_inline_emphasis_segments(segments, seen=None):
     """Strip matched span-level CommonMark/GFM emphasis wrappers (`***`, `**`, `*`, `___`, `__`, `_`, `~~`) across
     outer `(chunk, False)` segments while treating link-label `(chunk, True)` segments as their own already-resolved
-    scope so unmatched `*`/`_`/`~` never pair across link boundaries, and insert a token-separating space at a
-    link-label boundary when alphanumeric prose directly abuts a link label."""
+    scope so unmatched `*`/`_`/`~` never pair across link boundaries. Returns `(visible_all, visible_outer)` where
+    `visible_outer` omits link-label text so repair descriptions must include plain text outside Markdown links."""
     resolved = [(chunk if not is_lbl else _strip_inline_emphasis(_strip_inline_html(chunk)), is_lbl)
                 for chunk, is_lbl in segments]
     # Flatten with per-character segment ownership (sid > 0 for link labels, 0 for outer text) so outer flanking
@@ -2601,25 +2654,31 @@ def _strip_inline_emphasis_segments(segments):
             continue
         out.append([ch, 0])
         i += 1
-    pieces, prev_text, prev_sid = [], "", None
+    pieces, outer_pieces, prev_text, prev_sid, saw_link = [], [], "", None, False
     for text, sid in out:
         if not text:
             continue
         if prev_sid is not None and sid != prev_sid and (prev_sid or sid):
-            left_ch, right_ch = prev_text[-1], text[0]
-            if (not left_ch.isspace() and not right_ch.isspace()
-                    and left_ch not in "/@.~^*-_" and right_ch not in "/@.~^*-_:"):
+            if _should_separate_link_boundary(pieces, prev_text[-1], text[0], seen):
                 pieces.append(" ")
         pieces.append(text)
+        if sid == 0:
+            if saw_link and outer_pieces and not outer_pieces[-1][-1].isspace() and not text[0].isspace():
+                outer_pieces.append(" ")
+            outer_pieces.append(text)
+            saw_link = False
+        else:
+            saw_link = True
         prev_text, prev_sid = text, sid
-    return "".join(pieces)
+    return "".join(pieces), "".join(outer_pieces)
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
-    entry with non-empty description text (distinct from commit references, ranges, refs, reflog/search selectors,
-    and URLs) and a standalone or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching
-    `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or body before the next `## `)."""
+    entry with at least one plain-text description word outside Markdown links (distinct from commit references,
+    ranges, refs, reflog/search selectors, and URLs) and a standalone or Markdown-linked commit SHA resolving in git,
+    a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or
+    body before the next `## `)."""
     if seen is None:
         seen = {}
     ref_defs = _collect_ref_defs(writer_lines if raw_lines is None else raw_lines)
@@ -2627,8 +2686,8 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
         m = IMPLEMENTED_LINE.match(line)
         if m:
             segments = _unwrap_markdown_segments(m.group(1).strip(), ref_defs)
-            visible = _strip_inline_emphasis_segments(segments)
-            parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible), seen)
+            visible_all, visible_outer = _strip_inline_emphasis_segments(segments, seen)
+            parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible_all), seen)
             commit_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or _is_url_token(raw):
@@ -2637,9 +2696,9 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
                 if COMMIT_TOKEN.fullmatch(tok) and _is_commit_in_git(tok, seen):
                     commit_pos.add(pos)
             if commit_pos:
-                non_commit = [other for other_pos, other in enumerate(parts)
-                              if other_pos not in commit_pos and not _is_url_token(other)]
-                if non_commit and not _all_commit_refs(non_commit, seen):
+                outer_parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible_outer), seen)
+                outer_non_url = [tok for tok in outer_parts if not _is_url_token(tok)]
+                if outer_non_url and not _all_commit_refs(outer_non_url, seen):
                     return True
         if FILED_LINE.match(line):
             return True

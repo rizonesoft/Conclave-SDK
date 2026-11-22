@@ -3261,6 +3261,8 @@ class ThreePassStamp(Stamp):
         else:
             changed = self.build("repair")
         if ask:
+            with open(self.root / self.FILE, "a", encoding="utf-8", newline="") as handle:
+                handle.write(f"\n- Implemented: repaired gap in {changed[:8]}\n")
             ask("reconciliation", changed)
         self.passed("reconciliation", changed)
         if restore:

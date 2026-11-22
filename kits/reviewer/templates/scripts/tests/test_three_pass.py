@@ -180,6 +180,7 @@ class ThreePass(Harness):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn(needle, result.stderr)
         self.assertEqual(len(self.calls()), before, "a refused pass must not reach the reviewer")
+        return result
 
     def ok(self, kind, candidate, **kwargs):
         result, summary = self.run_pass(kind, candidate, **kwargs)
@@ -1120,8 +1121,24 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} www.git.example.com:000443/commit/{built[:8]}"),
             ("SHA plus protocol-relative commit URL with no description",
              f"- Implemented: {repaired[:8]} //git.example.com/commit/{built[:8]}"),
+            ("SHA plus localhost protocol-relative commit URL with no description",
+             f"- Implemented: {repaired[:8]} //localhost/commit/{built[:8]}"),
             ("SHA plus generic commit-labeled link with no description",
              f"- Implemented: {repaired[:8]} [commit](https://example.com/commit/{built[:8]})"),
+            ("SHA plus View on GitHub link with no plain-text description outside links",
+             f"- Implemented: {repaired[:8]} [View on GitHub](https://github.com/o/r/commit/{built[:8]})"),
+            ("paired link-only description refused when prose sits only inside link label",
+             f"- Implemented: [Corrected parser](diff) {repaired[:8]}"),
+            ("Git rev:path expression with linked hash filename refused",
+             f"- Implemented: fixed HEAD:[{repaired[:8]}](diff)"),
+            ("Git branch:path expression with linked hash filename refused",
+             f"- Implemented: fixed main:[{repaired[:8]}](diff)"),
+            ("Git commit:path expression with linked hash filename refused",
+             f"- Implemented: fixed {built[:8]}:[{repaired[:8]}](diff)"),
+            ("dotfile prefix before linked SHA refused",
+             f"- Implemented: fixed .[{repaired[:8]}](diff)"),
+            ("Git range operator before linked SHA refused",
+             f"- Implemented: fixed {built[:8]}..[{repaired[:8]}](diff)"),
             ("localized filename containing SHA is not a standalone repair SHA",
              f"- Implemented: fixed src/\u4fee\u5fa9{repaired[:8]}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
@@ -1218,7 +1235,8 @@ class ResolutionGuard(ThreePass):
                 if note is not None:
                     self.resolve(repaired, note)
                 before_bytes = self.record.read_bytes()
-                self.refused("reconciliation", repaired, "has no resolution entry")
+                res = self.refused("reconciliation", repaired, "has no resolution entry")
+                self.assertIn("plain-text description outside links", res.stderr)
                 self.assertEqual(self.record.read_bytes(), before_bytes, "refusal must leave findings file unchanged")
         if subprocess.run(["git", "rev-parse", "--verify", "--quiet", "fetch_head^{commit}"],
                           cwd=self.repo, capture_output=True).returncode == 0:
@@ -1243,7 +1261,13 @@ class ResolutionGuard(ThreePass):
             ("bold Markdown-linked SHA",
              f"- Implemented: fixed [**{repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
             ("bold multi-word linked repair description ending in SHA",
-             f"- Implemented: [**fixed in {repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
+             f"- Implemented: repaired [**fixed in {repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
+            ("paired plain-text description accepted when prose sits outside link label",
+             f"- Implemented: Corrected parser {repaired[:8]}"),
+            ("linked SHA immediately after sentence-ending period",
+             f"- Implemented: Corrected parser.[{repaired[:8]}](diff)"),
+            ("documented SKILL.md implemented format",
+             f"- Implemented: repaired gap 1 in {repaired[:8]}"),
             ("linked SHA followed by sentence-ending exclamation mark",
              f"- Implemented: Fixed the crash in [{repaired[:8]}](diff)!"),
             ("full reference-linked SHA",
@@ -1254,10 +1278,10 @@ class ResolutionGuard(ThreePass):
             ("reference-linked SHA with wrapped multiline label definition",
              f"- Implemented: fixed [{repaired[:8]}][release notes]\n\n"
              f"[release\n notes]: https://example.com/commit/{repaired[:8]}"),
-            ("escaped exclamation mark before linked repair prose",
-             f"- Implemented: {repaired[:8]} \\![repaired guard](diff)"),
+            ("escaped exclamation mark before linked SHA",
+             f"- Implemented: fixed \\![{repaired[:8]}](diff)"),
             ("linked repair description with bracketed platform label",
-             f"- Implemented: [fix [Windows] in {repaired[:8]}](diff)"),
+             f"- Implemented: fixed [fix [Windows] in {repaired[:8]}](diff)"),
             ("linked SHA with image syntax in literal destination filename",
              f"- Implemented: fixed [{repaired[:8]}](docs/![](icon).md)"),
             ("blockquoted reference-linked SHA",
@@ -1413,6 +1437,9 @@ class ResolutionGuard(ThreePass):
             ("writer note body for stamp checkbox rule",
              "## Writer note:\n\n- Finding only reports pending stamp checkbox, exempt per "
              "docs/reconciliation-review-prompt.md:26."),
+            ("documented SKILL.md copyable stamp-only writer note",
+             "## Writer note: open Commit item and Implementation Order row are ticked by stamp per "
+             "docs/reconciliation-review-prompt.md"),
         )
         for label, note in cases:
             with self.subTest(case=label):
