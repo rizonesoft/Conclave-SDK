@@ -3415,10 +3415,34 @@ class ThreePassStamp(Stamp):
                     unittest.mock.patch.object(os, "fchown", side_effect=PermissionError("not in project group")):
                 with self.assertRaises(tg.Refused) as ctx:
                     tg.atomic(grp_file, b"updated\n")
-            self.assertIn("cannot preserve group", str(ctx.exception))
+            self.assertIn("cannot preserve ownership", str(ctx.exception))
             self.assertEqual(grp_file.read_bytes(), b"group test\n",
                              "failed group preservation must refuse before replacing original file")
             self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o640)
+
+            # Different owner UID (Rec 10 item 26): must pass exact (expected_uid, -1) and refuse on failure.
+            expected_uid = real_lstat(grp_file).st_uid + 99999
+
+            def fake_other_owner_lstat(p):
+                st = real_lstat(p)
+                if pathlib.Path(p) == grp_file:
+                    return os.stat_result((st.st_mode, st.st_ino, st.st_dev, st.st_nlink,
+                                           expected_uid, st.st_gid, st.st_size,
+                                           st.st_atime, st.st_mtime, st.st_ctime))
+                return st
+
+            with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_owner_lstat), \
+                    unittest.mock.patch.object(os, "fchown", side_effect=PermissionError("cannot chown to original owner")):
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.atomic(grp_file, b"must-not-lock-out-owner\n")
+            self.assertIn("cannot preserve ownership", str(ctx.exception))
+            self.assertEqual(grp_file.read_bytes(), b"group test\n")
+
+            owner_calls = []
+            with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_owner_lstat), \
+                    unittest.mock.patch.object(os, "fchown", side_effect=lambda fd, uid, gid: owner_calls.append((uid, gid))):
+                tg.atomic(grp_file, b"owner-ok\n")
+            self.assertEqual(owner_calls, [(expected_uid, -1)])
 
             fchown_calls = []
             with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_group_lstat), \
@@ -3472,6 +3496,23 @@ class ThreePassStamp(Stamp):
                     with self.assertRaises(tg.Refused) as ctx:
                         tg.atomic(grp_file, b"must-not-publish\n")
                 self.assertIn("cannot preserve POSIX ACL", str(ctx.exception))
+                self.assertEqual(grp_file.read_bytes(), b"acl-cleared\n")
+                # Case 4: kernel silently clearing S_ISGID on unprivileged fchmod is detected by fstat read-back (Rec 10 item 25).
+                os.chmod(grp_file, 0o2640)
+                real_fstat = os.fstat
+
+                def stripped_setgid_fstat(fd):
+                    st = real_fstat(fd)
+                    return os.stat_result((st.st_mode & ~0o2000, st.st_ino, st.st_dev, st.st_nlink,
+                                           st.st_uid, st.st_gid, st.st_size,
+                                           st.st_atime, st.st_mtime, st.st_ctime))
+
+                with unittest.mock.patch.object(os, "getxattr", side_effect=make_getxattr(b"orig-narrow-acl", enodata)), \
+                        unittest.mock.patch.object(os, "setxattr"), \
+                        unittest.mock.patch.object(os, "fstat", side_effect=stripped_setgid_fstat):
+                    with self.assertRaises(tg.Refused) as ctx:
+                        tg.atomic(grp_file, b"must-not-drop-setgid\n")
+                self.assertIn("cannot preserve special mode bits", str(ctx.exception))
                 self.assertEqual(grp_file.read_bytes(), b"acl-cleared\n")
             grp_file.unlink(missing_ok=True)
 

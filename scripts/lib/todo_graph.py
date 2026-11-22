@@ -143,29 +143,36 @@ def _read_posix_acl(target, follow_symlinks=True):
         raise Refused(f"cannot read POSIX ACL on {target}: refusing to replace it ({exc})") from None
 
 
-def _preserve_posix_metadata(path, out_fd, existing_mode, existing_gid, orig_acl):
-    """Reproduce an existing POSIX regular file's group, access ACL, and mode on the replacement fd before
-    `os.replace`, refusing before publication whenever group or ACL parity cannot be preserved."""
-    tmp_gid = os.fstat(out_fd).st_gid
-    if existing_gid is not None and tmp_gid != existing_gid:
+def _preserve_posix_metadata(path, out_fd, existing_mode, existing_uid, existing_gid, orig_acl):
+    """Reproduce an existing POSIX regular file's owner, group, access ACL, and mode (including verified special bits)
+    on the replacement fd before `os.replace`, refusing before publication whenever parity cannot be preserved."""
+    tmp_st = os.fstat(out_fd)
+    need_uid = existing_uid is not None and tmp_st.st_uid != existing_uid
+    need_gid = existing_gid is not None and tmp_st.st_gid != existing_gid
+    if need_uid or need_gid:
         try:
-            os.fchown(out_fd, -1, existing_gid)
+            os.fchown(out_fd, existing_uid if need_uid else -1, existing_gid if need_gid else -1)
         except OSError as exc:
             raise Refused(
-                f"cannot preserve group {existing_gid} on {path}: refusing to replace it ({exc})"
+                f"cannot preserve ownership {existing_uid}:{existing_gid} on {path}: refusing to replace it ({exc})"
             ) from None
+    special = existing_mode & 0o7000
     if orig_acl is not None:
         if not hasattr(os, "setxattr"):
             raise Refused(f"cannot preserve POSIX ACL on {path}: refusing to replace it")
-        if existing_mode & 0o7000:
+        if special:
             # Preserve special bits (setuid/setgid/sticky) without widening group/other/mask before setxattr restores ACL.
-            os.fchmod(out_fd, (existing_mode & 0o7000) | 0o600)
+            os.fchmod(out_fd, special | 0o600)
         try:
             os.setxattr(out_fd, "system.posix_acl_access", orig_acl)
         except OSError as exc:
             raise Refused(
                 f"cannot preserve POSIX ACL on {path}: refusing to replace it ({exc})"
             ) from None
+        if special:
+            final_special = stat.S_IMODE(os.fstat(out_fd).st_mode) & 0o7000
+            require(final_special == special,
+                    f"cannot preserve special mode bits on {path}: refusing to replace it")
         return  # setting system.posix_acl_access already restores the ACL mask and 0o0777 permission bits
     tmp_acl = _read_posix_acl(out_fd)
     if tmp_acl is not None:
@@ -178,6 +185,10 @@ def _preserve_posix_metadata(path, out_fd, existing_mode, existing_gid, orig_acl
                 f"cannot clear inherited POSIX ACL on {path}: refusing to replace it ({exc})"
             ) from None
     os.fchmod(out_fd, existing_mode)
+    if special:
+        final_special = stat.S_IMODE(os.fstat(out_fd).st_mode) & 0o7000
+        require(final_special == special,
+                f"cannot preserve special mode bits on {path}: refusing to replace it")
 
 
 def atomic(path, data):
@@ -185,6 +196,7 @@ def atomic(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = data if isinstance(data, bytes) else data.encode("utf-8")
     existing_mode = None
+    existing_uid = None
     existing_gid = None
     orig_acl = None
     if os.name != "nt":
@@ -192,6 +204,7 @@ def atomic(path, data):
             st = os.lstat(path)
             if stat.S_ISREG(st.st_mode):
                 existing_mode = stat.S_IMODE(st.st_mode)
+                existing_uid = st.st_uid
                 existing_gid = st.st_gid
                 orig_acl = _read_posix_acl(path, follow_symlinks=False)
         except FileNotFoundError:
@@ -204,7 +217,7 @@ def atomic(path, data):
             out.write(raw)
             out.flush()
             if existing_mode is not None:
-                _preserve_posix_metadata(path, out.fileno(), existing_mode, existing_gid, orig_acl)
+                _preserve_posix_metadata(path, out.fileno(), existing_mode, existing_uid, existing_gid, orig_acl)
             os.fsync(out.fileno())
         if os.name != "nt":
             handoff_list, handoff_fd = _handoff_os_lock(path, temporary)
