@@ -745,7 +745,7 @@ VISIBLE_HTML_TAGS = frozenset({
     "progress", "meter", "textarea", "select", "button", "math", "details",
 })
 INVISIBLE_HTML_CONTAINERS = frozenset({"script", "style", "template", "head", "title"})
-HIDDEN_STYLE = re.compile(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b", re.IGNORECASE)
+HTML_TAG_NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -2757,6 +2757,33 @@ def _strip_comments_line(line, in_comment=False, allow_multiline=True):
     return "".join(out), False
 
 
+def _is_style_hidden(style):
+    """True when inline CSS `style` resolves to `display: none` or `visibility: hidden` after evaluating later
+    declarations, CSS comments, and `!important` precedence."""
+    if not style:
+        return False
+    cleaned = re.sub(r"/\*[\s\S]*?\*/", "", style)
+    final = {}  # prop -> (value, important)
+    for decl in cleaned.split(";"):
+        if ":" not in decl:
+            continue
+        prop, _, val = decl.partition(":")
+        prop = prop.strip().lower()
+        if prop not in ("display", "visibility"):
+            continue
+        val = val.strip().lower()
+        imp = bool(re.search(r"!\s*important$", val))
+        if imp:
+            val = re.sub(r"!\s*important$", "", val).strip()
+        if not val:
+            continue
+        prev = final.get(prop)
+        if prev is None or imp or not prev[1]:
+            final[prop] = (val, imp)
+    return (final.get("display", ("", False))[0] == "none"
+            or final.get("visibility", ("", False))[0] == "hidden")
+
+
 class _NoteVisibilityParser(html.parser.HTMLParser):
     """Stdlib HTML parser deciding whether a `## Writer note:` title or body produces any visible rendered text or
     unhidden replaced/widget element, ignoring comments, empty formatting containers, `<script>`/`<style>`/`<template>`,
@@ -2776,13 +2803,13 @@ class _NoteVisibilityParser(html.parser.HTMLParser):
             return True
         if tag == "input" and attr_map.get("type", "").strip().lower() == "hidden":
             return True
-        if HIDDEN_STYLE.search(attr_map.get("style", "")):
+        if _is_style_hidden(attr_map.get("style", "")):
             return True
         return False
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
-        if ":" in tag or "@" in tag:
+        if not HTML_TAG_NAME.fullmatch(tag):
             if self.hidden_depth == 0:
                 self.visible = True
             return
@@ -2796,7 +2823,7 @@ class _NoteVisibilityParser(html.parser.HTMLParser):
 
     def handle_startendtag(self, tag, attrs):
         tag = tag.lower()
-        if ":" in tag or "@" in tag:
+        if not HTML_TAG_NAME.fullmatch(tag):
             if self.hidden_depth == 0:
                 self.visible = True
             return
@@ -3038,7 +3065,6 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             in_open_tag = False
             tag_quote = None
             in_html_t1 = False
-            in_html_t6 = False
             at_block_start = True
             body_chunks = []
             while k < total:
@@ -3050,32 +3076,29 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                         body_fence = None
                         at_block_start = True
                     elif body_line.strip():
-                        return True
+                        body_chunks.append(" code ")
                     k += 1
                     continue
                 if not body_comment and not in_open_tag and not in_html_t1:
                     if not body_line.strip():
                         body_chunks.append("")
                         at_block_start = True
-                        in_html_t6 = False
                         k += 1
                         continue
-                    if not in_html_t6 and body_line.startswith("## "):
+                    if body_line.startswith("## "):
                         break
                     body_exp = _expand_leading_tabs(body_line, 0)
-                    if at_block_start and not in_html_t6 and body_exp.startswith("    "):
-                        return True
-                    if not in_html_t6:
-                        fm_body = FENCE_OPEN.match(body_exp)
-                        if fm_body and not (fm_body.group(1)[0] == "`" and "`" in fm_body.group(2)):
-                            body_fence = (fm_body.group(1)[0], len(fm_body.group(1)))
-                            k += 1
-                            continue
-                        if HTML_TYPE1_OPEN.match(body_exp):
-                            if not HTML_TYPE1_CLOSE.search(body_exp):
-                                in_html_t1 = True
-                        elif HTML_TYPE6_OPEN.match(body_exp):
-                            in_html_t6 = True
+                    if at_block_start and body_exp.startswith("    "):
+                        body_chunks.append(" code ")
+                        k += 1
+                        continue
+                    fm_body = FENCE_OPEN.match(body_exp)
+                    if fm_body and not (fm_body.group(1)[0] == "`" and "`" in fm_body.group(2)):
+                        body_fence = (fm_body.group(1)[0], len(fm_body.group(1)))
+                        k += 1
+                        continue
+                    if HTML_TYPE1_OPEN.match(body_exp) and not HTML_TYPE1_CLOSE.search(body_exp):
+                        in_html_t1 = True
                 elif in_html_t1 and HTML_TYPE1_CLOSE.search(body_line):
                     in_html_t1 = False
                 body_chunks.append(body_line)
