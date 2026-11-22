@@ -73,6 +73,7 @@ import ctypes
 from datetime import datetime, timezone
 import hashlib
 import html
+import html.parser
 import importlib.util
 import json
 import os
@@ -736,22 +737,15 @@ HTML_INLINE_TAG = re.compile(
     r"|!\[CDATA\[[\s\S]*?\]\])>",
     re.IGNORECASE,
 )
-HTML_VISIBLE_TAG = re.compile(
-    r"^<(?:img|svg|video|audio|canvas|iframe|object|embed|picture|input|progress|meter|textarea|select|button|math)"
-    r"(?:\s|/?>)",
-    re.IGNORECASE,
-)
-HTML_NOTE_TAG = re.compile(
-    r"<(?:"
-    r"[A-Za-z][A-Za-z0-9-]*(?:(?:[ \t]|\n(?![ \t]*\n))+[A-Za-z_:][A-Za-z0-9_.:-]*"
-    r"(?:(?:[ \t]|\n(?![ \t]*\n))*=(?:[ \t]|\n(?![ \t]*\n))*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
-    r"(?:[ \t]|\n(?![ \t]*\n))*/?"
-    r"|/[A-Za-z][A-Za-z0-9-]*(?:[ \t]|\n(?![ \t]*\n))*"
-    r"|\?[\s\S]*?\?"
-    r"|![A-Za-z][^>]*"
-    r"|!\[CDATA\[[\s\S]*?\]\])>",
-    re.IGNORECASE,
-)
+VOID_HTML_TAGS = frozenset({
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr",
+})
+VISIBLE_HTML_TAGS = frozenset({
+    "img", "svg", "video", "audio", "canvas", "iframe", "object", "embed", "picture", "input",
+    "progress", "meter", "textarea", "select", "button", "math", "details",
+})
+INVISIBLE_HTML_CONTAINERS = frozenset({"script", "style", "template", "head", "title"})
+HIDDEN_STYLE = re.compile(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\b", re.IGNORECASE)
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -2763,10 +2757,79 @@ def _strip_comments_line(line, in_comment=False, allow_multiline=True):
     return "".join(out), False
 
 
-def _visible_note_text(text):
-    """Return visible text from a comment-stripped writer-note title or body line, preserving backtick code spans and
-    visible media HTML elements (such as `<img>`) while dropping empty HTML container/formatting tags (`<span></span>`,
-    `<div></div>`, `<br>`)."""
+class _NoteVisibilityParser(html.parser.HTMLParser):
+    """Stdlib HTML parser deciding whether a `## Writer note:` title or body produces any visible rendered text or
+    unhidden replaced/widget element, ignoring comments, empty formatting containers, `<script>`/`<style>`/`<template>`,
+    `hidden` attributes (including on ancestors), `input[type=hidden]`, and `display:none`/`visibility:hidden`."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.visible = False
+        self.stack = []  # each (tag, is_hidden)
+        self.hidden_depth = 0
+
+    def _is_hidden(self, tag, attrs):
+        if tag in INVISIBLE_HTML_CONTAINERS:
+            return True
+        attr_map = {k.lower(): ("" if v is None else v) for k, v in attrs}
+        if "hidden" in attr_map:
+            return True
+        if tag == "input" and attr_map.get("type", "").strip().lower() == "hidden":
+            return True
+        if HIDDEN_STYLE.search(attr_map.get("style", "")):
+            return True
+        return False
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if ":" in tag or "@" in tag:
+            if self.hidden_depth == 0:
+                self.visible = True
+            return
+        hid = self._is_hidden(tag, attrs)
+        if self.hidden_depth == 0 and not hid and tag in VISIBLE_HTML_TAGS:
+            self.visible = True
+        if tag not in VOID_HTML_TAGS:
+            self.stack.append((tag, hid))
+            if hid:
+                self.hidden_depth += 1
+
+    def handle_startendtag(self, tag, attrs):
+        tag = tag.lower()
+        if ":" in tag or "@" in tag:
+            if self.hidden_depth == 0:
+                self.visible = True
+            return
+        hid = self._is_hidden(tag, attrs)
+        if self.hidden_depth == 0 and not hid and tag in VISIBLE_HTML_TAGS:
+            self.visible = True
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        for pos in range(len(self.stack) - 1, -1, -1):
+            if self.stack[pos][0] == tag:
+                for _, hid in self.stack[pos:]:
+                    if hid:
+                        self.hidden_depth -= 1
+                del self.stack[pos:]
+                break
+
+    def handle_data(self, data):
+        if self.hidden_depth == 0 and data.strip():
+            self.visible = True
+
+    def handle_entityref(self, name):
+        if self.hidden_depth == 0 and html.unescape(f"&{name};").strip():
+            self.visible = True
+
+    def handle_charref(self, name):
+        if self.hidden_depth == 0 and _decode_cm_entity(re.match(r".*", f"&#{name};")).strip():
+            self.visible = True
+
+
+def _mask_note_code_spans(text, allow_multiline_comment=True):
+    """Replace matched CommonMark §6.1 backtick code spans outside HTML comments/tags with visible text so literal
+    tags/comments in inline code stay visible, and escape unclosed `<!--` in single-line ATX heading titles."""
     out = []
     i, n = 0, len(text)
     while i < n:
@@ -2776,24 +2839,116 @@ def _visible_note_text(text):
                 j += 1
             close = _find_closing_ticks(text, j, j - i)
             if close != -1:
-                end = close + (j - i)
-                out.append(text[i:end])
-                i = end
+                out.append(" code ")
+                i = close + (j - i)
                 continue
             out.append(text[i:j])
             i = j
             continue
-        if text[i] == "<":
-            hm = HTML_NOTE_TAG.match(text, i)
-            if hm:
-                tag = text[i : hm.end()]
-                if HTML_VISIBLE_TAG.match(tag):
-                    out.append(tag)
-                i = hm.end()
+        if text.startswith("<!--", i):
+            close = text.find("-->", i + 4)
+            if close == -1:
+                if text.startswith("<!-->", i):
+                    out.append("<!-->")
+                    i += 5
+                    continue
+                if text.startswith("<!--->", i):
+                    out.append("<!--->")
+                    i += 6
+                    continue
+                if allow_multiline_comment:
+                    out.append(text[i:])
+                    break
+                out.append("&lt;!--")
+                i += 4
                 continue
+            out.append(text[i : close + 3])
+            i = close + 3
+            continue
+        if text[i] == "<" and i + 1 < n and (text[i + 1].isalpha() or text[i + 1] == "/"):
+            j = i + 1
+            quote = None
+            while j < n:
+                ch = text[j]
+                if quote:
+                    if ch == quote:
+                        quote = None
+                elif ch in ('"', "'"):
+                    quote = ch
+                elif ch == ">":
+                    j += 1
+                    break
+                j += 1
+            out.append(text[i:j])
+            i = j
+            continue
         out.append(text[i])
         i += 1
     return "".join(out)
+
+
+def _has_visible_note_content(text, allow_multiline_comment=True):
+    """True when `text` (a `## Writer note:` title or collected body) renders visible text or an unhidden widget."""
+    if not text.strip():
+        return False
+    parser = _NoteVisibilityParser()
+    parser.feed(_mask_note_code_spans(text, allow_multiline_comment=allow_multiline_comment))
+    parser.close()
+    return parser.visible
+
+
+def _advance_html_tag_state(line, in_comment, in_open_tag, tag_quote):
+    """Advance multiline HTML comment and open-tag/attribute-quote state across `line` (outside code spans) so
+    `## ` inside a multiline HTML comment or open-tag attribute does not split a `## Writer note:` body early."""
+    i, n = 0, len(line)
+    while i < n:
+        if in_comment:
+            close = line.find("-->", i)
+            if close == -1:
+                return True, in_open_tag, tag_quote
+            in_comment = False
+            i = close + 3
+            continue
+        if in_open_tag:
+            ch = line[i]
+            if tag_quote:
+                if ch == tag_quote:
+                    tag_quote = None
+            elif ch in ('"', "'"):
+                tag_quote = ch
+            elif ch == ">":
+                in_open_tag = False
+            i += 1
+            continue
+        if line[i] == "`":
+            j = i
+            while j < n and line[j] == "`":
+                j += 1
+            close = _find_closing_ticks(line, j, j - i)
+            if close != -1:
+                i = close + (j - i)
+                continue
+            i = j
+            continue
+        if line.startswith("<!--", i):
+            close = line.find("-->", i + 4)
+            if close == -1:
+                if line.startswith("<!-->", i):
+                    i += 5
+                    continue
+                if line.startswith("<!--->", i):
+                    i += 6
+                    continue
+                return True, False, None
+            i = close + 3
+            continue
+        if line[i] == "<" and i + 1 < n and (line[i + 1].isalpha() or line[i + 1] == "/"):
+            in_open_tag = True
+            tag_quote = None
+            i += 2
+            continue
+        i += 1
+    return in_comment, in_open_tag, tag_quote
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
@@ -2875,37 +3030,66 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
         if wn:
             # Strip optional CommonMark §4.2 ATX closing `#` sequence (must follow whitespace in the full heading).
             title = re.sub(r"[ \t]+#+[ \t]*$", "", wn.group(1))
-            visible_title, _ = _strip_comments_line(title, in_comment=False, allow_multiline=False)
-            if _visible_note_text(visible_title).strip():
+            if _has_visible_note_content(title, allow_multiline_comment=False):
                 return True
             k = idx + 1
             body_comment = False
+            body_fence = None
+            in_open_tag = False
+            tag_quote = None
+            in_html_t1 = False
+            in_html_t6 = False
             at_block_start = True
             body_chunks = []
             while k < total:
                 body_line = lines[k]
-                if not body_comment:
+                if body_fence is not None:
+                    stripped = _expand_leading_tabs(body_line, 0)
+                    m_close = re.match(r"^[ ]{0,3}(`{3,}|~{3,})[ \t]*$", stripped)
+                    if m_close and m_close.group(1)[0] == body_fence[0] and len(m_close.group(1)) >= body_fence[1]:
+                        body_fence = None
+                        at_block_start = True
+                    elif body_line.strip():
+                        return True
+                    k += 1
+                    continue
+                if not body_comment and not in_open_tag and not in_html_t1:
                     if not body_line.strip():
                         body_chunks.append("")
                         at_block_start = True
+                        in_html_t6 = False
                         k += 1
                         continue
-                    if body_line.startswith("## "):
+                    if not in_html_t6 and body_line.startswith("## "):
                         break
                     body_exp = _expand_leading_tabs(body_line, 0)
-                    if at_block_start and body_exp.startswith("    "):
+                    if at_block_start and not in_html_t6 and body_exp.startswith("    "):
                         return True
-                    fm_body = FENCE_OPEN.match(body_exp)
-                    if fm_body and not (fm_body.group(1)[0] == "`" and "`" in fm_body.group(2)):
-                        return True
-                visible_body, body_comment = _strip_comments_line(body_line, in_comment=body_comment, allow_multiline=True)
-                body_chunks.append(visible_body)
+                    if not in_html_t6:
+                        fm_body = FENCE_OPEN.match(body_exp)
+                        if fm_body and not (fm_body.group(1)[0] == "`" and "`" in fm_body.group(2)):
+                            body_fence = (fm_body.group(1)[0], len(fm_body.group(1)))
+                            k += 1
+                            continue
+                        if HTML_TYPE1_OPEN.match(body_exp):
+                            if not HTML_TYPE1_CLOSE.search(body_exp):
+                                in_html_t1 = True
+                        elif HTML_TYPE6_OPEN.match(body_exp):
+                            in_html_t6 = True
+                elif in_html_t1 and HTML_TYPE1_CLOSE.search(body_line):
+                    in_html_t1 = False
+                body_chunks.append(body_line)
+                if not in_html_t1:
+                    body_comment, in_open_tag, tag_quote = _advance_html_tag_state(
+                        body_line, body_comment, in_open_tag, tag_quote
+                    )
                 at_block_start = False
                 k += 1
-            if _visible_note_text("\n".join(body_chunks)).strip():
+            if _has_visible_note_content("\n".join(body_chunks), allow_multiline_comment=True):
                 return True
             idx = k
             in_comment = body_comment
+            fence = body_fence
             continue
         idx += 1
     return False
