@@ -717,11 +717,13 @@ HTML_TYPE7_OPEN = re.compile(
     re.IGNORECASE,
 )
 HTML_INLINE_TAG = re.compile(
-    r"<(?:(?P<break>/?(?:br|hr|p|div|li|tr|td|th)(?:[ \t]+[^<>]*)?/?)"
+    r"<(?:(?P<phrasing>/?(?:a|abbr|b|bdi|bdo|cite|code|data|del|dfn|em|i|ins|kbd|mark|q|s|samp|small|span|strong|"
+    r"sub|sup|time|u|var)(?:(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?)?)"
     r"|[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
     r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?"
     r"|/[A-Za-z][A-Za-z0-9-]*[ \t]*"
-    r"|!--[\s\S]*?--"
+    r"|!-->|!--->|!--[\s\S]*?--"
     r"|\?[\s\S]*?\?"
     r"|![A-Za-z][^>]*"
     r"|!\[CDATA\[[\s\S]*?\]\])>",
@@ -1647,9 +1649,29 @@ def _strip_indent(line, indent, start_col=0):
     return True, expanded[indent:], start_col + indent
 
 
-def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
-    """Scan a CommonMark link title starting at `(start_line, start_pos)` across consecutive non-blank, non-fence
-    lines at blockquote depth `bq`. Returns closing line index when valid, else None."""
+def _read_ref_continuation(line, containers):
+    """Read a continuation line for a CommonMark §4.7 link reference definition inside `containers`.
+    Returns the expanded continuation text, or None if the line exits an enclosing blockquote, is blank, or starts
+    a block-level interrupt (blockquote, fence, HTML block, ATX heading, Setext underline, thematic break, or list)."""
+    matched, rest, col, blank_at = _match_containers(line, containers, allow_thematic_exit=True)
+    if blank_at is not None:
+        return None
+    exp = _expand_leading_tabs(rest, col)
+    if not exp.strip(" \t") or BLOCKQUOTE_ONE.match(exp) or _fence_step(exp, None, col)[1] \
+            or _html_block_start(exp, True)[0] or ATX_HEADING.match(exp) or THEMATIC_BREAK.match(exp) \
+            or SETEXT_UNDERLINE.match(exp):
+        return None
+    lm = LIST_ITEM_ONE.match(exp)
+    if lm:
+        after = _expand_leading_tabs(exp[lm.end():], col + lm.end())
+        if after == "" or after.startswith(" "):
+            return None
+    return exp
+
+
+def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, containers):
+    """Scan a CommonMark link title starting at `(start_line, start_pos)` across consecutive continuation lines
+    inside `containers`. Returns closing line index when valid, else None."""
     opener = start_text[start_pos]
     closer = ")" if opener == "(" else opener
     line_idx = start_line
@@ -1666,11 +1688,8 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
         line_idx += 1
         if line_idx >= n:
             return None
-        next_bq, next_content, next_col = _strip_bq_at_most(raw_lines[line_idx], bq)
-        next_exp = _expand_leading_tabs(next_content, next_col)
-        if next_bq != bq or BLOCKQUOTE_ONE.match(next_exp) or not next_exp.strip(" \t"):
-            return None
-        if _fence_step(next_exp, None, next_col)[1]:
+        next_exp = _read_ref_continuation(raw_lines[line_idx], containers)
+        if next_exp is None:
             return None
         text, pos = next_exp, 0
 
@@ -1796,7 +1815,6 @@ def _collect_ref_defs(raw_lines):
             in_para = True
             i += 1
             continue
-        bq = sum(1 for f in containers if f[0] == "bq")
         rest = m.group(2)
         start = i
         if not rest:
@@ -1804,10 +1822,8 @@ def _collect_ref_defs(raw_lines):
                 in_para = True
                 i += 1
                 continue
-            next_bq, next_content, next_col = _strip_bq_at_most(raw_lines[i + 1], bq)
-            next_exp = _expand_leading_tabs(next_content, next_col)
-            if next_bq != bq or BLOCKQUOTE_ONE.match(next_exp) or not next_exp.strip(" \t") \
-                    or _fence_step(next_exp, None, next_col)[1] or _html_block_start(next_exp, True)[0]:
+            next_exp = _read_ref_continuation(raw_lines[i + 1], containers)
+            if next_exp is None:
                 in_para = True
                 i += 1
                 continue
@@ -1830,7 +1846,7 @@ def _collect_ref_defs(raw_lines):
             in_para = True
             i += 1
             continue
-        end_line = _scan_multiline_title(raw_lines, start, rest, j, bq)
+        end_line = _scan_multiline_title(raw_lines, start, rest, j, containers)
         if end_line is not None:
             defs.add(_norm_ref_label(m.group(1)))
             in_para = False
@@ -2130,33 +2146,35 @@ def _expand_commit_sep_tokens(tokens, seen):
 
 
 def _strip_inline_html(text):
-    """Strip CommonMark §6.6 inline HTML tags and comments outside matched backtick code spans, replacing line-break
-    and block-separator tags (`<br>`, `<hr>`, `<p>`, `<div>`, etc.) with a space and inline tags with empty string."""
+    """Strip CommonMark §6.6 inline HTML tags and comments in leftmost-first order alongside CommonMark §6.1 backtick
+    code spans (so backticks inside HTML comments stay hidden while tags inside code spans stay literal). Transparent
+    inline phrasing tags (`<a>`, `<code>`, `<em>`, etc.) become empty string; replaced, block, and comment HTML
+    constructs (`<img>`, `<br>`, `<!-- ... -->`, etc.) become a space."""
     out = []
-    plain_start, i, n = 0, 0, len(text)
-
-    def clean_plain(seg):
-        return HTML_INLINE_TAG.sub(lambda m: " " if m.group("break") else "", seg)
-
+    i, n = 0, len(text)
     while i < n:
-        if text[i] == "`":
+        ch = text[i]
+        if ch == "`":
             j = i
             while j < n and text[j] == "`":
                 j += 1
             close = _find_closing_ticks(text, j, j - i)
             if close != -1:
-                if i > plain_start:
-                    out.append(clean_plain(text[plain_start:i]))
                 end = close + (j - i)
                 out.append(text[i:end])
                 i = end
-                plain_start = i
                 continue
+            out.append(text[i:j])
             i = j
             continue
+        if ch == "<":
+            m = HTML_INLINE_TAG.match(text, i)
+            if m:
+                out.append("" if m.group("phrasing") else " ")
+                i = m.end()
+                continue
+        out.append(ch)
         i += 1
-    if plain_start < n:
-        out.append(clean_plain(text[plain_start:]))
     return "".join(out)
 
 
