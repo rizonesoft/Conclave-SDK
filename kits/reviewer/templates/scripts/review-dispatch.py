@@ -687,6 +687,10 @@ CANDIDATE = re.compile(r"[0-9a-f]{40}")
 SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
 COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
 DIGEST = re.compile(r"[0-9a-f]{16}")
+IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
+COMMIT_TOKEN = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{7,40}(?![0-9a-fA-F])")
+FILED_LINE = re.compile(r"^- Filed:\s+D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
+WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
 
 def raw_lines(text):
@@ -791,7 +795,9 @@ def _read_findings(text):
         if completion:
             end = next((j for j in range(i, len(lines)) if lines[j].startswith("## ")), len(lines))
             entry["notes"] = [line for line in lines[i:end] if line.strip()]
-            i = end
+            tail_end = next((j for j in range(i, len(lines)) if lines[j].startswith(RESERVED)), len(lines))
+            entry["writer_lines"] = [line for line in lines[i:tail_end] if line.strip()]
+            i = tail_end
             found[PASSES[kind][2]].append(entry)
         else:
             found["rounds"].append(entry)
@@ -1378,6 +1384,46 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if not descends(chain[-1]["candidate"], candidate):
             raise Refused(f"the reconciliation's candidate does not descend from the last pass's "
                           f"{chain[-1]['candidate']}")
+        if ended_gaps(chain[-1]) and not _has_resolution_entry(_writer_lines_after(found, chain[-1])):
+            raise Refused("the findings file has no resolution entry after the last returned gaps pass; append "
+                          "`- Implemented: <what changed> in <commit SHA>`, `- Filed: <section ref> (<gap>)`, or "
+                          "`## Writer note: <reason>` (for a contested grade or rule-exempt finding) before "
+                          "dispatching a reconciliation")
+
+
+def _writer_lines_after(found, last_returned):
+    """Writer-authored non-blank lines belonging to `last_returned` plus any trailing unreturned reconciliation
+    attempts recorded after it (counted review bodies and earlier passes are excluded)."""
+    lines = list(last_returned.get("writer_lines", []))
+    recons = found["reconciliations"]
+    start = next((idx + 1 for idx, entry in enumerate(recons) if entry is last_returned), 0)
+    for entry in recons[start:]:
+        lines.extend(entry.get("writer_lines", []))
+    return lines
+
+
+def _has_resolution_entry(writer_lines):
+    """True when writer-authored lines after the last returned gaps pass hold at least one valid resolution: a
+    populated `- Implemented:` entry naming a commit SHA that resolves in git, a `- Filed: DNN TNN §N` line, or a
+    non-empty `## Writer note:` section (title text or a body line before the next `## ` heading)."""
+    for idx, line in enumerate(writer_lines):
+        m = IMPLEMENTED_LINE.match(line)
+        if m:
+            body = m.group(1).strip()
+            tokens = COMMIT_TOKEN.findall(body)
+            remainder = COMMIT_TOKEN.sub("", body)
+            if tokens and re.search(r"[A-Za-z0-9]", remainder):
+                if any(git("cat-file", "-e", f"{tok}^{{commit}}").returncode == 0 for tok in tokens):
+                    return True
+        if FILED_LINE.match(line):
+            return True
+        wn = WRITER_NOTE.match(line)
+        if wn:
+            if wn.group(1).strip():
+                return True
+            if idx + 1 < len(writer_lines) and not writer_lines[idx + 1].startswith("## "):
+                return True
+    return False
 
 
 def list_rounds(records_dir):

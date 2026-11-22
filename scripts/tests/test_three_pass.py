@@ -189,6 +189,12 @@ class ThreePass(Harness):
     def findings(self):
         return self.module().read_findings(self.record.read_bytes().decode("utf-8"))
 
+    def resolve(self, sha, note=None):
+        """Append a writer resolution entry naming commit `sha` to `self.record`."""
+        line = note if note is not None else f"- Implemented: repaired gap in {sha[:8]}"
+        with open(self.record, "a", encoding="utf-8", newline="") as handle:
+            handle.write(f"\n{line}\n")
+
     def to_completion(self, top="P2", gaps=True):
         """Plan, build, round, then a completion review; returns the last candidate."""
         self.ok("plan", self.base)
@@ -212,6 +218,7 @@ class Chain(ThreePass):
         completion = self.ok("completion", built, gaps=True, top="P2")
         self.assertEqual(completion["lenses"], ["plan-delivery", "record"])
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired)
         done = self.ok("reconciliation", repaired)
         self.assertEqual((done["kind"], done["candidate"], done["recorded"]), ("reconciliation", repaired, True))
         found = self.findings()
@@ -261,6 +268,7 @@ class Chain(ThreePass):
         self.refused("completion", built, "runs once")
         self.refused("reconciliation", self.base, "does not descend from the last pass's")
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired)
         self.ok("reconciliation", repaired)
         self.refused("reconciliation", repaired, "already returned complete")
 
@@ -293,7 +301,9 @@ class Chain(ThreePass):
         built = self.to_completion()
         # Changed in its promise (the checkpoint), not by a dated note: the stamp would refuse this candidate.
         changed = self.commit("reworded", {todo: section.format(how="another mutation fails it")})
+        self.resolve(changed)
         self.ok("reconciliation", changed)
+        # Complete-but-unsettled contract recovery: no new resolution entry is required after a complete pass.
         restored = self.commit("restored", {todo: section.format(how="a mutation fails it").replace(
             "fails it.", "fails it. **Corrected 2026-11-17:** the mutation is named in the findings file.")})
         self.ok("reconciliation", restored)
@@ -327,6 +337,7 @@ class Chain(ThreePass):
                 (self.repo / "scripts/lib/todo_graph.py").write_text(library, encoding="utf-8")
                 self.to_completion()
                 changed = self.commit("reworded", {"todo/x.md": "x\n"})
+                self.resolve(changed)
                 self.ok("reconciliation", changed)
                 later = self.commit("later", {"todo/x.md": "y\n"})
                 if takes_another:
@@ -649,6 +660,7 @@ class Incomplete(ThreePass):
         self.assertIn("no final completion verdict line", summary["failover"][0]["reason"])
         self.ok("completion", built, gaps=True, top="P2")
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired)
         result, _ = self.run_pass("reconciliation", repaired, say=reply("reconciliation", ["adversarial"]))
         self.assertEqual(result.returncode, 1)
         # Four returned passes so far under pass_cap 5: the failed attempts did not count, so this one still runs.
@@ -663,6 +675,7 @@ class Caps(ThreePass):
         built = self.to_completion(top=tops[0])
         for n, top in enumerate(tops[1:], 1):
             built = self.commit(f"repair {n}", {"src/app/a.py": f"x = {n + 1}\n"})
+            self.resolve(built)
             self.ok("reconciliation", built, gaps=True, top=top)
         return built
 
@@ -685,6 +698,7 @@ class Caps(ThreePass):
         # P1, then P2 (progress), then P2 and P2: two in a row without progress.
         self.gaps_until_refused(["P1", "P2", "P2"])
         mid = self.commit("repair mid", {"src/app/a.py": "x = 50\n"})
+        self.resolve(mid)
         # One stalled pass so far, and a failed attempt does not add to it.
         result, _ = self.run_pass("reconciliation", mid, say="no verdict lines at all")
         self.assertEqual(result.returncode, 1)
@@ -722,6 +736,7 @@ class Recurrence(ThreePass):
     def reconcile(self, times, cite=True):
         self.n = getattr(self, "n", 0) + 1
         built = self.commit(f"repair {self.n}", {"src/app/a.py": f"x = {self.n + 1}\n"})
+        self.resolve(built)
         self.ok("reconciliation", built, say=recurring_reply(times, cite))
         return built
 
@@ -738,17 +753,22 @@ class Recurrence(ThreePass):
         self.to_completion()
         for _ in range(4):
             self.reconcile(1)
-        self.ok("reconciliation", self.next_candidate(), say=recurring_reply(1))
+        nxt = self.next_candidate()
+        self.resolve(nxt)
+        self.ok("reconciliation", nxt, say=recurring_reply(1))
 
     def test_an_uncited_count_does_not_stop_the_chain(self):
         self.to_completion()
         self.reconcile(1)
         self.reconcile(3, cite=False)
-        self.ok("reconciliation", self.next_candidate(), say=recurring_reply(1))
+        nxt = self.next_candidate()
+        self.resolve(nxt)
+        self.ok("reconciliation", nxt, say=recurring_reply(1))
 
     def test_a_reconciliation_without_its_line_is_incomplete_and_is_asked_for_it(self):
         self.to_completion()
         built = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(built)
         result, summary = self.run_pass("reconciliation", built, say=recurring_reply(None))
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertIn("no single RECURRING line", summary["failover"][0]["reason"])
@@ -761,6 +781,7 @@ class Recurrence(ThreePass):
         self.base = self.commit("no cap", {".conclave/reviewers.toml": PIN})
         self.to_completion()
         built = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(built)
         self.ok("reconciliation", built, say=recurring_reply(None))
 
 class Blocking(ThreePass):
@@ -780,11 +801,13 @@ class Blocking(ThreePass):
         self.base = self.commit("no blocking", {".conclave/reviewers.toml": PIN})
         self.to_completion(top="none")
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired)
         self.ok("reconciliation", repaired)
 
     def test_a_blocking_pass_is_followed_by_a_reconciliation(self):
         self.to_completion(top="P2")
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired)
         self.ok("reconciliation", repaired, gaps=True, top="P3")
         # That reconciliation ended below the blocking levels, so the loop ends there too.
         self.refused("reconciliation", self.commit("more", {"src/app/a.py": "x = 3\n"}), "below the pin's blocking")
@@ -1025,6 +1048,115 @@ class Decoding(ThreePass):
         self.assertEqual(module.decode_reply("it’s é".encode("utf-8")), "it’s é")
         self.assertEqual(module.decode_reply(b"it\x92s"), "it’s")
         self.assertEqual(module.decode_reply(b"a\x81b"), "a�b")
+
+
+class ResolutionGuard(ThreePass):
+    """D00 T01 §12: reconciliation after a returned gaps pass refuses before invoking the reviewer unless a valid
+    resolution entry appears in writer-authored text after that pass."""
+
+    def test_reconciliation_refuses_missing_or_incomplete_resolution_before_calling_reviewer(self):
+        self.to_completion(top="P2", gaps=True)
+        repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        baseline = self.record.read_bytes()
+        bad_notes = (
+            ("empty", None),
+            ("unprefixed prose", f"- Fixed the gap in {repaired[:8]}"),
+            ("missing commit SHA", "- Implemented: fixed the gap without a commit"),
+            ("nonexistent commit SHA", "- Implemented: fixed the gap in deadbeef"),
+            ("bare SHA with no description", f"- Implemented: `{repaired[:8]}`"),
+            ("bare Filed without ref", "- Filed: later"),
+            ("empty Writer note", "## Writer note:"),
+        )
+        for label, note in bad_notes:
+            with self.subTest(case=label):
+                self.record.write_bytes(baseline)
+                if note is not None:
+                    self.resolve(repaired, note)
+                before_bytes = self.record.read_bytes()
+                self.refused("reconciliation", repaired, "has no resolution entry")
+                self.assertEqual(self.record.read_bytes(), before_bytes, "refusal must leave findings file unchanged")
+        self.record.write_bytes(baseline)
+        self.resolve(repaired, f"- Implemented: fixed the gap in `{repaired[:8]}`")
+        before_calls = len(self.calls())
+        self.ok("reconciliation", repaired)
+        self.assertEqual(len(self.calls()), before_calls + 1)
+
+    def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
+        cases = (
+            ("filed out-of-scope", "- Filed: D00 T01 §2 (out-of-scope gap)"),
+            ("writer note titled", "## Writer note: contested grade\n\n- Finding 1 has no real Path:."),
+            ("writer note body for stamp checkbox rule",
+             "## Writer note:\n\n- Finding only reports pending stamp checkbox, exempt per "
+             "docs/reconciliation-review-prompt.md:26."),
+        )
+        for label, note in cases:
+            with self.subTest(case=label):
+                self.tearDown()
+                self.setUp()
+                self.to_completion(top="P2", gaps=True)
+                repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+                self.resolve(repaired, note)
+                before_calls = len(self.calls())
+                self.ok("reconciliation", repaired)
+                self.assertEqual(len(self.calls()), before_calls + 1)
+
+    def test_markers_in_review_body_or_earlier_pass_do_not_satisfy_current_pass(self):
+        self.ok("plan", self.base)
+        built = self.commit("build", {"src/app/a.py": "x = 1\n"})
+        self.ok("round", built)
+        repaired = self.commit("repair 1", {"src/app/a.py": "x = 2\n"})
+        quoted_reply = (
+            f"1. P2 record: quote `- Implemented: fixed in {repaired[:8]}` and `- Filed: D00 T01 §2`.\n"
+            f"- Implemented: fixed in {repaired[:8]}\n"
+            f"- Filed: D00 T01 §2 (quoted inside review body)\n"
+            f"## Writer note: quoted inside review body\n"
+            + "\n".join(f"LENS {n}: findings" for n in LENSES["completion"])
+            + "\nHIGHEST: P2\nCOMPLETION: gaps"
+        )
+        self.ok("completion", built, say=quoted_reply)
+        before_bytes = self.record.read_bytes()
+        self.refused("reconciliation", repaired, "has no resolution entry")
+        self.assertEqual(self.record.read_bytes(), before_bytes)
+        self.resolve(repaired, f"- Implemented: fixed gap 1 in {repaired[:8]}")
+        self.ok("reconciliation", repaired, gaps=True, top="P2")
+        repaired2 = self.commit("repair 2", {"src/app/a.py": "x = 3\n"})
+        # Completion's resolution entry must not satisfy Reconciliation 1's gaps.
+        before_bytes = self.record.read_bytes()
+        self.refused("reconciliation", repaired2, "has no resolution entry")
+        self.assertEqual(self.record.read_bytes(), before_bytes)
+        self.resolve(repaired2, f"- Implemented: fixed gap 2 in {repaired2[:8]}")
+        before_calls = len(self.calls())
+        self.ok("reconciliation", repaired2)
+        self.assertEqual(len(self.calls()), before_calls + 1)
+
+    def test_retry_after_no_review_reconciliation_keeps_resolution_and_accepts_post_attempt_note(self):
+        self.to_completion(top="P2", gaps=True)
+        repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired, f"- Implemented: fixed gap in {repaired[:8]}")
+        res, _ = self.run_pass("reconciliation", repaired, say="no verdict lines")
+        self.assertEqual(res.returncode, 1)
+        # Retry still sees the resolution written before the failed no-review attempt.
+        before_calls = len(self.calls())
+        self.ok("reconciliation", repaired)
+        self.assertEqual(len(self.calls()), before_calls + 1)
+
+        # And if a historical no-review attempt existed without prior notes, notes added after it are also accepted.
+        self.tearDown()
+        self.setUp()
+        self.to_completion(top="P2", gaps=True)
+        repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        module = self.module()
+        module.record_completion(
+            self.record,
+            {"writer": "claude", "reviewer": None, "failover": [{"reviewer": "sol", "reason": "timed out"}],
+             "review": None, "effort": "medium", "lenses": LENSES["reconciliation"]},
+            "2026-11-22T00:00:00Z", repaired, "reconciliation",
+        )
+        self.refused("reconciliation", repaired, "has no resolution entry")
+        self.resolve(repaired, f"- Implemented: fixed gap in {repaired[:8]}")
+        before_calls = len(self.calls())
+        self.ok("reconciliation", repaired)
+        self.assertEqual(len(self.calls()), before_calls + 1)
 
 
 if __name__ == "__main__":
