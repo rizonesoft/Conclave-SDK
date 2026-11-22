@@ -1064,7 +1064,10 @@ class ResolutionGuard(ThreePass):
             ("missing commit SHA", "- Implemented: fixed the gap without a commit"),
             ("nonexistent commit SHA", "- Implemented: fixed the gap in deadbeef"),
             ("bare SHA with no description", f"- Implemented: `{repaired[:8]}`"),
+            ("malformed identifier suffix", f"- Implemented: {repaired[:8]}oops"),
+            ("bare commit URL", f"- Implemented: https://example.com/commit/{repaired[:8]}"),
             ("bare Filed without ref", "- Filed: later"),
+            ("Filed with double space", "- Filed:  D00 T01 §2 (extra space mismatches stamp)"),
             ("empty Writer note", "## Writer note:"),
         )
         for label, note in bad_notes:
@@ -1075,11 +1078,48 @@ class ResolutionGuard(ThreePass):
                 before_bytes = self.record.read_bytes()
                 self.refused("reconciliation", repaired, "has no resolution entry")
                 self.assertEqual(self.record.read_bytes(), before_bytes, "refusal must leave findings file unchanged")
-        self.record.write_bytes(baseline)
-        self.resolve(repaired, f"- Implemented: fixed the gap in `{repaired[:8]}`")
-        before_calls = len(self.calls())
-        self.ok("reconciliation", repaired)
-        self.assertEqual(len(self.calls()), before_calls + 1)
+        short4 = self.git("rev-parse", "--short=4", repaired)
+        good_impl_cases = (
+            ("backticked short SHA", f"- Implemented: fixed the gap in `{repaired[:8]}`"),
+            ("short=4 SHA", f"- Implemented: fixed in {short4}"),
+            ("uppercase SHA", f"- Implemented: fixed in {repaired[:8].upper()}"),
+            ("non-ASCII Unicode description", f"- Implemented: 修復 {repaired[:8]}"),
+        )
+        for label, note in good_impl_cases:
+            with self.subTest(good_impl=label):
+                self.record.write_bytes(baseline)
+                self.resolve(repaired, note)
+                before_calls = len(self.calls())
+                self.ok("reconciliation", repaired)
+                self.assertEqual(len(self.calls()), before_calls + 1)
+
+    def test_empty_writer_note_cannot_borrow_body_across_retry_and_git_lookups_deduplicate(self):
+        self.to_completion(top="P2", gaps=True)
+        repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        self.resolve(repaired, "## Writer note:")
+        module = self.module()
+        module.record_completion(
+            self.record,
+            {"writer": "claude", "reviewer": None, "failover": [{"reviewer": "sol", "reason": "timed out"}],
+             "review": None, "effort": "medium", "lenses": LENSES["reconciliation"]},
+            "2026-11-22T00:00:00Z", repaired, "reconciliation",
+        )
+        self.resolve(repaired, "ordinary retry log")
+        before_bytes = self.record.read_bytes()
+        self.refused("reconciliation", repaired, "has no resolution entry")
+        self.assertEqual(self.record.read_bytes(), before_bytes)
+
+        calls = []
+        real_git = module.git
+
+        def counting_git(*args):
+            calls.append(args)
+            return real_git(*args)
+
+        with unittest.mock.patch.object(module, "ROOT", self.repo), unittest.mock.patch.object(module, "git", counting_git):
+            line = "- Implemented: fixed " + " ".join(["deadbeef"] * 12)
+            self.assertFalse(module._has_resolution_entry([line]))
+        self.assertEqual(len(calls), 1, f"expected 1 deduplicated git lookup, got {len(calls)}")
 
     def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
         cases = (

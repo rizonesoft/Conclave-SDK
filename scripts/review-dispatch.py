@@ -688,8 +688,8 @@ SKIPPED = re.compile(r"^([a-z0-9][a-z0-9-]*) \((.*)\)$")
 COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
 DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
-COMMIT_TOKEN = re.compile(r"(?<![0-9a-fA-F])[0-9a-f]{7,40}(?![0-9a-fA-F])")
-FILED_LINE = re.compile(r"^- Filed:\s+D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
+COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
+FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
 
@@ -1384,36 +1384,53 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if not descends(chain[-1]["candidate"], candidate):
             raise Refused(f"the reconciliation's candidate does not descend from the last pass's "
                           f"{chain[-1]['candidate']}")
-        if ended_gaps(chain[-1]) and not _has_resolution_entry(_writer_lines_after(found, chain[-1])):
+        if ended_gaps(chain[-1]) and not _tails_have_resolution(_writer_tails_after(found, chain[-1])):
             raise Refused("the findings file has no resolution entry after the last returned gaps pass; append "
                           "`- Implemented: <what changed> in <commit SHA>`, `- Filed: <section ref> (<gap>)`, or "
                           "`## Writer note: <reason>` (for a contested grade or rule-exempt finding) before "
                           "dispatching a reconciliation")
 
 
-def _writer_lines_after(found, last_returned):
-    """Writer-authored non-blank lines belonging to `last_returned` plus any trailing unreturned reconciliation
-    attempts recorded after it (counted review bodies and earlier passes are excluded)."""
-    lines = list(last_returned.get("writer_lines", []))
+def _writer_tails_after(found, last_returned):
+    """Per-pass writer-authored non-blank line lists belonging to `last_returned` and each trailing unreturned
+    reconciliation attempt recorded after it, kept separate so an empty `## Writer note:` in one tail cannot borrow
+    a body across a reserved heading from another."""
+    tails = [list(last_returned.get("writer_lines", []))]
     recons = found["reconciliations"]
     start = next((idx + 1 for idx, entry in enumerate(recons) if entry is last_returned), 0)
     for entry in recons[start:]:
-        lines.extend(entry.get("writer_lines", []))
-    return lines
+        tails.append(list(entry.get("writer_lines", [])))
+    return tails
 
 
-def _has_resolution_entry(writer_lines):
-    """True when writer-authored lines after the last returned gaps pass hold at least one valid resolution: a
-    populated `- Implemented:` entry naming a commit SHA that resolves in git, a `- Filed: DNN TNN §N` line, or a
-    non-empty `## Writer note:` section (title text or a body line before the next `## ` heading)."""
+def _tails_have_resolution(tails):
+    seen = {}
+    return any(_has_resolution_entry(tail, seen) for tail in tails)
+
+
+def _has_resolution_entry(writer_lines, seen=None):
+    """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
+    entry with non-empty description text and a standalone commit SHA resolving in git, a `- Filed: DNN TNN §N` line
+    matching `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or body before the next `## `)."""
+    if seen is None:
+        seen = {}
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            body = m.group(1).strip()
-            tokens = COMMIT_TOKEN.findall(body)
-            remainder = COMMIT_TOKEN.sub("", body)
-            if tokens and re.search(r"[A-Za-z0-9]", remainder):
-                if any(git("cat-file", "-e", f"{tok}^{{commit}}").returncode == 0 for tok in tokens):
+            parts = m.group(1).strip().split()
+            for pos, raw in enumerate(parts):
+                if "/" in raw or "://" in raw:
+                    continue
+                tok = raw.strip("`.,:;()[]<>\"'")
+                if not COMMIT_TOKEN.fullmatch(tok):
+                    continue
+                if not any(any(ch.isalnum() for ch in other) for other_pos, other in enumerate(parts)
+                           if other_pos != pos):
+                    continue
+                key = tok.lower()
+                if key not in seen:
+                    seen[key] = git("cat-file", "-e", f"{tok}^{{commit}}").returncode == 0
+                if seen[key]:
                     return True
         if FILED_LINE.match(line):
             return True
