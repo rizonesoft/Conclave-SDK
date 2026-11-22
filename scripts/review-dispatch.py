@@ -689,7 +689,8 @@ COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
 DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
-REVSPEC_PIECE = re.compile(r"^(?:HEAD|([0-9a-fA-F]{4,40}))(?:[~^][0-9]*)*$")
+REVSPEC_SUFFIX = re.compile(r"(?:[~^][0-9]*)+$")
+REF_DEF_LINE = re.compile(r"^\s{0,3}\[([^\[\]]+)\]:\s*\S")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1409,71 +1410,99 @@ def _tails_have_resolution(tails):
     return any(_has_resolution_entry(tail, seen) for tail in tails)
 
 
-def _unwrap_markdown_links(text):
+def _norm_ref_label(label):
+    return " ".join(label.split()).casefold()
+
+
+def _collect_ref_defs(writer_lines):
+    defs = set()
+    for line in writer_lines:
+        m = REF_DEF_LINE.match(line)
+        if m:
+            defs.add(_norm_ref_label(m.group(1)))
+    return defs
+
+
+def _unwrap_markdown_links(text, ref_defs=()):
     """Replace CommonMark inline links `[label](destination [title])` (supporting `"..."`, `'...'`, and `(...)`
-    titles as well as `<destination>`) with their visible `label` text."""
+    titles as well as `<destination>`) and reference-style links (`[label][id]`, `[label][]`, `[label]` whose
+    definition appears in `ref_defs`) with their visible `label` text."""
     out = []
     i, n = 0, len(text)
     while i < n:
         if text[i] == "[":
             close_br = text.find("]", i + 1)
-            if close_br > i + 1 and close_br + 1 < n and text[close_br + 1] == "(":
+            if close_br > i + 1:
                 label = text[i + 1 : close_br]
                 if "[" not in label:
-                    j = close_br + 2
-                    while j < n and text[j].isspace():
-                        j += 1
-                    # Parse destination (<...> or balanced non-whitespace parens).
-                    dest_start = j
-                    if j < n and text[j] == "<":
-                        j += 1
-                        while j < n and text[j] not in ">\n":
-                            j += 2 if text[j] == "\\" and j + 1 < n else 1
-                        dest_ok = j < n and text[j] == ">"
-                        if dest_ok:
-                            j += 1
-                    else:
-                        depth = 0
-                        while j < n and not text[j].isspace():
-                            if text[j] == "\\" and j + 1 < n:
-                                j += 2
-                                continue
-                            if text[j] == "(":
-                                depth += 1
-                            elif text[j] == ")":
-                                if depth == 0:
-                                    break
-                                depth -= 1
-                            j += 1
-                        dest_ok = j > dest_start and depth == 0
-                    if dest_ok:
-                        ws = j
+                    nxt = close_br + 1
+                    if nxt < n and text[nxt] == "(":
+                        j = nxt + 1
                         while j < n and text[j].isspace():
                             j += 1
-                        # Optional title delimited by "...", '...', or (...).
-                        title_ok = True
-                        if j < n and text[j] != ")":
-                            if j == ws or text[j] not in "\"'(":
-                                title_ok = False
-                            else:
-                                opener = text[j]
-                                closer = ")" if opener == "(" else opener
+                        dest_start = j
+                        if j < n and text[j] == "<":
+                            j += 1
+                            while j < n and text[j] not in ">\n":
+                                j += 2 if text[j] == "\\" and j + 1 < n else 1
+                            dest_ok = j < n and text[j] == ">"
+                            if dest_ok:
                                 j += 1
-                                while j < n and text[j] != closer:
-                                    if opener == "(" and text[j] == "(":
-                                        title_ok = False
+                        else:
+                            depth = 0
+                            while j < n and not text[j].isspace():
+                                if text[j] == "\\" and j + 1 < n:
+                                    j += 2
+                                    continue
+                                if text[j] == "(":
+                                    depth += 1
+                                elif text[j] == ")":
+                                    if depth == 0:
                                         break
-                                    j += 2 if text[j] == "\\" and j + 1 < n else 1
-                                if not title_ok or j >= n or text[j] != closer:
+                                    depth -= 1
+                                j += 1
+                            dest_ok = j > dest_start and depth == 0
+                        if dest_ok:
+                            ws = j
+                            while j < n and text[j].isspace():
+                                j += 1
+                            title_ok = True
+                            if j < n and text[j] != ")":
+                                if j == ws or text[j] not in "\"'(":
                                     title_ok = False
                                 else:
+                                    opener = text[j]
+                                    closer = ")" if opener == "(" else opener
                                     j += 1
-                                    while j < n and text[j].isspace():
+                                    while j < n and text[j] != closer:
+                                        if opener == "(" and text[j] == "(":
+                                            title_ok = False
+                                            break
+                                        j += 2 if text[j] == "\\" and j + 1 < n else 1
+                                    if not title_ok or j >= n or text[j] != closer:
+                                        title_ok = False
+                                    else:
                                         j += 1
-                        if title_ok and j < n and text[j] == ")":
-                            out.append(label)
-                            i = j + 1
-                            continue
+                                        while j < n and text[j].isspace():
+                                            j += 1
+                            if title_ok and j < n and text[j] == ")":
+                                out.append(label)
+                                i = j + 1
+                                continue
+                    elif nxt < n and text[nxt] == "[":
+                        close_ref = text.find("]", nxt + 1)
+                        if close_ref != -1:
+                            ref_id = text[nxt + 1 : close_ref]
+                            if "[" not in ref_id:
+                                lookup = _norm_ref_label(ref_id or label)
+                                if lookup in ref_defs:
+                                    out.append(label)
+                                    i = close_ref + 1
+                                    continue
+                    elif _norm_ref_label(label) in ref_defs:
+                        out.append(label)
+                        i = nxt
+                        continue
         out.append(text[i])
         i += 1
     return "".join(out)
@@ -1486,51 +1515,61 @@ def _is_commit_in_git(tok, seen):
     return seen[key]
 
 
+def _repo_refs(seen):
+    if "__refs__" not in seen:
+        done = git("for-each-ref", "--format=%(refname:short)%0a%(refname)")
+        text = done.stdout.decode("utf-8", "replace") if done.returncode == 0 else ""
+        names = {line.strip() for line in text.splitlines() if line.strip()}
+        names.add("HEAD")
+        seen["__refs__"] = names
+    return seen["__refs__"]
+
+
 def _is_commit_ref_token(raw, seen):
-    """True when `raw` is purely a URL or git commit reference / range / comma-separated SHA list, not prose."""
+    """True when `raw` is purely a URL or git commit reference / branch / tag / range / comma-separated list."""
     if "://" in raw:
         return True
-    stripped = raw.strip("`.,:;()[]<>\"'")
+    stripped = raw.strip("`.,:;()[]<>\"'*_~")
     if not stripped:
         return False
     pieces = [p for chunk in stripped.split(",") for p in re.split(r"\.{2,3}", chunk) if p]
     if not pieces:
         return False
+    refs = _repo_refs(seen)
     for piece in pieces:
-        m = REVSPEC_PIECE.match(piece)
-        if not m:
+        base = REVSPEC_SUFFIX.sub("", piece.lstrip("^"))
+        if not base:
             return False
-        sha = m.group(1)
-        if sha is not None and len(sha) < 7 and not _is_commit_in_git(sha, seen):
-            return False
+        if base in refs:
+            continue
+        if COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
+            continue
+        return False
     return True
 
 
 def _has_resolution_entry(writer_lines, seen=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
-    entry with non-empty description text (distinct from commit references, ranges, and URLs) and a standalone or
-    Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a
+    entry with non-empty description text (distinct from commit references, ranges, refs, and URLs) and a standalone
+    or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a
     non-empty `## Writer note:` section (title text or body before the next `## `)."""
     if seen is None:
         seen = {}
+    ref_defs = _collect_ref_defs(writer_lines)
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            visible = _unwrap_markdown_links(m.group(1).strip())
+            visible = _unwrap_markdown_links(m.group(1).strip(), ref_defs)
             parts = visible.split()
             commit_pos = set()
-            non_desc_pos = set()
             for pos, raw in enumerate(parts):
-                if _is_commit_ref_token(raw, seen):
-                    non_desc_pos.add(pos)
                 if "/" in raw or "://" in raw:
                     continue
-                tok = raw.strip("`.,:;()[]<>\"'")
+                tok = raw.strip("`.,:;()[]<>\"'*_~")
                 if COMMIT_TOKEN.fullmatch(tok) and _is_commit_in_git(tok, seen):
                     commit_pos.add(pos)
-                    non_desc_pos.add(pos)
-            if commit_pos and any(any(ch.isalnum() for ch in other) for other_pos, other in enumerate(parts)
-                                  if other_pos not in non_desc_pos):
+            if commit_pos and any(any(ch.isalnum() for ch in other) and not _is_commit_ref_token(other, seen)
+                                  for other_pos, other in enumerate(parts) if other_pos not in commit_pos):
                 return True
         if FILED_LINE.match(line):
             return True
