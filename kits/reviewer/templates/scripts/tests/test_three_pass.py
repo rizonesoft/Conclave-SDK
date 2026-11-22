@@ -1078,6 +1078,8 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} :/repair the guard"),
             ("SHA plus two multiword commit-message search selectors with no description",
              f"- Implemented: {repaired[:8]} :/repair the guard :/build"),
+            ("SHA plus interleaved search selectors and HEAD with no description",
+             f"- Implemented: {repaired[:8]} :/repair the guard HEAD :/build"),
             ("SHA plus triple-dot range and HEAD with no description",
              f"- Implemented: {repaired[:8]} {built[:8]}...HEAD"),
             ("SHA plus bare commit URL with no description",
@@ -1098,6 +1100,8 @@ class ResolutionGuard(ThreePass):
             ("reference definition inside fenced block after blockquoted backticks",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n```markdown\n> ```\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}\n```"),
+            ("reference definition tab-indented inside list-item fence",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n\t[repair]: https://example.com/commit/{repaired[:8]}\n  ```"),
             ("reference definition indented as code inside list item",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n-     [repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition inside multiline HTML comment",
@@ -1128,6 +1132,8 @@ class ResolutionGuard(ThreePass):
         short4 = self.git("rev-parse", "--short=4", repaired)
         good_impl_cases = (
             ("backticked short SHA", f"- Implemented: fixed the gap in `{repaired[:8]}`"),
+            ("SHA inside inline code command",
+             f"- Implemented: verified `git show {repaired[:8]} --stat`"),
             ("prose with literal opening brace before SHA",
              f"- Implemented: handled literal `{{` in {repaired[:8]}"),
             ("prose with literal @{{ and }} code spans around SHA",
@@ -1144,6 +1150,9 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- [repair]: https://example.com/commit/{repaired[:8]}"),
             ("unindented reference definition after unclosed list-item fence",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n  example\n\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition after list-item fence closed by tab-indented fence",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n  example\n\t```\n\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),

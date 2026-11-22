@@ -1512,28 +1512,50 @@ def _strip_containers(line):
 
 
 def _fence_step(line, fence):
-    """Track CommonMark §4.5 fenced code blocks (` ``` ` or `~~~`). Returns `(new_fence, inside_fence)`."""
+    """Track CommonMark §4.5 fenced code blocks (` ``` ` or `~~~`) using §2.2 4-column tab stops. Returns
+    `(new_fence, inside_fence)`."""
+    col, idx = 0, 0
+    while idx < len(line) and line[idx] in " \t":
+        col += 4 - (col % 4) if line[idx] == "\t" else 1
+        idx += 1
+    if col > 3:
+        return (None, False) if fence is None else (fence, True)
+    stripped = line[idx:]
     if fence is None:
-        m = FENCE_OPEN.match(line)
+        m = FENCE_OPEN.match(stripped)
         if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
             return (m.group(1)[0], len(m.group(1))), True
         return None, False
     char, length = fence
-    stripped = line.lstrip(" ")
-    leading = len(line) - len(stripped)
-    if leading <= 3 and stripped.startswith(char * length) and stripped.lstrip(char).strip(" \t") == "":
+    if stripped.startswith(char * length) and stripped.lstrip(char).strip(" \t") == "":
         return None, True
     return fence, True
 
 
 def _strip_indent(line, indent):
-    """Return `(still_inside, content)` for a line inside a container indented by `indent` spaces."""
-    if indent <= 0 or not line.strip():
-        return True, line[indent:] if indent > 0 and len(line) >= indent else line
-    lead = len(line) - len(line.lstrip(" "))
-    if lead < indent:
+    """Return `(still_inside, content)` for a line inside a container indented by `indent` columns, expanding
+    leading tabs per CommonMark §2.2 (4-column tab stops)."""
+    if indent <= 0:
+        return True, line
+    if not line.strip():
+        return True, ""
+    col, idx = 0, 0
+    while idx < len(line) and col < indent:
+        ch = line[idx]
+        if ch == " ":
+            col += 1
+            idx += 1
+        elif ch == "\t":
+            step = 4 - (col % 4)
+            col += step
+            idx += 1
+            if col > indent:
+                return True, (" " * (col - indent)) + line[idx:]
+        else:
+            break
+    if col < indent:
         return False, line
-    return True, line[indent:]
+    return True, line[idx:]
 
 
 def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
@@ -1769,47 +1791,28 @@ def _is_commit_ref_token(raw, seen):
     return True
 
 
-def _is_multiword_revspec(expr, seen):
-    """True when a space-containing remainder like `:/check resolution`, `HEAD@{1 minute ago}`, `HEAD^{/fix}`, or a
-    range whose endpoint uses one resolves in git as a commit reference."""
-    if not expr:
-        return True
-    pieces = [p.strip() for chunk in expr.split(",") for p in re.split(r"\.{2,3}", chunk) if p.strip()]
-    if not pieces:
-        return True
-    refs = _repo_refs(seen)
-    for piece in pieces:
-        base = REVSPEC_SUFFIX.sub("", piece.lstrip("^"))
-        if base and base in refs:
-            continue
-        if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
-            continue
-        if (piece.startswith(":/") or "@{" in piece or "^{" in piece) and _is_revspec_in_git(piece.lstrip("^"), seen):
-            continue
-        return False
-    return True
-
-
 def _split_revspec_tokens(text):
-    """Split `text` on whitespace while keeping Markdown inline code spans (`` `...` ``) intact and keeping closed
-    Git brace selectors (`@{...}` and `^{...}`) intact only outside code spans (never crossing a backtick)."""
+    """Split `text` on whitespace while keeping closed Git brace selectors (`@{...}` and `^{...}`) intact only
+    outside inline code spans (never grouping across backticks, while still splitting spaces inside code spans so
+    commands like `` `git show <sha> --stat` `` expose their SHA token)."""
     tokens, buf = [], []
     i, n = 0, len(text)
+    tick_delim = None
     while i < n:
         if text[i] == "`":
             j = i
             while j < n and text[j] == "`":
                 j += 1
             ticks = text[i:j]
-            close = text.find(ticks, j)
-            if close != -1:
-                buf.append(text[i : close + len(ticks)])
-                i = close + len(ticks)
-                continue
+            if tick_delim is None:
+                if text.find(ticks, j) != -1:
+                    tick_delim = ticks
+            elif ticks == tick_delim:
+                tick_delim = None
             buf.append(ticks)
             i = j
             continue
-        if text[i] in "@^" and i + 1 < n and text[i + 1] == "{":
+        if tick_delim is None and text[i] in "@^" and i + 1 < n and text[i + 1] == "{":
             close = text.find("}", i + 2)
             if close != -1 and "`" not in text[i + 2 : close]:
                 buf.append(text[i : close + 1])
@@ -1827,19 +1830,39 @@ def _split_revspec_tokens(text):
     return tokens
 
 
-def _all_search_selectors(tokens, seen):
-    """True when `tokens` is a non-empty sequence of one or more `:/...` Git commit-message search selectors (each
-    starting with a token prefixed `:/`, optionally spanning words up to the next `:/` token) that all resolve as
-    commits in git."""
-    if not tokens or not _strip_paired_md(tokens[0]).startswith(":/"):
+def _all_commit_refs(tokens, seen):
+    """True when every token in `tokens` is covered by git commit references, URLs, ranges, reflog selectors,
+    and/or multiword `:/...` commit-message search selectors (leaving zero repair description prose)."""
+    n = len(tokens)
+    memo = {}
+
+    def covers(k):
+        if k == n:
+            return True
+        if k in memo:
+            return memo[k]
+        tok = tokens[k]
+        if not any(ch.isalnum() for ch in tok):
+            memo[k] = covers(k + 1)
+            return memo[k]
+        stripped = _strip_paired_md(tok)
+        if stripped.startswith(":/"):
+            # Try consuming a single- or multi-word `:/...` search selector up to the next `:/` or end.
+            limit = next((m for m in range(k + 1, n) if _strip_paired_md(tokens[m]).startswith(":/")), n)
+            for end in range(limit, k, -1):
+                candidate = _strip_paired_md(" ".join(tokens[k:end]))
+                if _is_revspec_in_git(candidate, seen) and covers(end):
+                    memo[k] = True
+                    return True
+            memo[k] = False
+            return False
+        if _is_commit_ref_token(tok, seen) and covers(k + 1):
+            memo[k] = True
+            return True
+        memo[k] = False
         return False
-    groups = []
-    for tok in tokens:
-        if _strip_paired_md(tok).startswith(":/"):
-            groups.append([tok])
-        else:
-            groups[-1].append(tok)
-    return all(_is_revspec_in_git(_strip_paired_md(" ".join(group)), seen) for group in groups)
+
+    return covers(0)
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
@@ -1865,13 +1888,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
             if commit_pos:
                 non_commit = [other for other_pos, other in enumerate(parts)
                               if other_pos not in commit_pos and "://" not in other]
-                if not non_commit or _is_multiword_revspec(_strip_paired_md(" ".join(non_commit)), seen) \
-                        or _all_search_selectors(non_commit, seen):
-                    continue
-                remaining = [other for other in non_commit
-                             if any(ch.isalnum() for ch in other) and not _is_commit_ref_token(other, seen)]
-                if remaining and not _is_multiword_revspec(_strip_paired_md(" ".join(remaining)), seen) \
-                        and not _all_search_selectors(remaining, seen):
+                if non_commit and not _all_commit_refs(non_commit, seen):
                     return True
         if FILED_LINE.match(line):
             return True
