@@ -128,11 +128,13 @@ def atomic(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     raw = data if isinstance(data, bytes) else data.encode("utf-8")
     existing_mode = None
+    existing_gid = None
     if os.name != "nt":
         try:
             st = os.lstat(path)
             if stat.S_ISREG(st.st_mode):
                 existing_mode = stat.S_IMODE(st.st_mode)
+                existing_gid = st.st_gid
         except FileNotFoundError:
             existing_mode = None
     fd, temporary = tempfile.mkstemp(dir=path.parent)
@@ -143,7 +145,15 @@ def atomic(path, data):
             out.write(raw)
             out.flush()
             if existing_mode is not None:
-                os.fchmod(out.fileno(), existing_mode)
+                apply_mode = existing_mode
+                tmp_gid = os.fstat(out.fileno()).st_gid
+                if existing_gid is not None and tmp_gid != existing_gid:
+                    try:
+                        os.fchown(out.fileno(), -1, existing_gid)
+                    except PermissionError:
+                        # Group could not be preserved: never grant the replacement's unrelated group wider access than other.
+                        apply_mode = (existing_mode & ~0o070) | ((existing_mode & 0o007) << 3)
+                os.fchmod(out.fileno(), apply_mode)
             os.fsync(out.fileno())
         if os.name != "nt":
             handoff_list, handoff_fd = _handoff_os_lock(path, temporary)
@@ -2398,6 +2408,9 @@ def _acquire_os_lock(target_path, oslock_path, todo_lock, rel, action, deadline)
                 return fd
             _release_os_lock(fd)
             fd = None
+            if time.monotonic() >= deadline:
+                raise Refused(f"another {action} is updating {rel} (lock {todo_lock}): {action} waits for it")
+            time.sleep(0.05)
         except OSError as exc:
             _close_os_lock(fd)
             fd = None

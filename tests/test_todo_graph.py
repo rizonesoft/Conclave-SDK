@@ -3394,6 +3394,48 @@ class ThreePassStamp(Stamp):
                 os.chmod(git_dir, orig_git_mode)
                 os.chmod(tmp_oslock, 0o644)
                 tmp_oslock.unlink(missing_ok=True)
+            # (a2) atomic() with a mismatched group on a 0o640 file must try fchown and drop group bits to other's
+            #      level (0o600) if fchown is refused, never granting read access to an unrelated group (Rec 7 item 18).
+            grp_file = self.root / "todo/00-workspace/TODO-group.md"
+            grp_file.write_text("group test\n", encoding="utf-8")
+            os.chmod(grp_file, 0o640)
+            real_lstat = os.lstat
+
+            def fake_other_group_lstat(p):
+                st = real_lstat(p)
+                if pathlib.Path(p) == grp_file:
+                    return os.stat_result((st.st_mode, st.st_ino, st.st_dev, st.st_nlink,
+                                           st.st_uid, st.st_gid + 99999, st.st_size,
+                                           st.st_atime, st.st_mtime, st.st_ctime))
+                return st
+
+            fchown_calls = []
+            with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_group_lstat), \
+                    unittest.mock.patch.object(os, "fchown", side_effect=PermissionError("not in project group")):
+                tg.atomic(grp_file, b"updated\n")
+            self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o600,
+                             "unpreserved group on 0o640 file must not grant read to unrelated group")
+            os.chmod(grp_file, 0o640)
+            with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_group_lstat), \
+                    unittest.mock.patch.object(os, "fchown", side_effect=lambda fd, uid, gid: fchown_calls.append((uid, gid))):
+                tg.atomic(grp_file, b"updated2\n")
+            self.assertEqual(len(fchown_calls), 1)
+            self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o640,
+                             "preserved group via fchown keeps 0o640 mode")
+            grp_file.unlink(missing_ok=True)
+            # (a3) Repeated live-inode mismatch in _acquire_os_lock must respect deadline (Rec 7 item 19).
+            def stale_lstat(p):
+                st = real_lstat(p)
+                if pathlib.Path(p) == todo:
+                    return os.stat_result((st.st_mode, st.st_ino + 1, st.st_dev, st.st_nlink,
+                                           st.st_uid, st.st_gid, st.st_size,
+                                           st.st_atime, st.st_mtime, st.st_ctime))
+                return st
+
+            with unittest.mock.patch.object(os, "lstat", side_effect=stale_lstat):
+                with self.assertRaises(tg.Refused):
+                    tg._acquire_os_lock(todo, tmp_oslock, todo_lock, "todo/00-workspace/TODO-01-a.md",
+                                        "replan", time.monotonic() + 0.15)
             # (b) Pre-planted FIFO at the lock target refuses in <0.5s inside a timeout=5.0 bounded child.
             fifo_target = self.root / "todo/00-workspace/TODO-fifo.md"
             fifo_target.unlink(missing_ok=True)
