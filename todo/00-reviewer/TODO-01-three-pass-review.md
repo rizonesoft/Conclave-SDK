@@ -2,7 +2,7 @@
 schema_version: 1
 id: three-pass-review
 domain: 00-reviewer
-status: active
+status: done
 title: "TODO-01 -- Three-pass review"
 ---
 
@@ -42,7 +42,7 @@ title: "TODO-01 -- Three-pass review"
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [x] |
 | 7 | §7 | Review prompt filler | §2 | [x] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
-| 9 | §9 | Re-plan route for unsettled chains, recovery planned up front | §4, §13 | [ ] |
+| 9 | §9 | Re-plan route for unsettled chains, recovery planned up front | §4, §13 | [x] |
 | 10 | §10 | Verify-only reconciliation trial in the SDK's own pin | -- | [x] |
 | 11 | §11 | One severity rubric weighted by likelihood | -- | [x] |
 | 12 | §12 | Check resolution entries before reconciliation dispatch | -- | [x] |
@@ -350,11 +350,14 @@ Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its
 - [x] Teach `kits/reviewer/templates/scripts/review-dispatch.py` and `stamp` in `kits/todo/templates/scripts/lib/todo_graph.py` that a `-chain<k>.md` file beside a section's findings file is a kept earlier chain: the dispatcher refuses `--record` naming one before any reviewer runs, `stamp` refuses one as `--plan`, `--completion` or `--review` under both a three-pass and a rotation pin, and `review_rounds` (`query rounds`) lists each section's kept chains (`kept_chains`: each file and its returned passes). Done when: the dispatcher's test finds a kept chain refused with the stub reviewer never started and the file byte-identical; stamp tests refuse a chain file as `--plan`, `--completion` and `--review` under both schedules (including a valid rotation round that stamps from the active report and is refused when the same bytes are supplied from `-chain1.md`); a `query rounds` test names two chains with different counts (one holding an incomplete attempt that adds none) and finds a section without archives unchanged.
 - [x] Run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: `python forge.py skill-copies --check` exits 0 and the self-sync test passes.
 - [x] Harden `replan()`'s async `BaseException` fallback and `kept_chains()` containment in `kits/todo/templates/scripts/lib/todo_graph.py` (filed non-blocking P3 item 29 from `D00 T01 §13` Reconciliation 14, plus chain 3 plan review findings 1 to 3): in `replan()`, remove the preliminary `path.is_file()` check and attempt `path.read_bytes()` directly, rolling back `moved_rel` only when the read proves `original_bytes` is still on disk and treating `OSError` conservatively as already published so `moved_rel` stays archived; in `kept_chains()` (used by `query rounds`), enforce `_contained_path()` on every archive before reading it; then run `python forge.py self-sync`. Done when: tests in `tests/test_todo_graph.py` prove (1) `KeyboardInterrupt` at the `os.replace`-to-flag boundary (post-publish) with denied `read_bytes()` and with status-unavailable (`stat()` error) keeps `moved_rel` archived and retry after releasing the denial returns `already` with archive bytes and correction intact, (2) `KeyboardInterrupt` before `os.replace` with unreadable `path` keeps `moved_rel` archived and retry after releasing the denial writes the missing correction and returns `noted` with archive bytes intact, (3) `query rounds` (`review_rounds`) refuses a symlinked `-chain1.md` archive without reporting the target's pass count, and (4) `python -m unittest tests.test_forge -k test_the_sdk_uses_the_agent_setup_its_kits_ship` passes. Cheaper substitute: keeping `path.is_file()` before `read_bytes()`, treating `OSError` on async `BaseException` as unpublished, reading kept chains in `kept_chains()` without `_contained_path`, or editing the kit without running `python forge.py self-sync`.
-- [ ] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
+- [x] Commit: `todo: a chain that cannot settle is re-planned, and recovery is planned before the build`
 
 **Test checkpoint:** Repair loop: `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph` (PowerShell: `$env:CONCLAVE_FULL_TESTS='1'; python -m unittest tests.test_todo_graph`) and `python -m unittest tests.test_forge -k test_the_sdk_uses_the_agent_setup_its_kits_ship -k markdown_table` pass, and forcing an incorrect rollback on an unreadable destination during async `BaseException` or removing `_contained_path` from `kept_chains()` makes its test fail. Final candidate before stamp also passes `python -m unittest tests.test_forge -k micro_todo_and_complete_plan_rules`, `python -m unittest tests.test_three_pass_install -k replan`, and `python forge.py check-all --only kit-reviewer` (with CI running the full suite). **Corrected 2026-11-22:** `kept_chains()` now reads archives through `_read_contained_bytes()` instead of `_contained_path().read_bytes()`; mutating `kept_chains()` back to `_contained_path().read_bytes()` or removing the no-follow/reparse check in `_read_contained_bytes()` makes `test_query_rounds_handle_read_defeats_post_validation_and_post_scandir_symlink_swap` fail.
 
 > **Unstamped:** 2026-11-22: shadow audit audit-d00-t01-s9.md found 1 P1, 4 P2s, and 1 P3 missed by repair-diff; repair -> XREF: D00 T01 §13 (revoked receipt `docs/reviews/d00-t01-s9.revoked-2026-11-22.json`)
+
+> **Verified:** 2026-11-22 | §9 | 24b752d717151524f5897c7d64a56d27e4943d5e
+> **Review:** `docs/reviews/d00-t01-s9.json`
 
 ## 10. Verify-only reconciliation trial in the SDK's own pin
 
