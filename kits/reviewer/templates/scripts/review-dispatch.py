@@ -691,11 +691,11 @@ DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
-REF_DEF_LINE = re.compile(r"^[ ]{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
+REF_DEF_LINE = re.compile(r"^[ ]{0,3}\[((?:[^\[\]\\]|\\.)+)\]:[ \t]*(.*)$")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
 LIST_ITEM_ONE = re.compile(r"^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])")
-LIST_PARA_INTERRUPT = re.compile(r"^[ ]{0,3}(?:[-*+]|1[.)])(?:[ \t]+[^ \t].*)$")
+LIST_PARA_INTERRUPT = re.compile(r"^[ ]{0,3}(?:[-*+]|0{0,8}1[.)])(?:[ \t]+[^ \t].*)$")
 THEMATIC_BREAK = re.compile(r"^[ ]{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
 SETEXT_UNDERLINE = re.compile(r"^[ ]{0,3}(?:=+|-+)[ \t]*$")
 ATX_HEADING = re.compile(r"^[ ]{0,3}#{1,6}(?:[ \t]|$)")
@@ -1810,7 +1810,7 @@ def _collect_ref_defs(raw_lines):
             i += 1
             continue
         m = REF_DEF_LINE.match(content)
-        if not m:
+        if not m or not m.group(1).strip(" \t"):
             in_para = True
             i += 1
             continue
@@ -1856,55 +1856,102 @@ def _collect_ref_defs(raw_lines):
     return defs
 
 
+def _find_close_bracket(text, start, allow_code_spans=True):
+    """Find the matching unescaped `]` starting at `start` (after `[`), skipping `\\`-escaped characters and
+    (when `allow_code_spans`) matched backtick code spans; return -1 if an unescaped `[` or end-of-string is hit."""
+    i, n = start, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if allow_code_spans and ch == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            close = _find_closing_ticks(text, j, j - i)
+            if close != -1:
+                i = close + (j - i)
+                continue
+            i = j
+            continue
+        if ch == "[":
+            return -1
+        if ch == "]":
+            return i
+        i += 1
+    return -1
+
+
 def _unwrap_markdown_links(text, ref_defs=()):
     """Replace CommonMark inline links `[label](destination [title])` and defined reference-style links
-    (`[label][id]`, `[label][]`, `[label]`) with their visible `label` text."""
+    (`[label][id]`, `[label][]`, `[label]`) with their visible `label` text, and replace CommonMark inline or
+    reference-style images (`![alt](...)`, `![alt][id]`, `![alt][]`, `![alt]`) with a space, respecting escaped
+    brackets (`\\]`) and skipping matched backtick code spans."""
     out = []
     i, n = 0, len(text)
     while i < n:
-        if text[i] == "[":
-            close_br = text.find("]", i + 1)
-            if close_br > i + 1:
-                label = text[i + 1 : close_br]
-                if "[" not in label:
-                    nxt = close_br + 1
-                    if nxt < n and text[nxt] == "(":
-                        j = nxt + 1
+        if text[i] == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            close = _find_closing_ticks(text, j, j - i)
+            if close != -1:
+                end = close + (j - i)
+                out.append(text[i:end])
+                i = end
+                continue
+            out.append(text[i:j])
+            i = j
+            continue
+        is_image = text[i] == "!" and i + 1 < n and text[i + 1] == "["
+        if is_image or text[i] == "[":
+            br_start = i + 1 if is_image else i
+            close_br = _find_close_bracket(text, br_start + 1, allow_code_spans=True)
+            if close_br != -1:
+                label = text[br_start + 1 : close_br]
+                nxt = close_br + 1
+                replacement = " " if is_image else label
+                if nxt < n and text[nxt] == "(":
+                    j = nxt + 1
+                    while j < n and text[j].isspace():
+                        j += 1
+                    if j < n and text[j] == ")":
+                        out.append(replacement)
+                        i = j + 1
+                        continue
+                    dest_end = _parse_link_dest(text, j)
+                    if dest_end is not None:
+                        j = dest_end
+                        ws = j
                         while j < n and text[j].isspace():
                             j += 1
-                        dest_end = _parse_link_dest(text, j)
-                        if dest_end is not None:
-                            j = dest_end
-                            ws = j
-                            while j < n and text[j].isspace():
-                                j += 1
-                            title_ok = True
-                            if j < n and text[j] != ")":
-                                title_end = None if j == ws else _parse_link_title(text, j)
-                                if title_end is None:
-                                    title_ok = False
-                                else:
-                                    j = title_end
-                                    while j < n and text[j].isspace():
-                                        j += 1
-                            if title_ok and j < n and text[j] == ")":
-                                out.append(label)
-                                i = j + 1
-                                continue
-                    elif nxt < n and text[nxt] == "[":
-                        close_ref = text.find("]", nxt + 1)
-                        if close_ref != -1:
-                            ref_id = text[nxt + 1 : close_ref]
-                            if "[" not in ref_id:
-                                lookup = _norm_ref_label(ref_id or label)
-                                if lookup in ref_defs:
-                                    out.append(label)
-                                    i = close_ref + 1
-                                    continue
-                    elif _norm_ref_label(label) in ref_defs:
-                        out.append(label)
-                        i = nxt
-                        continue
+                        title_ok = True
+                        if j < n and text[j] != ")":
+                            title_end = None if j == ws else _parse_link_title(text, j)
+                            if title_end is None:
+                                title_ok = False
+                            else:
+                                j = title_end
+                                while j < n and text[j].isspace():
+                                    j += 1
+                        if title_ok and j < n and text[j] == ")":
+                            out.append(replacement)
+                            i = j + 1
+                            continue
+                elif nxt < n and text[nxt] == "[":
+                    close_ref = _find_close_bracket(text, nxt + 1, allow_code_spans=False)
+                    if close_ref != -1:
+                        ref_id = text[nxt + 1 : close_ref]
+                        lookup = _norm_ref_label(ref_id or label)
+                        if lookup and lookup in ref_defs:
+                            out.append(replacement)
+                            i = close_ref + 1
+                            continue
+                elif label.strip(" \t") and _norm_ref_label(label) in ref_defs:
+                    out.append(replacement)
+                    i = nxt
+                    continue
         out.append(text[i])
         i += 1
     return "".join(out)
@@ -2040,6 +2087,17 @@ def _find_closing_ticks(text, start, count):
     return -1
 
 
+def _decode_cm_entity(match):
+    """Decode one CommonMark §2.5 entity or numeric character reference without discarding control codes."""
+    tok = match.group(0)
+    if tok.startswith("&#"):
+        code = int(tok[3:-1], 16) if tok[2] in "xX" else int(tok[2:-1], 10)
+        if code == 0 or code > 0x10FFFF or 0xD800 <= code <= 0xDFFF:
+            return "\ufffd"
+        return chr(code)
+    return html.unescape(tok)
+
+
 def _split_revspec_tokens(text):
     """Split `text` on whitespace while isolating matched CommonMark inline code spans (`` `...` ``) so Git brace
     selectors never cross code-span boundaries, inner commands like `` `git show <sha>` `` expose bare SHA tokens,
@@ -2057,7 +2115,7 @@ def _split_revspec_tokens(text):
         if is_code and len(seg) >= 2 and seg[0] == " " and seg[-1] == " " and seg.strip(" "):
             seg = seg[1:-1]
         elif not is_code and "&" in seg:
-            seg = CM_ENTITY.sub(lambda m: html.unescape(m.group(0)), seg)
+            seg = CM_ENTITY.sub(_decode_cm_entity, seg)
         parts = _split_plain_revspecs(seg)
         if not parts:
             glued = False
