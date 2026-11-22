@@ -690,7 +690,7 @@ DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^][0-9]*)+$")
-REF_DEF_LINE = re.compile(r"^\s{0,3}\[([^\[\]]+)\]:\s*\S")
+REF_DEF_LINE = re.compile(r"^\s{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -798,6 +798,7 @@ def _read_findings(text):
             end = next((j for j in range(i, len(lines)) if lines[j].startswith("## ")), len(lines))
             entry["notes"] = [line for line in lines[i:end] if line.strip()]
             tail_end = next((j for j in range(i, len(lines)) if lines[j].startswith(RESERVED)), len(lines))
+            entry["writer_raw"] = lines[i:tail_end]
             entry["writer_lines"] = [line for line in lines[i:tail_end] if line.strip()]
             i = tail_end
             found[PASSES[kind][2]].append(entry)
@@ -1394,39 +1395,114 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
 
 
 def _writer_tails_after(found, last_returned):
-    """Per-pass writer-authored non-blank line lists belonging to `last_returned` and each trailing unreturned
-    reconciliation attempt recorded after it, kept separate so an empty `## Writer note:` in one tail cannot borrow
-    a body across a reserved heading from another."""
-    tails = [list(last_returned.get("writer_lines", []))]
+    """Per-pass writer-authored line lists `(writer_lines, writer_raw)` belonging to `last_returned` and each trailing
+    unreturned reconciliation attempt recorded after it, kept separate so an empty `## Writer note:` in one tail
+    cannot borrow a body across a reserved heading from another."""
+    def pair(entry):
+        nonblank = list(entry.get("writer_lines", []))
+        raw = list(entry.get("writer_raw", nonblank))
+        return (nonblank, raw)
+
+    tails = [pair(last_returned)]
     recons = found["reconciliations"]
     start = next((idx + 1 for idx, entry in enumerate(recons) if entry is last_returned), 0)
     for entry in recons[start:]:
-        tails.append(list(entry.get("writer_lines", [])))
+        tails.append(pair(entry))
     return tails
 
 
 def _tails_have_resolution(tails):
     seen = {}
-    return any(_has_resolution_entry(tail, seen) for tail in tails)
+    return any(_has_resolution_entry(nonblank, seen, raw) for nonblank, raw in tails)
 
 
 def _norm_ref_label(label):
     return " ".join(label.split()).casefold()
 
 
-def _collect_ref_defs(writer_lines):
+def _parse_link_dest(text, pos):
+    """Parse a CommonMark link destination at `pos` (`<...>` or balanced-paren non-whitespace). Returns end index or
+    None when malformed."""
+    n = len(text)
+    if pos >= n:
+        return None
+    if text[pos] == "<":
+        j = pos + 1
+        while j < n and text[j] not in "<>\n":
+            j += 2 if text[j] == "\\" and j + 1 < n else 1
+        return j + 1 if j < n and text[j] == ">" else None
+    j, depth = pos, 0
+    while j < n and not text[j].isspace():
+        if text[j] == "\\" and j + 1 < n:
+            j += 2
+            continue
+        if text[j] == "(":
+            depth += 1
+        elif text[j] == ")":
+            if depth == 0:
+                break
+            depth -= 1
+        j += 1
+    return j if j > pos and depth == 0 else None
+
+
+def _parse_link_title(text, pos):
+    """Parse an optional CommonMark link title delimited by `"..."`, `'...'`, or `(...)` at `pos`. Returns end index
+    or None when malformed."""
+    n = len(text)
+    if pos >= n or text[pos] not in "\"'(":
+        return None
+    opener = text[pos]
+    closer = ")" if opener == "(" else opener
+    j = pos + 1
+    while j < n and text[j] != closer:
+        if opener == "(" and text[j] == "(":
+            return None
+        j += 2 if text[j] == "\\" and j + 1 < n else 1
+    return j + 1 if j < n and text[j] == closer else None
+
+
+def _valid_ref_rest(rest):
+    """True when `rest` begins with a valid CommonMark link destination followed only by optional whitespace/title."""
+    end = _parse_link_dest(rest, 0)
+    if end is None:
+        return False
+    j, n = end, len(rest)
+    ws = j
+    while j < n and rest[j] in " \t":
+        j += 1
+    if j == n:
+        return True
+    if j == ws:
+        return False
+    title_end = _parse_link_title(rest, j)
+    return title_end is not None and rest[title_end:].strip(" \t") == ""
+
+
+def _collect_ref_defs(raw_lines):
+    """Collect valid CommonMark link reference definitions (including a destination on the immediately following
+    non-blank line) from `raw_lines`."""
     defs = set()
-    for line in writer_lines:
-        m = REF_DEF_LINE.match(line)
+    i, n = 0, len(raw_lines)
+    while i < n:
+        m = REF_DEF_LINE.match(raw_lines[i])
         if m:
-            defs.add(_norm_ref_label(m.group(1)))
+            rest = m.group(2)
+            if rest:
+                if _valid_ref_rest(rest):
+                    defs.add(_norm_ref_label(m.group(1)))
+            elif i + 1 < n and raw_lines[i + 1].strip():
+                next_rest = raw_lines[i + 1].lstrip(" \t")
+                if _valid_ref_rest(next_rest):
+                    defs.add(_norm_ref_label(m.group(1)))
+                    i += 1
+        i += 1
     return defs
 
 
 def _unwrap_markdown_links(text, ref_defs=()):
-    """Replace CommonMark inline links `[label](destination [title])` (supporting `"..."`, `'...'`, and `(...)`
-    titles as well as `<destination>`) and reference-style links (`[label][id]`, `[label][]`, `[label]` whose
-    definition appears in `ref_defs`) with their visible `label` text."""
+    """Replace CommonMark inline links `[label](destination [title])` and defined reference-style links
+    (`[label][id]`, `[label][]`, `[label]`) with their visible `label` text."""
     out = []
     i, n = 0, len(text)
     while i < n:
@@ -1440,51 +1516,21 @@ def _unwrap_markdown_links(text, ref_defs=()):
                         j = nxt + 1
                         while j < n and text[j].isspace():
                             j += 1
-                        dest_start = j
-                        if j < n and text[j] == "<":
-                            j += 1
-                            while j < n and text[j] not in ">\n":
-                                j += 2 if text[j] == "\\" and j + 1 < n else 1
-                            dest_ok = j < n and text[j] == ">"
-                            if dest_ok:
-                                j += 1
-                        else:
-                            depth = 0
-                            while j < n and not text[j].isspace():
-                                if text[j] == "\\" and j + 1 < n:
-                                    j += 2
-                                    continue
-                                if text[j] == "(":
-                                    depth += 1
-                                elif text[j] == ")":
-                                    if depth == 0:
-                                        break
-                                    depth -= 1
-                                j += 1
-                            dest_ok = j > dest_start and depth == 0
-                        if dest_ok:
+                        dest_end = _parse_link_dest(text, j)
+                        if dest_end is not None:
+                            j = dest_end
                             ws = j
                             while j < n and text[j].isspace():
                                 j += 1
                             title_ok = True
                             if j < n and text[j] != ")":
-                                if j == ws or text[j] not in "\"'(":
+                                title_end = None if j == ws else _parse_link_title(text, j)
+                                if title_end is None:
                                     title_ok = False
                                 else:
-                                    opener = text[j]
-                                    closer = ")" if opener == "(" else opener
-                                    j += 1
-                                    while j < n and text[j] != closer:
-                                        if opener == "(" and text[j] == "(":
-                                            title_ok = False
-                                            break
-                                        j += 2 if text[j] == "\\" and j + 1 < n else 1
-                                    if not title_ok or j >= n or text[j] != closer:
-                                        title_ok = False
-                                    else:
+                                    j = title_end
+                                    while j < n and text[j].isspace():
                                         j += 1
-                                        while j < n and text[j].isspace():
-                                            j += 1
                             if title_ok and j < n and text[j] == ")":
                                 out.append(label)
                                 i = j + 1
@@ -1508,10 +1554,32 @@ def _unwrap_markdown_links(text, ref_defs=()):
     return "".join(out)
 
 
+def _strip_paired_md(raw):
+    """Strip outer sentence punctuation (never brackets or git revspec operators `~`/`^`) and matched/paired
+    Markdown emphasis or inline-code wrappers (`**`, `__`, `~~`, `*`, `_`, `` ` ``)."""
+    tok = raw.strip(".,:;()<>\"'")
+    changed = True
+    while changed and tok:
+        changed = False
+        for mark in ("``", "`", "**", "__", "~~", "*", "_"):
+            if len(tok) > 2 * len(mark) and tok.startswith(mark) and tok.endswith(mark):
+                tok = tok[len(mark) : -len(mark)]
+                changed = True
+                break
+    return tok
+
+
 def _is_commit_in_git(tok, seen):
-    key = tok.lower()
+    key = ("commit", tok.lower())
     if key not in seen:
         seen[key] = git("cat-file", "-e", f"{tok}^{{commit}}").returncode == 0
+    return seen[key]
+
+
+def _is_revspec_in_git(expr, seen):
+    key = ("rev", expr)
+    if key not in seen:
+        seen[key] = git("rev-parse", "--verify", "--quiet", f"{expr}^{{commit}}").returncode == 0
     return seen[key]
 
 
@@ -1526,10 +1594,10 @@ def _repo_refs(seen):
 
 
 def _is_commit_ref_token(raw, seen):
-    """True when `raw` is purely a URL or git commit reference / branch / tag / range / comma-separated list."""
+    """True when `raw` is purely a URL or git commit reference / branch / tag / reflog selector / range / list."""
     if "://" in raw:
         return True
-    stripped = raw.strip("`.,:;()[]<>\"'*_~")
+    stripped = _strip_paired_md(raw)
     if not stripped:
         return False
     pieces = [p for chunk in stripped.split(",") for p in re.split(r"\.{2,3}", chunk) if p]
@@ -1538,24 +1606,24 @@ def _is_commit_ref_token(raw, seen):
     refs = _repo_refs(seen)
     for piece in pieces:
         base = REVSPEC_SUFFIX.sub("", piece.lstrip("^"))
-        if not base:
-            return False
-        if base in refs:
+        if base and base in refs:
             continue
-        if COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
+        if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
+            continue
+        if any(ch in piece for ch in "@^~:/{}") and _is_revspec_in_git(piece.lstrip("^"), seen):
             continue
         return False
     return True
 
 
-def _has_resolution_entry(writer_lines, seen=None):
+def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
-    entry with non-empty description text (distinct from commit references, ranges, refs, and URLs) and a standalone
-    or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a
-    non-empty `## Writer note:` section (title text or body before the next `## `)."""
+    entry with non-empty description text (distinct from commit references, ranges, refs, reflog selectors, and URLs)
+    and a standalone or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching
+    `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or body before the next `## `)."""
     if seen is None:
         seen = {}
-    ref_defs = _collect_ref_defs(writer_lines)
+    ref_defs = _collect_ref_defs(writer_lines if raw_lines is None else raw_lines)
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
@@ -1565,7 +1633,7 @@ def _has_resolution_entry(writer_lines, seen=None):
             for pos, raw in enumerate(parts):
                 if "/" in raw or "://" in raw:
                     continue
-                tok = raw.strip("`.,:;()[]<>\"'*_~")
+                tok = _strip_paired_md(raw)
                 if COMMIT_TOKEN.fullmatch(tok) and _is_commit_in_git(tok, seen):
                     commit_pos.add(pos)
             if commit_pos and any(any(ch.isalnum() for ch in other) and not _is_commit_ref_token(other, seen)
