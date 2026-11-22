@@ -689,7 +689,7 @@ COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
 DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
-MD_LINK = re.compile(r"\[([^\[\]]+)\]\((?:[^()\s]+)(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'))?\)")
+REVSPEC_PIECE = re.compile(r"^(?:HEAD|([0-9a-fA-F]{4,40}))(?:[~^][0-9]*)*$")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1409,38 +1409,128 @@ def _tails_have_resolution(tails):
     return any(_has_resolution_entry(tail, seen) for tail in tails)
 
 
+def _unwrap_markdown_links(text):
+    """Replace CommonMark inline links `[label](destination [title])` (supporting `"..."`, `'...'`, and `(...)`
+    titles as well as `<destination>`) with their visible `label` text."""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "[":
+            close_br = text.find("]", i + 1)
+            if close_br > i + 1 and close_br + 1 < n and text[close_br + 1] == "(":
+                label = text[i + 1 : close_br]
+                if "[" not in label:
+                    j = close_br + 2
+                    while j < n and text[j].isspace():
+                        j += 1
+                    # Parse destination (<...> or balanced non-whitespace parens).
+                    dest_start = j
+                    if j < n and text[j] == "<":
+                        j += 1
+                        while j < n and text[j] not in ">\n":
+                            j += 2 if text[j] == "\\" and j + 1 < n else 1
+                        dest_ok = j < n and text[j] == ">"
+                        if dest_ok:
+                            j += 1
+                    else:
+                        depth = 0
+                        while j < n and not text[j].isspace():
+                            if text[j] == "\\" and j + 1 < n:
+                                j += 2
+                                continue
+                            if text[j] == "(":
+                                depth += 1
+                            elif text[j] == ")":
+                                if depth == 0:
+                                    break
+                                depth -= 1
+                            j += 1
+                        dest_ok = j > dest_start and depth == 0
+                    if dest_ok:
+                        ws = j
+                        while j < n and text[j].isspace():
+                            j += 1
+                        # Optional title delimited by "...", '...', or (...).
+                        title_ok = True
+                        if j < n and text[j] != ")":
+                            if j == ws or text[j] not in "\"'(":
+                                title_ok = False
+                            else:
+                                opener = text[j]
+                                closer = ")" if opener == "(" else opener
+                                j += 1
+                                while j < n and text[j] != closer:
+                                    if opener == "(" and text[j] == "(":
+                                        title_ok = False
+                                        break
+                                    j += 2 if text[j] == "\\" and j + 1 < n else 1
+                                if not title_ok or j >= n or text[j] != closer:
+                                    title_ok = False
+                                else:
+                                    j += 1
+                                    while j < n and text[j].isspace():
+                                        j += 1
+                        if title_ok and j < n and text[j] == ")":
+                            out.append(label)
+                            i = j + 1
+                            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
+def _is_commit_in_git(tok, seen):
+    key = tok.lower()
+    if key not in seen:
+        seen[key] = git("cat-file", "-e", f"{tok}^{{commit}}").returncode == 0
+    return seen[key]
+
+
+def _is_commit_ref_token(raw, seen):
+    """True when `raw` is purely a URL or git commit reference / range / comma-separated SHA list, not prose."""
+    if "://" in raw:
+        return True
+    stripped = raw.strip("`.,:;()[]<>\"'")
+    if not stripped:
+        return False
+    pieces = [p for chunk in stripped.split(",") for p in re.split(r"\.{2,3}", chunk) if p]
+    if not pieces:
+        return False
+    for piece in pieces:
+        m = REVSPEC_PIECE.match(piece)
+        if not m:
+            return False
+        sha = m.group(1)
+        if sha is not None and len(sha) < 7 and not _is_commit_in_git(sha, seen):
+            return False
+    return True
+
+
 def _has_resolution_entry(writer_lines, seen=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
-    entry with non-empty description text (distinct from commit references) and a standalone or Markdown-linked
-    commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a non-empty
-    `## Writer note:` section (title text or body before the next `## `)."""
+    entry with non-empty description text (distinct from commit references, ranges, and URLs) and a standalone or
+    Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a
+    non-empty `## Writer note:` section (title text or body before the next `## `)."""
     if seen is None:
         seen = {}
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            visible = MD_LINK.sub(r"\1", m.group(1).strip())
+            visible = _unwrap_markdown_links(m.group(1).strip())
             parts = visible.split()
             commit_pos = set()
             non_desc_pos = set()
             for pos, raw in enumerate(parts):
-                if "://" in raw:
+                if _is_commit_ref_token(raw, seen):
                     non_desc_pos.add(pos)
-                    continue
-                if "/" in raw:
+                if "/" in raw or "://" in raw:
                     continue
                 tok = raw.strip("`.,:;()[]<>\"'")
-                if not COMMIT_TOKEN.fullmatch(tok):
-                    continue
-                if len(tok) >= 7:
-                    non_desc_pos.add(pos)
-                key = tok.lower()
-                if key not in seen:
-                    seen[key] = git("cat-file", "-e", f"{tok}^{{commit}}").returncode == 0
-                if seen[key]:
+                if COMMIT_TOKEN.fullmatch(tok) and _is_commit_in_git(tok, seen):
                     commit_pos.add(pos)
+                    non_desc_pos.add(pos)
             if commit_pos and any(any(ch.isalnum() for ch in other) for other_pos, other in enumerate(parts)
-                                  if other_pos not in commit_pos and other_pos not in non_desc_pos):
+                                  if other_pos not in non_desc_pos):
                 return True
         if FILED_LINE.match(line):
             return True
