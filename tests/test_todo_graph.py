@@ -3394,48 +3394,89 @@ class ThreePassStamp(Stamp):
                 os.chmod(git_dir, orig_git_mode)
                 os.chmod(tmp_oslock, 0o644)
                 tmp_oslock.unlink(missing_ok=True)
-            # (a2) atomic() with a mismatched group on a 0o640 file must try fchown and drop group bits to other's
-            #      level (0o600) if fchown is refused, never granting read access to an unrelated group (Rec 7 item 18).
+            # (a2) atomic() with a mismatched group on a 0o640 file must pass exact (-1, expected_gid) to fchown and
+            #      refuse before publication if fchown fails, keeping the original bytes and 0o640 mode intact
+            #      (Rec 8 items 18 and 22).
             grp_file = self.root / "todo/00-workspace/TODO-group.md"
             grp_file.write_text("group test\n", encoding="utf-8")
             os.chmod(grp_file, 0o640)
             real_lstat = os.lstat
+            expected_gid = real_lstat(grp_file).st_gid + 99999
 
             def fake_other_group_lstat(p):
                 st = real_lstat(p)
                 if pathlib.Path(p) == grp_file:
                     return os.stat_result((st.st_mode, st.st_ino, st.st_dev, st.st_nlink,
-                                           st.st_uid, st.st_gid + 99999, st.st_size,
+                                           st.st_uid, expected_gid, st.st_size,
                                            st.st_atime, st.st_mtime, st.st_ctime))
                 return st
+
+            with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_group_lstat), \
+                    unittest.mock.patch.object(os, "fchown", side_effect=PermissionError("not in project group")):
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.atomic(grp_file, b"updated\n")
+            self.assertIn("cannot preserve group", str(ctx.exception))
+            self.assertEqual(grp_file.read_bytes(), b"group test\n",
+                             "failed group preservation must refuse before replacing original file")
+            self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o640)
 
             fchown_calls = []
             with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_group_lstat), \
-                    unittest.mock.patch.object(os, "fchown", side_effect=PermissionError("not in project group")):
-                tg.atomic(grp_file, b"updated\n")
-            self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o600,
-                             "unpreserved group on 0o640 file must not grant read to unrelated group")
-            os.chmod(grp_file, 0o640)
-            with unittest.mock.patch.object(os, "lstat", side_effect=fake_other_group_lstat), \
                     unittest.mock.patch.object(os, "fchown", side_effect=lambda fd, uid, gid: fchown_calls.append((uid, gid))):
                 tg.atomic(grp_file, b"updated2\n")
-            self.assertEqual(len(fchown_calls), 1)
-            self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o640,
-                             "preserved group via fchown keeps 0o640 mode")
+            self.assertEqual(fchown_calls, [(-1, expected_gid)],
+                             "fchown must receive exact (-1, original_gid), never a no-op -1 group")
+            self.assertEqual(grp_file.read_bytes(), b"updated2\n")
+            self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o640)
+
+            # (a2b) POSIX ACL preservation: copy original access ACL (without widening via fchmod), strip an inherited
+            #       default ACL when the original had none, and refuse before publication if ACL update fails (Rec 8 item 21).
+            if hasattr(os, "getxattr") and hasattr(os, "setxattr") and hasattr(os, "removexattr"):
+                acl_events = []
+                real_fchmod = os.fchmod
+                # Case 1: original has a narrower access ACL -> setxattr restores it without calling fchmod.
+                with unittest.mock.patch.object(tg, "_read_posix_acl", side_effect=[b"orig-narrow-acl"]), \
+                        unittest.mock.patch.object(os, "setxattr", side_effect=lambda fd, name, val: acl_events.append(("set", name, val))), \
+                        unittest.mock.patch.object(os, "fchmod", side_effect=lambda fd, mode: (acl_events.append(("chmod", mode)), real_fchmod(fd, mode))):
+                    tg.atomic(grp_file, b"acl-preserved\n")
+                self.assertEqual(acl_events, [("set", "system.posix_acl_access", b"orig-narrow-acl")])
+                # Case 2: original had no ACL, temp inherited a default ACL -> removexattr clears it BEFORE fchmod.
+                acl_events.clear()
+                os.chmod(grp_file, 0o640)
+                with unittest.mock.patch.object(tg, "_read_posix_acl", side_effect=[None, b"inherited-default-acl"]), \
+                        unittest.mock.patch.object(os, "removexattr", side_effect=lambda fd, name: acl_events.append(("remove", name))), \
+                        unittest.mock.patch.object(os, "fchmod", side_effect=lambda fd, mode: (acl_events.append(("chmod", mode)), real_fchmod(fd, mode))):
+                    tg.atomic(grp_file, b"acl-cleared\n")
+                self.assertEqual(acl_events, [("remove", "system.posix_acl_access"), ("chmod", 0o640)])
+                # Case 3: setxattr failure refuses before os.replace, leaving file bytes intact.
+                with unittest.mock.patch.object(tg, "_read_posix_acl", side_effect=[b"orig-narrow-acl"]), \
+                        unittest.mock.patch.object(os, "setxattr", side_effect=PermissionError("acl denied")):
+                    with self.assertRaises(tg.Refused) as ctx:
+                        tg.atomic(grp_file, b"must-not-publish\n")
+                self.assertIn("cannot preserve POSIX ACL", str(ctx.exception))
+                self.assertEqual(grp_file.read_bytes(), b"acl-cleared\n")
             grp_file.unlink(missing_ok=True)
-            # (a3) Repeated live-inode mismatch in _acquire_os_lock must respect deadline (Rec 7 item 19).
-            def stale_lstat(p):
+
+            # (a3) Finite live-inode mismatch sequence: respects deadline without hanging if deadline check breaks (Rec 8 item 23).
+            mismatch_calls = [0]
+
+            def bounded_stale_lstat(p):
                 st = real_lstat(p)
                 if pathlib.Path(p) == todo:
-                    return os.stat_result((st.st_mode, st.st_ino + 1, st.st_dev, st.st_nlink,
-                                           st.st_uid, st.st_gid, st.st_size,
-                                           st.st_atime, st.st_mtime, st.st_ctime))
+                    mismatch_calls[0] += 1
+                    # 5 mismatches * 0.05s = 0.25s > 0.15s deadline; call 6 returns real st so a broken deadline check
+                    # fails assertRaises(Refused) promptly instead of hanging forever.
+                    if mismatch_calls[0] <= 5:
+                        return os.stat_result((st.st_mode, st.st_ino + 1, st.st_dev, st.st_nlink,
+                                               st.st_uid, st.st_gid, st.st_size,
+                                               st.st_atime, st.st_mtime, st.st_ctime))
                 return st
 
-            with unittest.mock.patch.object(os, "lstat", side_effect=stale_lstat):
+            with unittest.mock.patch.object(os, "lstat", side_effect=bounded_stale_lstat):
                 with self.assertRaises(tg.Refused):
-                    tg._acquire_os_lock(todo, tmp_oslock, todo_lock, "todo/00-workspace/TODO-01-a.md",
-                                        "replan", time.monotonic() + 0.15)
+                    leaked_fd = tg._acquire_os_lock(todo, tmp_oslock, todo_lock, "todo/00-workspace/TODO-01-a.md",
+                                                    "replan", time.monotonic() + 0.15)
+                    tg._release_os_lock(leaked_fd)
             # (b) Pre-planted FIFO at the lock target refuses in <0.5s inside a timeout=5.0 bounded child.
             fifo_target = self.root / "todo/00-workspace/TODO-fifo.md"
             fifo_target.unlink(missing_ok=True)
