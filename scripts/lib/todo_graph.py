@@ -2668,6 +2668,7 @@ def replan(root, ref, date, now):
                 fresh_started.group(0),
                 f"> **Started:** {now}\n\n**Corrected {date}:** re-planned with `todo-graph.py "
                 f"replan`; the build first began at {old}; its review chain is kept as `{kept_rel}`.", 1)
+            original_bytes = path.read_bytes()
             text = read_text(path)
             require(text.count(fresh_row.body) == 1, f"section body is not unique in {fresh_row.path}")
             updated = text.replace(fresh_row.body, body)
@@ -2676,7 +2677,10 @@ def replan(root, ref, date, now):
             try:
                 atomic(path, updated)
             except BaseException:
-                if moved is not None and moved.exists() and not own.exists():
+                # Undo the archive move only if the TODO was not published; if cancellation arrived after
+                # os.replace(temporary, path) published the updated TODO naming moved_rel, keep moved_rel in place.
+                if (moved is not None and moved.exists() and not own.exists()
+                        and path.is_file() and path.read_bytes() == original_bytes):
                     _replace_contained(root, moved_rel, findings_rel)
                 raise
             return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}

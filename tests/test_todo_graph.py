@@ -3717,10 +3717,14 @@ class ThreePassStamp(Stamp):
                     ))
                 return st
 
-            with unittest.mock.patch.object(os, "lstat", side_effect=fake_lstat), \
-                    unittest.mock.patch.object(os, "fchown", side_effect=PermissionError(errno.EPERM, "denied")):
-                with self.assertRaises(tg.Refused) as ctx2:
-                    tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+            old_umask = os.umask(0o077)
+            try:
+                with unittest.mock.patch.object(os, "lstat", side_effect=fake_lstat), \
+                        unittest.mock.patch.object(os, "fchown", side_effect=PermissionError(errno.EPERM, "denied")):
+                    with self.assertRaises(tg.Refused) as ctx2:
+                        tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+            finally:
+                os.umask(old_umask)
             self.assertIn("cannot preserve ownership", str(ctx2.exception))
             self.assertTrue(own.is_file())
             self.assertEqual(own.read_bytes(), before_own)
@@ -3728,6 +3732,29 @@ class ThreePassStamp(Stamp):
             self.assertEqual(todo.read_bytes(), before_todo)
             self.assertEqual(own.stat().st_ino, before_own_stat.st_ino)
             self.assertEqual(stat.S_IMODE(own.stat().st_mode), 0o644)
+
+        # D00 T01 §13 Rec 12 finding 29: cancellation arriving after atomic() publishes the updated TODO must keep the
+        # archived chain file in place so a retry reports "already" with the referenced archive still present.
+        def interrupt_after_publish(p, data):
+            res = real_atomic(p, data)
+            if pathlib.Path(p).resolve() == todo.resolve():
+                raise KeyboardInterrupt("post-publish interrupt")
+            return res
+
+        with unittest.mock.patch.object(tg, "atomic", side_effect=interrupt_after_publish):
+            with self.assertRaises(KeyboardInterrupt):
+                tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+        kept = own.with_name(f"{own.stem}-chain1.md")
+        self.assertFalse(own.exists(), "canonical findings must stay archived once the updated TODO is published")
+        self.assertTrue(kept.is_file(), "referenced archive must remain on disk after post-publish cancellation")
+        self.assertEqual(kept.read_bytes(), before_own)
+        self.assertEqual(kept.stat().st_ino, before_own_stat.st_ino)
+        self.assertIn("D00-T01-s1-chain1.md", todo.read_text(encoding="utf-8"))
+        retry = tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:05Z")
+        self.assertEqual(retry["done"], "already")
+        self.assertEqual(retry["kept"], kept.relative_to(self.root).as_posix())
+        self.assertTrue(kept.is_file())
+        self.assertFalse(own.exists())
 
     def test_fallback_lock_backend_matches_review_dispatch(self):
         # D00 T01 §13 Round 1 finding 5: standalone todo-kit fallback must stay aligned with review-dispatch.py.
