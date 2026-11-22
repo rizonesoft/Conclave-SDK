@@ -1070,6 +1070,8 @@ class ResolutionGuard(ThreePass):
             ("SHA plus reflog selector with no description", f"- Implemented: {repaired[:8]} HEAD@{{0}}"),
             ("SHA plus date reflog selector with spaces and no description",
              f"- Implemented: {repaired[:8]} HEAD@{{1 minute ago}}"),
+            ("SHA plus backticked date reflog selector with no description",
+             f"- Implemented: {repaired[:8]} `HEAD@{{1 minute ago}}`"),
             ("SHA plus two date reflog selectors with no description",
              f"- Implemented: {repaired[:8]} HEAD@{{1 minute ago}} HEAD@{{2 minutes ago}}"),
             ("SHA plus commit-message search selector with no description",
@@ -1102,6 +1104,9 @@ class ResolutionGuard(ThreePass):
              f"[repair]: https://example.com/commit/{repaired[:8]}\n```"),
             ("reference definition tab-indented inside list-item fence",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n\t[repair]: https://example.com/commit/{repaired[:8]}\n  ```"),
+            ("reference definition inside second list-item fence after space-plus-tab close",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n  example\n  \t```\n\n  ```\n"
+             f"  [repair]: https://example.com/commit/{repaired[:8]}\n  ```"),
             ("reference definition indented as code inside list item",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n-     [repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition inside multiline HTML comment",
@@ -1134,6 +1139,8 @@ class ResolutionGuard(ThreePass):
             ("backticked short SHA", f"- Implemented: fixed the gap in `{repaired[:8]}`"),
             ("SHA inside inline code command",
              f"- Implemented: verified `git show {repaired[:8]} --stat`"),
+            ("SHA last inside inline code command",
+             f"- Implemented: verified `git show {repaired[:8]}`"),
             ("prose with literal opening brace before SHA",
              f"- Implemented: handled literal `{{` in {repaired[:8]}"),
             ("prose with literal @{{ and }} code spans around SHA",
@@ -1154,6 +1161,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition after list-item fence closed by tab-indented fence",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n  example\n\t```\n\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition in list item after space-plus-tab closing fence",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n  example\n  \t```\n\n"
+             f"  [repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
             ("multiline quoted title reference-linked SHA",
@@ -1219,6 +1229,10 @@ class ResolutionGuard(ThreePass):
         elapsed = time.monotonic() - t0
         self.assertEqual(len(defs), 2000)
         self.assertLess(elapsed, 0.25, f"_collect_ref_defs took {elapsed:.3f}s on 2000 consecutive definitions")
+        # Iterative reference check must not hit RecursionError on a long reference list.
+        with unittest.mock.patch.object(module, "ROOT", self.repo):
+            long_refs = f"- Implemented: {repaired[:8]} " + " ".join(["HEAD"] * 1050)
+            self.assertFalse(module._has_resolution_entry([long_refs]))
 
     def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
         cases = (
