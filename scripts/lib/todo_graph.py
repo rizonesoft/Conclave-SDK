@@ -157,13 +157,16 @@ def _preserve_posix_metadata(path, out_fd, existing_mode, existing_gid, orig_acl
     if orig_acl is not None:
         if not hasattr(os, "setxattr"):
             raise Refused(f"cannot preserve POSIX ACL on {path}: refusing to replace it")
+        if existing_mode & 0o7000:
+            # Preserve special bits (setuid/setgid/sticky) without widening group/other/mask before setxattr restores ACL.
+            os.fchmod(out_fd, (existing_mode & 0o7000) | 0o600)
         try:
             os.setxattr(out_fd, "system.posix_acl_access", orig_acl)
         except OSError as exc:
             raise Refused(
                 f"cannot preserve POSIX ACL on {path}: refusing to replace it ({exc})"
             ) from None
-        return  # setting system.posix_acl_access already restores the ACL mask and permission bits
+        return  # setting system.posix_acl_access already restores the ACL mask and 0o0777 permission bits
     tmp_acl = _read_posix_acl(out_fd)
     if tmp_acl is not None:
         if not hasattr(os, "removexattr"):

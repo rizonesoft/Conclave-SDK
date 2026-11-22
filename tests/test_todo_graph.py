@@ -3429,27 +3429,45 @@ class ThreePassStamp(Stamp):
             self.assertEqual(grp_file.read_bytes(), b"updated2\n")
             self.assertEqual(_stat.S_IMODE(grp_file.stat().st_mode), 0o640)
 
-            # (a2b) POSIX ACL preservation: copy original access ACL (without widening via fchmod), strip an inherited
-            #       default ACL when the original had none, and refuse before publication if ACL update fails (Rec 8 item 21).
+            # (a2b) POSIX ACL preservation: exercise the REAL _read_posix_acl (mocking os.getxattr, not _read_posix_acl)
+            #       for both pathname and fd calls so disabling ACL detection fails the test (Rec 9 items 24 and 25).
             if hasattr(os, "getxattr") and hasattr(os, "setxattr") and hasattr(os, "removexattr"):
+                import errno as _errno
                 acl_events = []
+                getxattr_calls = []
                 real_fchmod = os.fchmod
-                # Case 1: original has a narrower access ACL -> setxattr restores it without calling fchmod.
-                with unittest.mock.patch.object(tg, "_read_posix_acl", side_effect=[b"orig-narrow-acl"]), \
+                enodata = OSError(getattr(_errno, "ENODATA", 61), "No data available")
+
+                def make_getxattr(path_result, fd_result):
+                    def fake_getxattr(target, name, **kwargs):
+                        getxattr_calls.append((isinstance(target, int), name, kwargs.get("follow_symlinks")))
+                        res = fd_result if isinstance(target, int) else path_result
+                        if isinstance(res, BaseException):
+                            raise res
+                        return res
+                    return fake_getxattr
+
+                # Case 1: original has a narrower access ACL (plus sticky bit 0o1000) -> preserves special bit without
+                # widening group/other/mask, then restores ACL via setxattr without a post-setxattr fchmod.
+                os.chmod(grp_file, 0o1640)
+                with unittest.mock.patch.object(os, "getxattr", side_effect=make_getxattr(b"orig-narrow-acl", enodata)), \
                         unittest.mock.patch.object(os, "setxattr", side_effect=lambda fd, name, val: acl_events.append(("set", name, val))), \
                         unittest.mock.patch.object(os, "fchmod", side_effect=lambda fd, mode: (acl_events.append(("chmod", mode)), real_fchmod(fd, mode))):
                     tg.atomic(grp_file, b"acl-preserved\n")
-                self.assertEqual(acl_events, [("set", "system.posix_acl_access", b"orig-narrow-acl")])
-                # Case 2: original had no ACL, temp inherited a default ACL -> removexattr clears it BEFORE fchmod.
+                self.assertEqual(getxattr_calls, [(False, "system.posix_acl_access", False)])
+                self.assertEqual(acl_events, [("chmod", 0o1600), ("set", "system.posix_acl_access", b"orig-narrow-acl")])
+                # Case 2: original had no ACL (ENODATA), temp fd inherited a default ACL -> removexattr clears BEFORE fchmod.
                 acl_events.clear()
+                getxattr_calls.clear()
                 os.chmod(grp_file, 0o640)
-                with unittest.mock.patch.object(tg, "_read_posix_acl", side_effect=[None, b"inherited-default-acl"]), \
+                with unittest.mock.patch.object(os, "getxattr", side_effect=make_getxattr(enodata, b"inherited-default-acl")), \
                         unittest.mock.patch.object(os, "removexattr", side_effect=lambda fd, name: acl_events.append(("remove", name))), \
                         unittest.mock.patch.object(os, "fchmod", side_effect=lambda fd, mode: (acl_events.append(("chmod", mode)), real_fchmod(fd, mode))):
                     tg.atomic(grp_file, b"acl-cleared\n")
+                self.assertEqual(getxattr_calls, [(False, "system.posix_acl_access", False), (True, "system.posix_acl_access", None)])
                 self.assertEqual(acl_events, [("remove", "system.posix_acl_access"), ("chmod", 0o640)])
                 # Case 3: setxattr failure refuses before os.replace, leaving file bytes intact.
-                with unittest.mock.patch.object(tg, "_read_posix_acl", side_effect=[b"orig-narrow-acl"]), \
+                with unittest.mock.patch.object(os, "getxattr", side_effect=make_getxattr(b"orig-narrow-acl", enodata)), \
                         unittest.mock.patch.object(os, "setxattr", side_effect=PermissionError("acl denied")):
                     with self.assertRaises(tg.Refused) as ctx:
                         tg.atomic(grp_file, b"must-not-publish\n")
