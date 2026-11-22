@@ -215,9 +215,10 @@ def _redirect_html(url):
             f"<script>location.replace({json.dumps(url)});</script>\n")
 
 
-def _page(url):
+def _page(url, created=None):
     """A redirect page of this launch's own, in a folder only this user reads; the pages of earlier launches older
-    than the ticket's lifetime (dead tickets) are removed."""
+    than the ticket's lifetime (dead tickets) are removed. When `created` is given, this launch's temporary and target
+    paths are recorded before `os.replace` so caller-side cancellation cleanup covers the return handoff too."""
     try:
         PAGES.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(PAGES, 0o700)
@@ -231,6 +232,8 @@ def _page(url):
         text = _redirect_html(url)
         fd, temporary = tempfile.mkstemp(prefix=".open-", suffix=".tmp", dir=PAGES)   # mode 0600
         page = PAGES / ("open-" + Path(temporary).name[len(".open-"):-len(".tmp")] + ".html")
+        if created is not None:
+            created.extend((temporary, page))
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(text)
@@ -518,8 +521,9 @@ def open_browser(url):
         if done.returncode != 0:
             raise Refusal("PowerShell could not open the browser")
         return
-    page = _page(url)
+    created = []
     try:
+        page = _page(url, created=created)
         argv = _https_browser(page)
         try:
             # Not waited for to completion: a browser started fresh runs until closed, but an immediate non-zero exit
@@ -535,10 +539,11 @@ def open_browser(url):
         if code != 0:
             raise Refusal("the browser that opens https links could not be started")
     except BaseException:
-        try:
-            page.unlink(missing_ok=True)
-        except OSError:
-            pass   # best-effort page cleanup must never mask the primary launch refusal or interrupt
+        for cleanup in created:
+            try:
+                os.unlink(cleanup)
+            except OSError:
+                pass   # best-effort page cleanup must never mask the primary launch refusal or interrupt
         raise
 
 

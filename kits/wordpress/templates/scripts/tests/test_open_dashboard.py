@@ -1578,6 +1578,21 @@ class BrowserTest(unittest.TestCase):
                          "KeyboardInterrupt right after os.replace must delete the published redirect page")
         self.assertEqual(list(self.pages.glob(".open-*.tmp")), [])
         self.assertEqual(concurrent_page.read_text(encoding="utf-8"), "concurrent launch")
+        # Interrupt landing during _page() return handoff (after _page() completes) must still delete the published page.
+        real_page = od._page
+
+        def interrupt_on_return(url, created=None):
+            real_page(url, created=created)
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(od, "_page", side_effect=interrupt_on_return):
+            with self.assertRaises(KeyboardInterrupt):
+                self.open(wsl=False, which=self.LINUX)
+        remaining = sorted(p.name for p in self.pages.glob("open-*.html"))
+        self.assertEqual(remaining, [concurrent_page.name],
+                         "KeyboardInterrupt during _page() return handoff must delete the published redirect page")
+        self.assertEqual(list(self.pages.glob(".open-*.tmp")), [])
+        self.assertEqual(concurrent_page.read_text(encoding="utf-8"), "concurrent launch")
 
 
 class CommandLineTest(unittest.TestCase):
