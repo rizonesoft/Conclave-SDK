@@ -2267,48 +2267,25 @@ _HELD_OS_LOCKS_GUARD = threading.Lock()
 _HELD_OS_LOCKS: dict[tuple[Path, str], object] = {}
 
 
-def _open_os_lock(oslock_path):
-    """Open the persistent `.oslock` file without requiring write permission on POSIX (`flock` works on `O_RDONLY`),
-    publishing newly created lock files atomically at mode `0o644` (`fchmod` before `os.link`) so a crash under a `077`
-    umask never leaves a `0600` entry, self-healing any pre-existing owner-only mode, avoiding blocking on FIFOs
-    (`O_NONBLOCK`), and refusing symlinks or non-regular entries (`O_NOFOLLOW` + `fstat` `S_ISREG`)."""
-    oslock_path.parent.mkdir(parents=True, exist_ok=True)
+def _open_os_lock(target_path, oslock_path):
+    """Open the OS-lock target: on POSIX, open the existing checkout directory (`target_path` if a directory, else its
+    parent) read-only with `O_DIRECTORY | O_NOFOLLOW | O_NONBLOCK` so no shared `/tmp` lock file is created or
+    chmodded (eliminating umask/legacy-0600, cross-account hard-link, `/tmp` FIFO, and temp-file residue); on Windows,
+    open the per-user temp `.oslock` file for `msvcrt.locking`."""
     if os.name == "nt":
+        oslock_path.parent.mkdir(parents=True, exist_ok=True)
         return open(oslock_path, "a+b")
-    nofollow = getattr(os, "O_NOFOLLOW", 0)
-    nonblock = getattr(os, "O_NONBLOCK", 0)
-    open_flags = os.O_RDONLY | nofollow | nonblock
+    target = Path(target_path)
+    lock_dir = target if (target.is_dir() or target.is_symlink()) else target.parent
+    flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        try:
-            fd = os.open(oslock_path, open_flags)
-        except FileNotFoundError:
-            tmp_path = oslock_path.with_name(f"{oslock_path.name}.{os.getpid()}.{os.urandom(6).hex()}.tmp")
-            tmp_fd = os.open(tmp_path, open_flags | os.O_CREAT | os.O_EXCL, 0o644)
-            try:
-                os.fchmod(tmp_fd, 0o644)
-                try:
-                    os.link(tmp_path, oslock_path)
-                    fd = tmp_fd
-                    tmp_fd = None
-                except FileExistsError:
-                    fd = os.open(oslock_path, open_flags)
-            finally:
-                if tmp_fd is not None:
-                    os.close(tmp_fd)
-                tmp_path.unlink(missing_ok=True)
+        return os.open(lock_dir, flags)
     except OSError as exc:
-        if exc.errno == errno.ELOOP:
-            raise Refused(f"lock entry {oslock_path} is a symlink: refusing to use it") from None
+        if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+            raise Refused(
+                f"lock directory {lock_dir} is a symlink or not a directory: refusing to use it"
+            ) from None
         raise
-    try:
-        st = os.fstat(fd)
-        require(stat.S_ISREG(st.st_mode), f"lock entry {oslock_path} is not a regular file: refusing to use it")
-        if (st.st_mode & 0o444) != 0o444 and st.st_uid == os.geteuid():
-            os.fchmod(fd, (st.st_mode & 0o777) | 0o444)
-    except BaseException:
-        os.close(fd)
-        raise
-    return os.fdopen(fd, "rb")
 
 
 def _try_os_lock(handle):
@@ -2319,14 +2296,21 @@ def _try_os_lock(handle):
         msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
     else:
         import fcntl
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
-def _acquire_os_lock(oslock_path, todo_lock, rel, action, deadline):
-    """Acquire a persistent OS-managed exclusive file lock (`msvcrt.locking` on Windows, `fcntl.flock` on POSIX).
-    The `.oslock` file is never unlinked while in use, so suspending a process keeps the lock held indefinitely and
-    process termination releases it immediately in the kernel without relying on wall-clock timeouts."""
-    handle = _open_os_lock(oslock_path)
+def _close_os_lock(handle):
+    if os.name == "nt":
+        handle.close()
+    else:
+        os.close(handle)
+
+
+def _acquire_os_lock(target_path, oslock_path, todo_lock, rel, action, deadline):
+    """Acquire an OS-managed exclusive lock (`msvcrt.locking` on Windows, `fcntl.flock` on the checkout directory on
+    POSIX). Suspending a process keeps the lock held indefinitely and process termination releases it immediately in
+    the kernel without relying on wall-clock timeouts."""
+    handle = _open_os_lock(target_path, oslock_path)
     try:
         while True:
             try:
@@ -2344,12 +2328,12 @@ def _acquire_os_lock(oslock_path, todo_lock, rel, action, deadline):
                     ) from None
                 time.sleep(0.05)
     except BaseException:
-        handle.close()
+        _close_os_lock(handle)
         raise
 
 
 def _release_os_lock(handle):
-    """Release an OS-managed exclusive file lock handle opened by `_acquire_os_lock`."""
+    """Release an OS-managed exclusive lock handle opened by `_acquire_os_lock`."""
     try:
         if os.name == "nt":
             import msvcrt
@@ -2357,9 +2341,9 @@ def _release_os_lock(handle):
             msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(handle, fcntl.LOCK_UN)
     finally:
-        handle.close()
+        _close_os_lock(handle)
 
 
 def _release_todo_lock(dispatch, todo_lock, todo_owned):
@@ -2388,7 +2372,7 @@ def _acquire_todo_lock(dispatch, path, rel, action="update", timeout_seconds=REP
     takeover = todo_lock.with_name(todo_lock.name + ".takeover")
     oslock_path = todo_lock.with_name(todo_lock.name + ".oslock")
     deadline = time.monotonic() + wait_seconds
-    os_handle = _acquire_os_lock(oslock_path, todo_lock, rel, action, deadline)
+    os_handle = _acquire_os_lock(path, oslock_path, todo_lock, rel, action, deadline)
 
     def _claimed():
         with _HELD_OS_LOCKS_GUARD:

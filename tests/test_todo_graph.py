@@ -3335,55 +3335,18 @@ class ThreePassStamp(Stamp):
         self.assertIn("D00-T01-s1-chain1.md", rows["D00 T01 §1"].body)
         self.assertIn("D00-T01-s2-chain1.md", rows["D00 T01 §2"].body)
 
-        # 1b. On POSIX: (a) creating a fresh .oslock under restrictive umask 077 publishes atomically at mode 0o644
-        #     (fchmod before link) and opening a pre-existing 0o600 .oslock self-heals its mode to 0o644,
-        #     (b) a read-only (0o444) persistent .oslock remains acquirable and exclusive via O_RDONLY + flock, and
-        #     (c) a pre-planted FIFO at the .oslock path is refused in a timeout-bounded child process without hanging.
+        # 1b. On POSIX: OS locking flocks the checkout directory directly (never creating or chmodding /tmp/*.oslock),
+        #     so (a) a restrictive 077 umask or pre-existing unreadable 0o000 /tmp/*.oslock from another account never
+        #     blocks acquisition or gets chmodded, and (b) a FIFO or symlink lock directory refuses in under 0.5s inside
+        #     a parent-bounded timeout=5.0 child process.
         if os.name != "nt":
             import stat as _stat
-            # (a) Restrictive creator umask 077 publishes 0o644 atomically (never exposing 0600 even on crash before link),
-            #     and a pre-existing owner-only 0o600 .oslock self-heals on open.
-            umask_target = self.root / "todo/00-workspace/TODO-umask.md"
-            umask_target.write_text("x\n", encoding="utf-8")
-            umask_lock = dispatch.section_lock_path(umask_target)
-            umask_oslock = umask_lock.with_name(umask_lock.name + ".oslock")
-            self.addCleanup(lambda: umask_oslock.unlink(missing_ok=True))
-            self.addCleanup(lambda: umask_lock.unlink(missing_ok=True))
-            old_mask = os.umask(0o077)
-            real_link = os.link
-            published_mode = []
-
-            def check_mode_before_link(src, dst):
-                published_mode.append(_stat.S_IMODE(os.stat(src).st_mode))
-                return real_link(src, dst)
-
-            try:
-                with unittest.mock.patch.object(os, "link", side_effect=check_mode_before_link):
-                    lp_u, ow_u = tg._acquire_todo_lock(dispatch, umask_target, "todo/00-workspace/TODO-umask.md",
-                                                      action="replan", wait_seconds=1.0)
-                tg._release_todo_lock(dispatch, lp_u, ow_u)
-            finally:
-                os.umask(old_mask)
-            self.assertEqual(published_mode, [0o644],
-                             "temp .oslock must already be 0o644 BEFORE os.link publishes it under umask 077")
-            self.assertEqual(_stat.S_IMODE(umask_oslock.stat().st_mode), 0o644,
-                             "fresh POSIX .oslock must be 0o644 even under creator umask 077")
-            self.assertEqual(list(umask_oslock.parent.glob(umask_oslock.name + ".*.tmp")), [])
-
-            # Pre-existing 0o600 .oslock (e.g. from an earlier version) self-heals to 0o644 on owner open.
-            os.chmod(umask_oslock, 0o600)
-            lp_h, ow_h = tg._acquire_todo_lock(dispatch, umask_target, "todo/00-workspace/TODO-umask.md",
-                                              action="replan", wait_seconds=1.0)
-            try:
-                self.assertEqual(_stat.S_IMODE(umask_oslock.stat().st_mode), 0o644,
-                                 "pre-existing 0o600 .oslock must self-heal to 0o644 while held")
-            finally:
-                tg._release_todo_lock(dispatch, lp_h, ow_h)
-
-            # (b) Read-only (0o444) .oslock remains acquirable and exclusive without PermissionError.
+            # (a) Neither umask 077 nor an unreadable 0o000 /tmp/*.oslock left by another account affects POSIX locking.
             oslock_path = todo_lock.with_name(todo_lock.name + ".oslock")
-            self.assertTrue(oslock_path.is_file())
-            os.chmod(oslock_path, 0o444)
+            self.assertFalse(oslock_path.exists(), "POSIX directory flock must not create any /tmp/*.oslock file")
+            oslock_path.write_bytes(b"")
+            os.chmod(oslock_path, 0o000)
+            old_mask = os.umask(0o077)
             try:
                 lp_ro, ow_ro = tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
                                                      action="replan", wait_seconds=1.0)
@@ -3393,34 +3356,37 @@ class ThreePassStamp(Stamp):
                                               action="replan", wait_seconds=0.15)
                 finally:
                     tg._release_todo_lock(dispatch, lp_ro, ow_ro)
+                self.assertEqual(_stat.S_IMODE(oslock_path.stat().st_mode), 0o000,
+                                 "POSIX locking must never chmod any /tmp/*.oslock file")
             finally:
+                os.umask(old_mask)
                 os.chmod(oslock_path, 0o644)
+                oslock_path.unlink(missing_ok=True)
 
-            # (c) Pre-planted FIFO at .oslock path must refuse immediately in a timeout-bounded child process
-            #     so dropping O_NONBLOCK produces a bounded TimeoutExpired failure instead of hanging the runner.
-            fifo_target = self.root / "todo/00-workspace/TODO-fifo.md"
-            fifo_target.write_text("x\n", encoding="utf-8")
-            fifo_lock = dispatch.section_lock_path(fifo_target)
-            fifo_oslock = fifo_lock.with_name(fifo_lock.name + ".oslock")
-            fifo_oslock.unlink(missing_ok=True)
-            os.mkfifo(fifo_oslock)
-            self.addCleanup(lambda: fifo_oslock.unlink(missing_ok=True))
+            # (b) A FIFO or symlink at the lock directory refuses immediately (<0.5s measured inside a timeout=5.0 child).
+            fifo_dir = self.root / "todo/fifo-domain"
+            os.mkfifo(fifo_dir)
+            self.addCleanup(lambda: fifo_dir.unlink(missing_ok=True))
+            fifo_target = fifo_dir / "TODO-fifo.md"
             fifo_probe = (
-                "import pathlib, sys\n"
+                "import pathlib, sys, time\n"
                 f"sys.path.insert(0, {str(pathlib.Path(tg.__file__).resolve().parent)!r})\n"
                 "import todo_graph as tg\n"
                 "d = tg._todo_lock_backend()\n"
+                "t0 = time.monotonic()\n"
                 "try:\n"
-                "    tg._acquire_todo_lock(d, pathlib.Path(sys.argv[1]), 'todo/00-workspace/TODO-fifo.md', "
+                "    tg._acquire_todo_lock(d, pathlib.Path(sys.argv[1]), 'todo/fifo-domain/TODO-fifo.md', "
                 "action='replan', wait_seconds=0.5)\n"
                 "    sys.exit(2)\n"
                 "except tg.Refused as exc:\n"
-                "    print(str(exc))\n"
+                "    print(f'{time.monotonic() - t0:.4f} {exc}')\n"
             )
             probe = subprocess.run([sys.executable, "-c", fifo_probe, str(fifo_target)],
                                    capture_output=True, text=True, timeout=5.0)
             self.assertEqual(probe.returncode, 0, f"FIFO probe failed: {probe.stdout} {probe.stderr}")
-            self.assertIn("not a regular file", probe.stdout)
+            elapsed_str, _, msg = probe.stdout.strip().partition(" ")
+            self.assertLess(float(elapsed_str), 0.5, f"FIFO refusal exceeded 0.5s: {probe.stdout}")
+            self.assertIn("symlink or not a directory", msg)
 
         # 2. Defense-in-depth: a live PID's backdated takeover file is never removed by age even if .oslock is free.
         self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
