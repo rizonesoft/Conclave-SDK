@@ -736,8 +736,20 @@ HTML_INLINE_TAG = re.compile(
     r"|!\[CDATA\[[\s\S]*?\]\])>",
     re.IGNORECASE,
 )
-HTML_MEDIA_TAG = re.compile(
-    r"^<(?:img|svg|video|audio|canvas|iframe|object|embed|picture|input)(?:\s|/?>)",
+HTML_VISIBLE_TAG = re.compile(
+    r"^<(?:img|svg|video|audio|canvas|iframe|object|embed|picture|input|progress|meter|textarea|select|button|math)"
+    r"(?:\s|/?>)",
+    re.IGNORECASE,
+)
+HTML_NOTE_TAG = re.compile(
+    r"<(?:"
+    r"[A-Za-z][A-Za-z0-9-]*(?:(?:[ \t]|\n(?![ \t]*\n))+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:(?:[ \t]|\n(?![ \t]*\n))*=(?:[ \t]|\n(?![ \t]*\n))*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*"
+    r"(?:[ \t]|\n(?![ \t]*\n))*/?"
+    r"|/[A-Za-z][A-Za-z0-9-]*(?:[ \t]|\n(?![ \t]*\n))*"
+    r"|\?[\s\S]*?\?"
+    r"|![A-Za-z][^>]*"
+    r"|!\[CDATA\[[\s\S]*?\]\])>",
     re.IGNORECASE,
 )
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
@@ -2772,10 +2784,10 @@ def _visible_note_text(text):
             i = j
             continue
         if text[i] == "<":
-            hm = HTML_INLINE_TAG.match(text, i)
+            hm = HTML_NOTE_TAG.match(text, i)
             if hm:
                 tag = text[i : hm.end()]
-                if HTML_MEDIA_TAG.match(tag):
+                if HTML_VISIBLE_TAG.match(tag):
                     out.append(tag)
                 i = hm.end()
                 continue
@@ -2868,20 +2880,30 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                 return True
             k = idx + 1
             body_comment = False
+            at_block_start = True
+            body_chunks = []
             while k < total:
                 body_line = lines[k]
                 if not body_comment:
                     if not body_line.strip():
+                        body_chunks.append("")
+                        at_block_start = True
                         k += 1
                         continue
                     if body_line.startswith("## "):
                         break
-                    if _expand_leading_tabs(body_line, 0).startswith("    "):
+                    body_exp = _expand_leading_tabs(body_line, 0)
+                    if at_block_start and body_exp.startswith("    "):
+                        return True
+                    fm_body = FENCE_OPEN.match(body_exp)
+                    if fm_body and not (fm_body.group(1)[0] == "`" and "`" in fm_body.group(2)):
                         return True
                 visible_body, body_comment = _strip_comments_line(body_line, in_comment=body_comment, allow_multiline=True)
-                if _visible_note_text(visible_body).strip():
-                    return True
+                body_chunks.append(visible_body)
+                at_block_start = False
                 k += 1
+            if _visible_note_text("\n".join(body_chunks)).strip():
+                return True
             idx = k
             in_comment = body_comment
             continue

@@ -1161,6 +1161,8 @@ class ResolutionGuard(ThreePass):
              "## Writer note:\n<!-- obsolete --> <!--\n## Writer note: superseded\n-->"),
             ("Writer note body with only empty HTML span around comment refused",
              "## Writer note:\n<span><!-- draft only --></span>"),
+            ("Writer note body with multiline empty HTML span around comment refused",
+             '## Writer note:\n<span\n  class="draft"><!-- draft --></span>'),
             ("paired link-only description refused when prose sits only inside link label",
              f"- Implemented: [Corrected parser](diff) {repaired[:8]}"),
             ("Git rev:path expression with linked hash filename refused",
@@ -1487,6 +1489,8 @@ class ResolutionGuard(ThreePass):
              "## Writer note:\n\n<!-- internal --> The pending stamp accounts for this gap."),
             ("writer note body with visible HTML img evidence",
              '## Writer note:\n\n<img src="proof.png" alt="Screenshot of the repaired dialog">'),
+            ("writer note body with visible HTML progress indicator",
+             '## Writer note:\n\n<progress value="8" max="8"></progress>'),
             ("writer note title with literal hashes directly after colon",
              "## Writer note:###"),
         )
