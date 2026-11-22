@@ -1066,6 +1066,7 @@ class ResolutionGuard(ThreePass):
             ("nonexistent commit SHA", "- Implemented: fixed the gap in deadbeef"),
             ("bare SHA with no description", f"- Implemented: `{repaired[:8]}`"),
             ("two pasted SHAs with no description", f"- Implemented: {built[:8]} {repaired[:8]}"),
+            ("two SHAs separated by HTML br with no description", f"- Implemented: {built[:8]} <br> {repaired[:8]}"),
             ("SHA plus slash-separated backticked SHAs with no description",
              f"- Implemented: {repaired[:8]} `{built[:8]}`/`{repaired[:8]}`"),
             ("SHA plus arrow-separated commit pair with no description",
@@ -1128,6 +1129,12 @@ class ResolutionGuard(ThreePass):
             ("reference definition inside fenced block after blank line in list item",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- example\n\n    ~~~\n"
              f"  [repair]: https://example.com/commit/{repaired[:8]}\n  ~~~"),
+            ("reference definition after indented thematic break inside list-item fence",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ~~~\n  ---\n"
+             f"  [repair]: https://example.com/commit/{repaired[:8]}\n  ~~~"),
+            ("reference definition after blank line inside nested-list fence",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- - ~~~\n\n"
+             f"    [repair]: https://example.com/commit/{repaired[:8]}\n    ~~~"),
             ("reference definition indented as code after spaced thematic break",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n* * *\n\n"
              f"    [repair]: https://example.com/commit/{repaired[:8]}"),
@@ -1217,6 +1224,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition in top-level blockquote after list-quoted HTML block",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- > <div>\n"
              f"> [repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition indented in nested list item after blank line",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- - example\n\n"
+             f"      [repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
             ("multiline quoted title reference-linked SHA",

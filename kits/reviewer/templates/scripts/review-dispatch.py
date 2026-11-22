@@ -716,6 +716,17 @@ HTML_TYPE7_OPEN = re.compile(
     r"|</[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$",
     re.IGNORECASE,
 )
+HTML_INLINE_TAG = re.compile(
+    r"<(?:(?P<break>/?(?:br|hr|p|div|li|tr|td|th)(?:[ \t]+[^<>]*)?/?)"
+    r"|[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
+    r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?"
+    r"|/[A-Za-z][A-Za-z0-9-]*[ \t]*"
+    r"|!--[\s\S]*?--"
+    r"|\?[\s\S]*?\?"
+    r"|![A-Za-z][^>]*"
+    r"|!\[CDATA\[[\s\S]*?\]\])>",
+    re.IGNORECASE,
+)
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1568,29 +1579,39 @@ def _strip_containers(line, start_col=0):
     return rest, col, opened
 
 
-def _match_containers(line, containers):
+def _match_containers(line, containers, allow_thematic_exit=True):
     """Match a prefix of `containers` (each `["bq", 0]` or `["list", rel_indent, empty_first]`) against `line`
     in exact nesting order, expanding tabs per CommonMark §2.2 and using CommonMark §2.1 ASCII blank-line rules
-    (`" \\t"` only, never U+00A0). Returns `(matched_count, rest, col, blank_at)`."""
-    rest, col = line, 0
+    (`" \\t"` only, never U+00A0). A blank line continues through nested list items (stopping only if a blockquote
+    marker is missing); thematic-break precedence (`allow_thematic_exit`) applies only outside leaf blocks.
+    Returns `(matched_count, rest, col, blank_at)`."""
+    rest, col, blank_at = line, 0, None
     for idx, frame in enumerate(containers):
         if frame[0] == "bq":
             matched, next_rest, next_col = _strip_one_bq(rest, col)
             if not matched:
-                return idx, rest, col, None
+                return idx, rest, col, blank_at
             rest, col = next_rest, next_col
             if not rest.strip(" \t"):
-                return idx + 1, "", col, idx + 1
+                if blank_at is None:
+                    blank_at = idx + 1
+                rest = ""
         else:
             if not rest.strip(" \t"):
-                return idx + 1, "", col + frame[1], idx
-            if THEMATIC_BREAK.match(_expand_leading_tabs(rest, col)):
+                if blank_at is None:
+                    blank_at = idx
+                col += frame[1]
+                rest = ""
+                continue
+            if allow_thematic_exit and THEMATIC_BREAK.match(_expand_leading_tabs(rest, col)):
                 return idx, rest, col, None
             still_in, next_rest, next_col = _strip_indent(rest, frame[1], col)
             if not still_in:
                 return idx, rest, col, None
             rest, col = next_rest, next_col
-    return len(containers), rest, col, (len(containers) if not rest.strip(" \t") else None)
+    if blank_at is None and not rest.strip(" \t"):
+        blank_at = len(containers)
+    return len(containers), rest, col, blank_at
 
 
 def _fence_step(line, fence, start_col=0):
@@ -1689,7 +1710,7 @@ def _collect_ref_defs(raw_lines):
     while i < n:
         line = raw_lines[i]
         if fence is not None:
-            matched, inner, inner_col, _ = _match_containers(line, fence_containers)
+            matched, inner, inner_col, _ = _match_containers(line, fence_containers, allow_thematic_exit=False)
             if matched < len(fence_containers):
                 fence = None
             else:
@@ -1702,7 +1723,7 @@ def _collect_ref_defs(raw_lines):
                     i += 1
                     continue
         if html_end is not None:
-            matched, inner, _, blank_at = _match_containers(line, html_containers)
+            matched, inner, _, blank_at = _match_containers(line, html_containers, allow_thematic_exit=False)
             if matched < len(html_containers):
                 html_end = None
             elif html_end == "blank":
@@ -2108,6 +2129,37 @@ def _expand_commit_sep_tokens(tokens, seen):
     return out
 
 
+def _strip_inline_html(text):
+    """Strip CommonMark §6.6 inline HTML tags and comments outside matched backtick code spans, replacing line-break
+    and block-separator tags (`<br>`, `<hr>`, `<p>`, `<div>`, etc.) with a space and inline tags with empty string."""
+    out = []
+    plain_start, i, n = 0, 0, len(text)
+
+    def clean_plain(seg):
+        return HTML_INLINE_TAG.sub(lambda m: " " if m.group("break") else "", seg)
+
+    while i < n:
+        if text[i] == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            close = _find_closing_ticks(text, j, j - i)
+            if close != -1:
+                if i > plain_start:
+                    out.append(clean_plain(text[plain_start:i]))
+                end = close + (j - i)
+                out.append(text[i:end])
+                i = end
+                plain_start = i
+                continue
+            i = j
+            continue
+        i += 1
+    if plain_start < n:
+        out.append(clean_plain(text[plain_start:]))
+    return "".join(out)
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
     entry with non-empty description text (distinct from commit references, ranges, refs, reflog/search selectors,
@@ -2119,7 +2171,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            visible = _unwrap_markdown_links(m.group(1).strip(), ref_defs)
+            visible = _strip_inline_html(_unwrap_markdown_links(m.group(1).strip(), ref_defs))
             parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible), seen)
             commit_pos = set()
             for pos, raw in enumerate(parts):
