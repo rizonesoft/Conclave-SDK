@@ -2269,24 +2269,33 @@ _HELD_OS_LOCKS: dict[tuple[Path, str], object] = {}
 
 def _open_os_lock(oslock_path):
     """Open the persistent `.oslock` file without requiring write permission on POSIX (`flock` works on `O_RDONLY`),
-    ensuring `0o644` mode even under a `077` creator umask (`fchmod`), avoiding blocking on FIFOs (`O_NONBLOCK`), and
-    refusing non-regular entries (`O_NOFOLLOW` + `fstat` `S_ISREG`)."""
+    publishing newly created lock files atomically at mode `0o644` (`fchmod` before `os.link`) so a crash under a `077`
+    umask never leaves a `0600` entry, self-healing any pre-existing owner-only mode, avoiding blocking on FIFOs
+    (`O_NONBLOCK`), and refusing symlinks or non-regular entries (`O_NOFOLLOW` + `fstat` `S_ISREG`)."""
     oslock_path.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         return open(oslock_path, "a+b")
     nofollow = getattr(os, "O_NOFOLLOW", 0)
     nonblock = getattr(os, "O_NONBLOCK", 0)
     open_flags = os.O_RDONLY | nofollow | nonblock
-    created = False
     try:
         try:
             fd = os.open(oslock_path, open_flags)
         except FileNotFoundError:
+            tmp_path = oslock_path.with_name(f"{oslock_path.name}.{os.getpid()}.{os.urandom(6).hex()}.tmp")
+            tmp_fd = os.open(tmp_path, open_flags | os.O_CREAT | os.O_EXCL, 0o644)
             try:
-                fd = os.open(oslock_path, open_flags | os.O_CREAT | os.O_EXCL, 0o644)
-                created = True
-            except FileExistsError:
-                fd = os.open(oslock_path, open_flags)
+                os.fchmod(tmp_fd, 0o644)
+                try:
+                    os.link(tmp_path, oslock_path)
+                    fd = tmp_fd
+                    tmp_fd = None
+                except FileExistsError:
+                    fd = os.open(oslock_path, open_flags)
+            finally:
+                if tmp_fd is not None:
+                    os.close(tmp_fd)
+                tmp_path.unlink(missing_ok=True)
     except OSError as exc:
         if exc.errno == errno.ELOOP:
             raise Refused(f"lock entry {oslock_path} is a symlink: refusing to use it") from None
@@ -2294,8 +2303,8 @@ def _open_os_lock(oslock_path):
     try:
         st = os.fstat(fd)
         require(stat.S_ISREG(st.st_mode), f"lock entry {oslock_path} is not a regular file: refusing to use it")
-        if created:
-            os.fchmod(fd, 0o644)
+        if (st.st_mode & 0o444) != 0o444 and st.st_uid == os.geteuid():
+            os.fchmod(fd, (st.st_mode & 0o777) | 0o444)
     except BaseException:
         os.close(fd)
         raise
