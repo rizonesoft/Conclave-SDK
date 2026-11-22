@@ -621,12 +621,33 @@ class FidelityLookup(Filler):
                 mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF)
         self.assertIn("git repository check failed", str(ctx.exception))
         self.assertIn("dubious ownership", str(ctx.exception))
-        # Outside a git repo ("not a git repository" with no .git dir), standalone fixtures still return None.
+        # Outside a git repo ("not a git repository (or any ...)" with no GIT_DIR and no ancestor .git), standalone
+        # fixtures still return None, and the git probe runs with C-locale env vars (Reconciliation 1 finding 3).
         fake_not_git = subprocess.CompletedProcess(
             ["git"], 128, stdout="", stderr="fatal: not a git repository (or any of the parent directories): .git\n"
         )
-        with unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
+        seen_env = {}
+        def capture_run(*args, **kwargs):
+            seen_env.update(kwargs.get("env") or {})
+            return fake_not_git
+        with unittest.mock.patch.dict(os.environ, {"LC_ALL": "fr_FR.UTF-8"}, clear=False), \
+                unittest.mock.patch.object(mod.subprocess, "run", side_effect=capture_run):
+            if "GIT_DIR" in os.environ:
+                os.environ.pop("GIT_DIR")
             self.assertIsNone(mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF))
+        self.assertEqual(seen_env.get("LC_ALL"), "C")
+        self.assertEqual(seen_env.get("LANG"), "C")
+        self.assertEqual(seen_env.get("LANGUAGE"), "C")
+
+        # Reconciliation 1 finding 1: explicit stale GIT_DIR refuses even in a directory with no .git of its own.
+        fake_bad_git_dir = subprocess.CompletedProcess(
+            ["git"], 128, stdout="", stderr="fatal: not a git repository: 'unavailable-git-dir'\n"
+        )
+        with unittest.mock.patch.dict(os.environ, {"GIT_DIR": "unavailable-git-dir"}, clear=False), \
+                unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_bad_git_dir):
+            with self.assertRaises(mod.Refused) as ctx:
+                mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF)
+        self.assertIn("git repository check failed", str(ctx.exception))
 
 
 class NoGraph(Filler):

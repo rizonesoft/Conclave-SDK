@@ -135,16 +135,19 @@ def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, re
     """Read `ref`'s section body from `candidate` when `root` is a git work tree. Inside a git repository, an
     unavailable candidate or git failure/timeout refuses rather than silently falling back to the working tree.
     Returns None only when `root` is not inside a git work tree (such as standalone synthetic fixtures)."""
+    c_env = {**os.environ, "LC_ALL": "C", "LANG": "C", "LANGUAGE": "C"}
     try:
         inside = subprocess.run(
             ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, env=c_env,
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise Refused(f"--fidelity is needed: checking git repository for candidate {candidate} failed ({error})")
     if inside.returncode != 0:
         err = (inside.stderr or "").strip()
-        if "not a git repository" in err.lower() and not (root / ".git").exists():
+        explicit_git_dir = bool(os.environ.get("GIT_DIR"))
+        has_git_marker = any((p / ".git").exists() for p in (root.resolve(), *root.resolve().parents))
+        if not explicit_git_dir and not has_git_marker and "not a git repository (or any" in err.lower():
             return None
         raise Refused(
             f"--fidelity is needed: git repository check failed for {root} (exit {inside.returncode}: {err or 'no stderr'})"
