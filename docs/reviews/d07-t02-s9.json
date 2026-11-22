@@ -1,0 +1,90 @@
+{
+  "ref": "D07 T02 \u00a79",
+  "title": "Shadow-audit repairs for `open-dashboard.py` and browser test",
+  "implementation_sha": "738206a42d871cab0129569ad9ce2550e0042b5e",
+  "date": "2026-11-22",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T02-s9.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml run 45036393663 green on 738206a42d87 (7/7 jobs: Windows 1-3/3, Linux full 1-3/3, kit suites Linux)",
+    "Windows test_open_dashboard.py 52 tests OK (40 executed, 12 non-Windows/no-PHP skips) and kit-wordpress PASS (98 tests in 43.2s)",
+    "WSL POSIX test_open_dashboard.py 52 tests OK (38 executed, 14 non-POSIX/no-PHP skips) and 11/11 isolated source mutations failed"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T02-s9.md",
+    "verdict": "reconciled",
+    "candidate": "738206a42d871cab0129569ad9ce2550e0042b5e",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T02-s9.md",
+    "candidate": "d492804999a1c80020be08afe6d0bd7c9687749e",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "d492804999a1c80020be08afe6d0bd7c9687749e",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 5,
+  "pass_cap": 33
+}
