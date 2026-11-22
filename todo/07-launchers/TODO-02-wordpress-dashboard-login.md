@@ -45,13 +45,14 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Ticket login plugin in the WordPress kit | -- | [x] |
-| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [x] |
+| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [ ] |
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [x] |
 | 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [x] |
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [x] |
 | 6 | §6 | `wordpress-connect` step and tooling page | §4, §5 | [x] |
 | 7 | §7 | Live proof on a staging site | §6 | [ ] |
 | 8 | §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py` | §1 | [x] |
+| 9 | §9 | Shadow-audit repairs for `open-dashboard.py` and browser test | §1 | [ ] |
 
 ## 1. Ticket login plugin in the WordPress kit
 
@@ -119,14 +120,13 @@ The opener is the half that runs on the operator's machine. The first build open
 - [x] Run both paths of `main` end to end with `site_ssh.wp` replaced by the stand-ins: the default stores a ticket and opens exactly `<pinned url>/?conclave_ticket=<the stored token>` (a pin under a subpath included), and `--check` stores, confirms, drops, confirms the removal (`drop` must return `"dropped"`) and opens nothing. Done when: both tests pass and each prints its fixed success line, and a `--check` test where a newer ticket replaces this run's ticket before `drop` (`not ours`) leaves the newer ticket intact, exits 1 and prints a fixed refusal. **Planned 2026-11-21 (plan review, gap 4):** `--check` requires `dropped` to claim removal and refuses `not ours`/`absent`/`gone`.
 - [x] Print only fixed messages: each refusal is a sentence written in the opener, any other exception prints `open-dashboard: <exception type>: unexpected failure` and nothing of its text, and nothing prints the token, the digest or the link. Done when: tests make each step raise an exception whose text holds the token, a link fragment and a child's output, also with the cleanup failing, and compare stdout and stderr with the exact expected lines.
 - [x] Add to `scripts/tests/test_ticket_login.py` the agreement test: the plugin's two constants equal the opener's `OPTION` and `QUERY`. Done when: renaming either constant on one side makes it fail.
-- [x] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
+- [ ] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
 
 **Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py` and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"` end `OK`, run where PHP is on the path (WSL or CI's Linux runner) so the stand-in tests run and are not skipped; changing `QUERY` in the opener alone makes the second fail. **Corrected 2026-11-20 (plan review gap 2):** a discovery run of the opener's tests could report `Ran 0 tests` and `OK`, so the file is run directly.
 
 > **Unstamped:** 2026-11-21: shadow audit found two P2 desktop-entry defects missed by repair-diff; repair -> XREF: D07 T02 §8 (revoked receipt `docs/reviews/d07-t02-s2.revoked-2026-11-21.json`)
 
-> **Verified:** 2026-11-21 | §2 | d86bc31a3853071a576539bfdc4c3e4f0d1c7f46
-> **Review:** `docs/reviews/d07-t02-s2.json`
+> **Unstamped:** 2026-11-22: shadow audit audit-d07-t02-s2-c3.md found 6 P2s and 1 P3 missed by repair-diff; repair -> XREF: D07 T02 §9 (revoked receipt `docs/reviews/d07-t02-s2.revoked-2026-11-22.json`)
 
 ## 3. Plugin install, status and removal on the pinned site
 
@@ -280,6 +280,27 @@ Filed 2026-11-21 from the `D00 T01 §10` shadow audit of `D07 T02 §2` (`docs/re
 
 > **Verified:** 2026-11-21 | §8 | 273fea94e9b11fd30165c98871fe0130162407de
 > **Review:** `docs/reviews/d07-t02-s8.json`
+
+## 9. Shadow-audit repairs for `open-dashboard.py` and browser test
+
+Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T02 §2` chain 3 (`docs/reviews/07-launchers/audit-d07-t02-s2-c3.md`), which found 6 P2 defects and 1 P3 missed by repair-diff.
+
+**Phase:** 9
+**Needs:** none
+**Surface:** no
+
+**Build order:**
+
+1. Fix the 3 production defects and 1 P3 cleanup gap in `kits/wordpress/templates/scripts/open-dashboard.py` and `kits/wordpress/templates/scripts/lib/wp_site.py`. Done when: unit tests prove 64-bit integer range rejection, machine-default Windows HTTPS fallback, fixed stderr without child desktop ID, and `.open-*.tmp` pruning.
+2. Fix the 3 browser-test teardown and server defects in `kits/wordpress/templates/scripts/tests/test_open_dashboard.py`. Done when: the checkpoint passes.
+
+- [ ] Reject `wordpress_user_id` values outside signed 64-bit integer range (`1 <= id <= (1 << 63) - 1`) in `kits/wordpress/templates/scripts/lib/wp_site.py` and `kits/wordpress/templates/scripts/open-dashboard.py` so PHP never coerces the ID to float and fails redemption with 403. Done when: a test in `test_open_dashboard.py` passes `9223372036854775808` and asserts refusal before any remote call. Cheaper substitute: allowing unbounded Python integers, which PHP parses as floats.
+- [ ] Fall back from per-user `UserChoice` to the effective Windows HTTPS handler (`HKCR\https\shell\open\command` or `IApplicationAssociationRegistration`) in `kits/wordpress/templates/scripts/open-dashboard.py` without falling back to `.html` associations. Done when: a test exercises a profile without `UserChoice` and asserts resolution succeeds via the machine default while distinct `.html` handlers stay unused. Cheaper substitute: failing whenever per-user `UserChoice` is absent.
+- [ ] Keep fixed stderr messages in `kits/wordpress/templates/scripts/open-dashboard.py` without echoing child `xdg-mime` desktop entry IDs on lookup failure, and prune leftover `.open-*.tmp` files alongside `open-*.html` on Windows and Linux. Done when: tests verify stale `xdg-mime` output never appears in stderr and stale `.open-*.tmp` files are removed on launch. Cheaper substitute: echoing `xdg-mime` output verbatim.
+- [ ] Harden `kits/wordpress/templates/scripts/tests/test_open_dashboard.py`: call `os.killpg` in `_kill_browser_tree` even after the process-group leader exits, use literal substring matching (not PowerShell `-like` wildcards) for temp profile paths containing `[...]`, and use a threaded loopback server with accepted-socket timeouts so an idle connection never hangs `server.shutdown()`. Done when: tests reproduce an exited leader with a live child, a `[work]` temp profile path, and an idle loopback socket during shutdown. Cheaper substitute: skipping cleanup once `poll()` returns non-None or matching paths with `-like`.
+- [ ] Commit: `wordpress: shadow-audit repairs for open-dashboard.py and browser test (D07 T02 §9)`
+
+**Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py`, `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"`, and `python forge.py check-all --only kit-wordpress` pass; removing any of the 6 P2 repairs makes its corresponding test fail.
 
 ## Verification
 

@@ -160,7 +160,7 @@ Sections: 17 | Checklist items: 150
 
 | Status | Reference  | Deliverable                                                             | Needs        | Items |
 | ------ | ---------- | ----------------------------------------------------------------------- | ------------ | ----- |
-| [x]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 6     |
+| [ ]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 6     |
 | [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                       | none         | 9     |
 | [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader              | none         | 7     |
 | [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                                | none         | 12    |
@@ -168,10 +168,10 @@ Sections: 17 | Checklist items: 150
 | [x]    | D07 T01 §5 | Desktop links that open the project in an agent                         | windows-host | 19    |
 | [x]    | D07 T01 §6 | Declared links that run a command or open a URL                         | windows-host | 7     |
 | [x]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share        | windows-host | 22    |
-| [x]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | windows-host | 6     |
+| [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | windows-host | 6     |
 | [x]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 5     |
 | [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                                | none         | 10    |
-| [x]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 13    |
+| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 13    |
 | [x]    | D07 T02 §3 | Plugin install, status and removal on the pinned site                   | none         | 7     |
 | [x]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                      | none         | 5     |
 | [x]    | D07 T02 §5 | WordPress link in the launcher profile                                  | none         | 4     |
@@ -180,33 +180,36 @@ Sections: 17 | Checklist items: 150
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 23 | Checklist items: 145
+Sections: 26 | Checklist items: 160
 
-| Status | Reference   | Deliverable                                                | Needs        | Items |
-| ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin      | none         | 8     |
-| [x]    | D00 T01 §11 | One severity rubric weighted by likelihood                 | none         | 8     |
-| [x]    | D00 T01 §12 | Check resolution entries before reconciliation dispatch    | none         | 3     |
-| [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt           | none         | 10    |
-| [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin | none         | 6     |
-| [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                        | windows-host | 7     |
-| [ ]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders          | windows-host | 7     |
-| [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                      | windows-host | 6     |
-| [ ]    | D00 T03 §6  | Design Paths in Every Three-Pass Pin                       | windows-host | 5     |
-| [ ]    | D00 T03 §7  | Design Lint Where a Project Has None                       | windows-host | 7     |
-| [ ]    | D00 T03 §8  | Resolute on Three-Pass                                     | windows-host | 6     |
-| [ ]    | D00 T03 §9  | C++ Lens Entries in the C++ Projects                       | windows-host | 5     |
-| [ ]    | D00 T03 §10 | Reviewer Scripts Current in the WSL Project                | none         | 5     |
-| [ ]    | D00 T03 §11 | Surface Validation in the Custom Graphs                    | windows-host | 4     |
-| [ ]    | D00 T03 §12 | Stamp Gate Planned in Each Custom Graph's Project          | windows-host | 5     |
-| [ ]    | D00 T03 §13 | Concurrency and Lifetime Checks in the Clang-Tidy Ratchet  | windows-host | 6     |
-| [ ]    | D00 T03 §14 | Sanitizer Test Configuration                               | windows-host | 5     |
-| [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                 | windows-host | 5     |
-| [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                 | windows-host | 7     |
-| [x]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review    | none         | 8     |
-| [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops | windows-host | 11    |
-| [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk        | windows-host | 7     |
-| [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                  | windows-host | 4     |
+| Status | Reference   | Deliverable                                                   | Needs        | Items |
+| ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
+| [ ]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin         | none         | 8     |
+| [x]    | D00 T01 §11 | One severity rubric weighted by likelihood                    | none         | 8     |
+| [x]    | D00 T01 §12 | Check resolution entries before reconciliation dispatch       | none         | 3     |
+| [ ]    | D00 T01 §13 | Shadow-audit repairs for `replan` path check and lock safety  | none         | 5     |
+| [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt              | none         | 10    |
+| [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 6     |
+| [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                           | windows-host | 7     |
+| [ ]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders             | windows-host | 7     |
+| [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                         | windows-host | 6     |
+| [ ]    | D00 T03 §6  | Design Paths in Every Three-Pass Pin                          | windows-host | 5     |
+| [ ]    | D00 T03 §7  | Design Lint Where a Project Has None                          | windows-host | 7     |
+| [ ]    | D00 T03 §8  | Resolute on Three-Pass                                        | windows-host | 6     |
+| [ ]    | D00 T03 §9  | C++ Lens Entries in the C++ Projects                          | windows-host | 5     |
+| [ ]    | D00 T03 §10 | Reviewer Scripts Current in the WSL Project                   | none         | 5     |
+| [ ]    | D00 T03 §11 | Surface Validation in the Custom Graphs                       | windows-host | 4     |
+| [ ]    | D00 T03 §12 | Stamp Gate Planned in Each Custom Graph's Project             | windows-host | 5     |
+| [ ]    | D00 T03 §13 | Concurrency and Lifetime Checks in the Clang-Tidy Ratchet     | windows-host | 6     |
+| [ ]    | D00 T03 §14 | Sanitizer Test Configuration                                  | windows-host | 5     |
+| [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                    | windows-host | 5     |
+| [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                    | windows-host | 7     |
+| [x]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review       | none         | 8     |
+| [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops    | windows-host | 11    |
+| [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 7     |
+| [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
+| [ ]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 5     |
+| [ ]    | D07 T02 §9  | Shadow-audit repairs for `open-dashboard.py` and browser test | none         | 5     |
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
@@ -242,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 116/152 verified sections, 8 ready to run now.
+Progress: 113/155 verified sections, 14 ready to run now.
 
-Checklist: 939/1150 items completed (includes Commit items).
+Checklist: 940/1165 items completed (includes Commit items).

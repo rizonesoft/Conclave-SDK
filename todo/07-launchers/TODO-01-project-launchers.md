@@ -2,7 +2,7 @@
 schema_version: 1
 id: project-launchers
 domain: 07-launchers
-status: done
+status: active
 title: "TODO-01 -- Project launchers: one desktop shape for every project"
 ---
 
@@ -51,8 +51,9 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [x] |
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [x] |
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [x] |
-| 8 | §8 | Operator page and `project-launchers` skill | §6, §7 | [x] |
+| 8 | §8 | Operator page and `project-launchers` skill | §6, §7 | [ ] |
 | 9 | §9 | Agent and declared links named outside the ANSI code page | §6 | [x] |
+| 10 | §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests | §9 | [ ] |
 
 ## 1. Launchers kit known to `forge.py`
 
@@ -320,12 +321,11 @@ A person or an agent in a project needs one place that says how to set the title
 - [x] Write `kits/launchers/templates/.claude/skills/project-launchers/SKILL.md` with discovery metadata (`name`, `description`): when to use it (the operator asks for desktop shortcuts, or a project's title or icon changed), pointer to the installed `docs/launchers.md` for creation and removal commands (avoiding duplicated command steps), agent-specific read-back in PowerShell 7 (`pwsh`) loading `scripts/lib/ShellLink.cs` with `Add-Type -Path` and calling `[Conclave.ShellLink]::Read` to inspect saved `Target`, `Arguments` and `IconPath` without launching the link, and the rule that a link is only ever started by the operator. Done when: a test in `tests/test_forge.py` checks the installed skill in `.agents`, `.claude`, and `.codex` for discovery metadata, `docs/launchers.md` reference, creation/removal guidance, `pwsh` + `Add-Type -Path` read-back without launching, the operator-only rule, and zero project names or machine paths, and runs the documented read-back command in a fresh `pwsh` process against a shortcut created by the page example to assert `Target`, `Arguments` and `IconPath`.
 - [x] Run `python forge.py skill-copies` to write the Antigravity and Codex copies, and add Codex's `agents/openai.yaml` by hand. Done when: `python forge.py skill-copies --check` exits 0 and a test verifies the installed Codex `agents/openai.yaml` display name, description, and invocation prompt naming `project-launchers`.
 - [x] Point at the page from `kits/unattended/templates/docs/unattended-run.md` (the shortcuts section, linking to `launchers.md` beside it after install) and from the file table in `kits/launchers/README.md` (linking to `templates/docs/launchers.md` in the SDK checkout). Done when: a test follows the README link in the SDK checkout, the unattended guide link in a project provisioned with `unattended`, and the back-link from `launchers.md` to `unattended-run.md#shortcuts`.
-- [x] Commit: `launchers: the operator's page and the project-launchers skill`
+- [ ] Commit: `launchers: the operator's page and the project-launchers skill`
 
 **Test checkpoint:** on Windows, `python -m unittest tests.test_forge -k launchers_page -v` runs and passes the live shortcut creation/rerun/invalid-profile-removal and fresh-`pwsh` read-back tests (not skipped), plus profile, link, skill, and `openai.yaml` checks; removing the removal heading from the page, the `docs/launchers.md` reference or operator-only rule from the skill, or Codex's `agents/openai.yaml` makes it fail.
 
-> **Verified:** 2026-11-21 | §8 | c9158e4ed64d780df2fd4c3282c31a358af24fcf
-> **Review:** `docs/reviews/d07-t01-s8.json`
+> **Unstamped:** 2026-11-22: shadow audit audit-d07-t01-s8.md found 1 P1, 6 P2s, and 1 P3 missed by repair-diff at c9158e4e (3 fixed by D07 T01 §9); open repairs -> XREF: D07 T01 §10 (revoked receipt `docs/reviews/d07-t01-s8.revoked-2026-11-22.json`)
 
 ## 9. Agent and declared links named outside the ANSI code page
 
@@ -352,6 +352,27 @@ A person or an agent in a project needs one place that says how to set the title
 
 > **Verified:** 2026-11-21 | §9 | 7211c4c26137e801a78f28817717386138f47e80
 > **Review:** `docs/reviews/d07-t01-s9.json`
+
+## 10. Shadow-audit repairs for `project-shortcuts.ps1` and tests
+
+Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T01 §8` (`docs/reviews/07-launchers/audit-d07-t01-s8.md`), which found 1 P1, 6 P2s, and 1 P3 missed by repair-diff at `c9158e4e`. Findings 2 (`Get-Owned` directory enumeration errors), 3 (`Add-Type -LiteralPath`), and 4 (Unicode shortcut writer) were already fixed on HEAD by `D07 T01 §9` (`1a843490`/`7211c4c2`); this section repairs the 4 still-open P2s and 1 P3.
+
+**Phase:** 9
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Fix ordinal mark comparison and 8.3 path normalization in `kits/launchers/templates/scripts/project-shortcuts.ps1` and document slug collisions in `kits/launchers/templates/docs/launchers.md`. Done when: `kit-launchers` tests prove composed vs decomposed Unicode paths stay distinct and short vs long Windows paths share one identity.
+2. Fix Windows timeout tree kill and `Format-List` continuation parsing in `tests/test_forge.py`. Done when: the checkpoint passes.
+
+- [ ] Use `[String]::Equals($a, $b, [StringComparison]::Ordinal)` instead of `-ceq` for ownership mark comparisons in `kits/launchers/templates/scripts/project-shortcuts.ps1` (`-Inspect`, `Get-Owned`, and `-Remove`) so composed and decomposed Unicode WSL paths (`caf\u00e9` vs `cafe\u0301`) stay distinct. Done when: a Windows test creates marks for both spellings and verifies neither owns or removes the other. Cheaper substitute: keeping `-ceq`, which folds canonical Unicode equivalence in PowerShell.
+- [ ] Normalize existing Windows project paths through `ShellPath.Long` (matching `kits/unattended/templates/scripts/unattended-shortcut.ps1`) in `kits/launchers/templates/scripts/project-shortcuts.ps1` so 8.3 short paths and long paths derive the same ownership mark. Done when: a Windows test creates links via an 8.3 short path and verifies `-Inspect` and `-Remove` match them via the long path. Cheaper substitute: using `Resolve-Path` alone without expanding 8.3 names.
+- [ ] Document reserved agent icon-slug collisions (e.g. `Claude!`) and empty punctuation-only slugs in `kits/launchers/templates/docs/launchers.md:88`. Done when: the operator page names both refusals matching `kits/launchers/templates/scripts/lib/launchers.py:217-223` and `markdown_table` passes.
+- [ ] Use full process-tree cleanup (`taskkill /T /F`) on timeout for the Windows worked-command runner at `tests/test_forge.py:4386` and join indented continuation lines in the `Format-List` record parser at `tests/test_forge.py:4461-4476`. Done when: unit tests verify a wrapped `IconPath` continuation line parses intact and timeout kills child processes cleanly. Cheaper substitute: calling `subprocess.run` without tree cleanup or ignoring wrapped `Format-List` lines.
+- [ ] Commit: `launchers: shadow-audit repairs for project-shortcuts.ps1 and tests (D07 T01 §10)`
+
+**Test checkpoint:** on Windows, `python forge.py check-all --only kit-launchers` (with `ProjectShortcutsTest` executed, not skipped) and `python -m unittest tests.test_forge -k launchers_page -k markdown_table` pass; reverting ordinal comparison, 8.3 expansion, or `Format-List` continuation joining makes its test fail.
 
 ## Verification
 
