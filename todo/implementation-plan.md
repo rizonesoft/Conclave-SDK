@@ -179,14 +179,14 @@ Sections: 16 | Checklist items: 143
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 27 | Checklist items: 167
+Sections: 27 | Checklist items: 168
 
 | Status | Reference   | Deliverable                                                   | Needs        | Items |
 | ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin         | none         | 8     |
+| [x]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin         | none         | 8     |
 | [x]    | D00 T01 §11 | One severity rubric weighted by likelihood                    | none         | 8     |
 | [x]    | D00 T01 §12 | Check resolution entries before reconciliation dispatch       | none         | 3     |
-| [ ]    | D00 T01 §13 | Shadow-audit repairs for `replan` path check and lock safety  | none         | 5     |
+| [ ]    | D00 T01 §13 | Shadow-audit repairs for `replan` path check and lock safety  | none         | 6     |
 | [ ]    | D00 T01 §9  | Re-plan route for unsettled chains, recovery planned up front | none         | 6     |
 | [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt              | none         | 10    |
 | [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 6     |
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 113/155 verified sections, 11 ready to run now.
+Progress: 114/155 verified sections, 10 ready to run now.
 
-Checklist: 940/1165 items completed (includes Commit items).
+Checklist: 941/1166 items completed (includes Commit items).
