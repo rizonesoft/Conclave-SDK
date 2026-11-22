@@ -2757,14 +2757,106 @@ def _strip_comments_line(line, in_comment=False, allow_multiline=True):
     return "".join(out), False
 
 
+CSS_WIDE_VALUES = frozenset({"initial", "inherit", "unset", "revert", "revert-layer"})
+CSS_DISPLAY_OUTSIDE = frozenset({"block", "inline", "run-in"})
+CSS_DISPLAY_INSIDE = frozenset({"flow", "flow-root", "table", "flex", "grid", "ruby"})
+CSS_DISPLAY_SINGLE = CSS_WIDE_VALUES | CSS_DISPLAY_OUTSIDE | CSS_DISPLAY_INSIDE | frozenset({
+    "none", "contents", "list-item",
+    "inline-block", "inline-table", "inline-flex", "inline-grid",
+    "table-row-group", "table-header-group", "table-footer-group", "table-row", "table-cell",
+    "table-column-group", "table-column", "table-caption",
+    "ruby-base", "ruby-text", "ruby-base-container", "ruby-text-container",
+})
+CSS_VISIBILITY_VALUES = CSS_WIDE_VALUES | frozenset({"visible", "hidden", "collapse"})
+
+
+def _valid_css_display(val):
+    """True when `val` (lowercased, comments already stripped) is a valid CSS Display Level 3 value."""
+    tokens = val.split()
+    if len(tokens) == 1:
+        return tokens[0] in CSS_DISPLAY_SINGLE
+    if len(tokens) == 2:
+        a, b = tokens
+        if (a in CSS_DISPLAY_OUTSIDE and b in CSS_DISPLAY_INSIDE) or (
+            b in CSS_DISPLAY_OUTSIDE and a in CSS_DISPLAY_INSIDE
+        ):
+            return True
+        if "list-item" in tokens:
+            other = b if a == "list-item" else a
+            return other in CSS_DISPLAY_OUTSIDE or other in ("flow", "flow-root")
+        return False
+    if len(tokens) == 3 and tokens.count("list-item") == 1:
+        rest = [t for t in tokens if t != "list-item"]
+        return ((rest[0] in CSS_DISPLAY_OUTSIDE and rest[1] in ("flow", "flow-root"))
+                or (rest[1] in CSS_DISPLAY_OUTSIDE and rest[0] in ("flow", "flow-root")))
+    return False
+
+
+def _split_css_declarations(style):
+    """Split inline CSS `style` into declarations on top-level `;` outside quoted strings, comments, and
+    parenthesized/bracketed/braced groups, replacing CSS comments outside strings with a space."""
+    decls = []
+    buf = []
+    i, n = 0, len(style)
+    quote = None
+    depth = 0
+    while i < n:
+        ch = style[i]
+        if quote is not None:
+            buf.append(ch)
+            if ch == "\\" and i + 1 < n:
+                buf.append(style[i + 1])
+                if style[i + 1] == "\r" and i + 2 < n and style[i + 2] == "\n":
+                    buf.append("\n")
+                    i += 3
+                else:
+                    i += 2
+                continue
+            if ch == quote or ch in ("\n", "\r", "\f"):
+                quote = None
+            i += 1
+            continue
+        if style.startswith("/*", i):
+            close = style.find("*/", i + 2)
+            buf.append(" ")
+            if close == -1:
+                break
+            i = close + 2
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if ch in "([{":
+            depth += 1
+            buf.append(ch)
+            i += 1
+            continue
+        if ch in ")]}":
+            depth = max(0, depth - 1)
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == ";" and depth == 0:
+            decls.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    if buf:
+        decls.append("".join(buf))
+    return decls
+
+
 def _is_style_hidden(style):
-    """True when inline CSS `style` resolves to `display: none` or `visibility: hidden` after evaluating later
-    declarations, CSS comments, and `!important` precedence."""
+    """True when inline CSS `style` resolves to `display: none` or `visibility: hidden`/`collapse` after evaluating
+    top-level declarations, CSS comments, quoted strings, valid keyword values, and `!important` precedence."""
     if not style:
         return False
-    cleaned = re.sub(r"/\*[\s\S]*?\*/", "", style)
     final = {}  # prop -> (value, important)
-    for decl in cleaned.split(";"):
+    for decl in _split_css_declarations(style):
         if ":" not in decl:
             continue
         prop, _, val = decl.partition(":")
@@ -2775,13 +2867,21 @@ def _is_style_hidden(style):
         imp = bool(re.search(r"!\s*important$", val))
         if imp:
             val = re.sub(r"!\s*important$", "", val).strip()
-        if not val:
+        if not val or "!" in val:
             continue
+        if prop == "display":
+            if not _valid_css_display(val):
+                continue
+            norm = " ".join(val.split())
+        else:
+            if val not in CSS_VISIBILITY_VALUES:
+                continue
+            norm = val
         prev = final.get(prop)
         if prev is None or imp or not prev[1]:
-            final[prop] = (val, imp)
+            final[prop] = (norm, imp)
     return (final.get("display", ("", False))[0] == "none"
-            or final.get("visibility", ("", False))[0] == "hidden")
+            or final.get("visibility", ("", False))[0] in ("hidden", "collapse"))
 
 
 class _NoteVisibilityParser(html.parser.HTMLParser):
@@ -2854,90 +2954,25 @@ class _NoteVisibilityParser(html.parser.HTMLParser):
             self.visible = True
 
 
-def _mask_note_code_spans(text, allow_multiline_comment=True):
-    """Replace matched CommonMark §6.1 backtick code spans outside HTML comments/tags with visible text so literal
-    tags/comments in inline code stay visible, and escape unclosed `<!--` in single-line ATX heading titles."""
+def _mask_line_and_advance_html(line, in_comment, in_open_tag, tag_quote, allow_multiline_comment=True):
+    """Single-pass scanner over `line`: masks matched CommonMark §6.1 backtick code spans outside HTML comments and
+    opening tags to visible `" code "`, escapes unclosed `<!--` when `allow_multiline_comment` is False, and returns
+    `(masked_line, in_comment, in_open_tag, tag_quote)`."""
     out = []
-    i, n = 0, len(text)
-    while i < n:
-        if text[i] == "`":
-            j = i
-            while j < n and text[j] == "`":
-                j += 1
-            close = _find_closing_ticks(text, j, j - i)
-            if close != -1:
-                out.append(" code ")
-                i = close + (j - i)
-                continue
-            out.append(text[i:j])
-            i = j
-            continue
-        if text.startswith("<!--", i):
-            close = text.find("-->", i + 4)
-            if close == -1:
-                if text.startswith("<!-->", i):
-                    out.append("<!-->")
-                    i += 5
-                    continue
-                if text.startswith("<!--->", i):
-                    out.append("<!--->")
-                    i += 6
-                    continue
-                if allow_multiline_comment:
-                    out.append(text[i:])
-                    break
-                out.append("&lt;!--")
-                i += 4
-                continue
-            out.append(text[i : close + 3])
-            i = close + 3
-            continue
-        if text[i] == "<" and i + 1 < n and (text[i + 1].isalpha() or text[i + 1] == "/"):
-            j = i + 1
-            quote = None
-            while j < n:
-                ch = text[j]
-                if quote:
-                    if ch == quote:
-                        quote = None
-                elif ch in ('"', "'"):
-                    quote = ch
-                elif ch == ">":
-                    j += 1
-                    break
-                j += 1
-            out.append(text[i:j])
-            i = j
-            continue
-        out.append(text[i])
-        i += 1
-    return "".join(out)
-
-
-def _has_visible_note_content(text, allow_multiline_comment=True):
-    """True when `text` (a `## Writer note:` title or collected body) renders visible text or an unhidden widget."""
-    if not text.strip():
-        return False
-    parser = _NoteVisibilityParser()
-    parser.feed(_mask_note_code_spans(text, allow_multiline_comment=allow_multiline_comment))
-    parser.close()
-    return parser.visible
-
-
-def _advance_html_tag_state(line, in_comment, in_open_tag, tag_quote):
-    """Advance multiline HTML comment and open-tag/attribute-quote state across `line` (outside code spans) so
-    `## ` inside a multiline HTML comment or open-tag attribute does not split a `## Writer note:` body early."""
     i, n = 0, len(line)
     while i < n:
         if in_comment:
             close = line.find("-->", i)
             if close == -1:
-                return True, in_open_tag, tag_quote
+                out.append(line[i:])
+                return "".join(out), True, in_open_tag, tag_quote
+            out.append(line[i : close + 3])
             in_comment = False
             i = close + 3
             continue
         if in_open_tag:
             ch = line[i]
+            out.append(ch)
             if tag_quote:
                 if ch == tag_quote:
                     tag_quote = None
@@ -2953,29 +2988,54 @@ def _advance_html_tag_state(line, in_comment, in_open_tag, tag_quote):
                 j += 1
             close = _find_closing_ticks(line, j, j - i)
             if close != -1:
+                out.append(" code ")
                 i = close + (j - i)
                 continue
+            out.append(line[i:j])
             i = j
             continue
         if line.startswith("<!--", i):
             close = line.find("-->", i + 4)
             if close == -1:
                 if line.startswith("<!-->", i):
+                    out.append("<!-->")
                     i += 5
                     continue
                 if line.startswith("<!--->", i):
+                    out.append("<!--->")
                     i += 6
                     continue
-                return True, False, None
+                if allow_multiline_comment:
+                    out.append(line[i:])
+                    return "".join(out), True, False, None
+                out.append("&lt;!--")
+                i += 4
+                continue
+            out.append(line[i : close + 3])
             i = close + 3
             continue
         if line[i] == "<" and i + 1 < n and (line[i + 1].isalpha() or line[i + 1] == "/"):
             in_open_tag = True
             tag_quote = None
+            out.append(line[i : i + 2])
             i += 2
             continue
+        out.append(line[i])
         i += 1
-    return in_comment, in_open_tag, tag_quote
+    return "".join(out), in_comment, in_open_tag, tag_quote
+
+
+def _has_visible_note_content(text, allow_multiline_comment=True):
+    """True when `text` (a `## Writer note:` title or collected body) renders visible text or an unhidden widget."""
+    if not text.strip():
+        return False
+    masked, _, _, _ = _mask_line_and_advance_html(
+        text, False, False, None, allow_multiline_comment=allow_multiline_comment
+    )
+    parser = _NoteVisibilityParser()
+    parser.feed(masked)
+    parser.close()
+    return parser.visible
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
@@ -3066,7 +3126,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             tag_quote = None
             in_html_t1 = False
             at_block_start = True
-            body_chunks = []
+            parser = _NoteVisibilityParser()
             while k < total:
                 body_line = lines[k]
                 if body_fence is not None:
@@ -3076,20 +3136,20 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                         body_fence = None
                         at_block_start = True
                     elif body_line.strip():
-                        body_chunks.append(" code ")
+                        parser.feed(" code ")
                     k += 1
                     continue
                 if not body_comment and not in_open_tag and not in_html_t1:
                     if not body_line.strip():
-                        body_chunks.append("")
+                        parser.feed("\n")
                         at_block_start = True
                         k += 1
                         continue
-                    if body_line.startswith("## "):
+                    if body_line.startswith("## ") and not parser.stack:
                         break
                     body_exp = _expand_leading_tabs(body_line, 0)
                     if at_block_start and body_exp.startswith("    "):
-                        body_chunks.append(" code ")
+                        parser.feed(" code ")
                         k += 1
                         continue
                     fm_body = FENCE_OPEN.match(body_exp)
@@ -3101,14 +3161,17 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                         in_html_t1 = True
                 elif in_html_t1 and HTML_TYPE1_CLOSE.search(body_line):
                     in_html_t1 = False
-                body_chunks.append(body_line)
-                if not in_html_t1:
-                    body_comment, in_open_tag, tag_quote = _advance_html_tag_state(
-                        body_line, body_comment, in_open_tag, tag_quote
+                if in_html_t1:
+                    parser.feed(body_line + "\n")
+                else:
+                    masked, body_comment, in_open_tag, tag_quote = _mask_line_and_advance_html(
+                        body_line, body_comment, in_open_tag, tag_quote, allow_multiline_comment=True
                     )
+                    parser.feed(masked + "\n")
                 at_block_start = False
                 k += 1
-            if _has_visible_note_content("\n".join(body_chunks), allow_multiline_comment=True):
+            parser.close()
+            if parser.visible:
                 return True
             idx = k
             in_comment = body_comment
