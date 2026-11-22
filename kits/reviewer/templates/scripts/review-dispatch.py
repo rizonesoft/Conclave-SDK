@@ -2076,24 +2076,16 @@ def _strip_outer_url_punct(raw):
 
 
 def _is_www_url(trimmed):
-    """True when `trimmed` is a GFM §6.9 / IDN extended `www.` autolink (`www.<domain>[:port][/?#...]`)."""
+    """True when `trimmed` is a GFM §6.9 / IDN extended `www.` autolink (`www.<domain>[:/?#...]`)."""
     if len(trimmed) < 5 or trimmed[:4].lower() != "www.":
         return False
     rest = trimmed[4:]
     end = len(rest)
-    for sep in ("/", "?", "#"):
+    for sep in ("/", "?", "#", ":"):
         pos = rest.find(sep)
         if pos != -1 and pos < end:
             end = pos
-    hostport = rest[:end]
-    colon = hostport.rfind(":")
-    if colon != -1:
-        port = hostport[colon + 1 :]
-        if not (1 <= len(port) <= 5 and port.isascii() and port.isdigit()):
-            return False
-        host = hostport[:colon]
-    else:
-        host = hostport
+    host = rest[:end]
     labels = host.split(".")
     if len(labels) < 2 or any(not lbl for lbl in labels):
         return False
@@ -2600,8 +2592,8 @@ def _strip_inline_emphasis_segments(segments):
             continue
         if prev_sid is not None and sid != prev_sid and (prev_sid or sid):
             left_ch, right_ch = prev_text[-1], text[0]
-            left_ok = left_ch == "`" or left_ch.isalnum()
-            right_ok = right_ch == "`" or right_ch.isalnum()
+            left_ok = left_ch == "`" or left_ch.isalnum() or unicodedata.category(left_ch).startswith("M")
+            right_ok = right_ch == "`" or right_ch.isalnum() or unicodedata.category(right_ch).startswith("M")
             if left_ok and right_ok:
                 pieces.append(" ")
         pieces.append(text)
