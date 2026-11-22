@@ -377,3 +377,40 @@ RECONCILIATION: gaps
 - Implemented: Finding 11 (P1, CSS declaration validation and quoted-string splitting in `_is_style_hidden`) repaired in `c611a4a9`: added `_split_css_declarations` (splitting on top-level `;` outside single/double quoted strings with backslash escapes, CSS comments replaced by a space so `dis/**/play` and `bl/**/ock` do not merge, and `()`/`[]`/`{}` nesting) and `_valid_css_display` / `CSS_VISIBILITY_VALUES` (CSS Display Level 3 single and multi-keyword validation plus CSS-wide keywords, discarding invalid declarations such as `display:blocks` and rejecting double `!important`), with regression tests in `kits/reviewer/templates/scripts/tests/test_three_pass.py` (`ResolutionGuard`) and synced `scripts/review-dispatch.py` and `scripts/tests/test_three_pass.py`.
 - Implemented: Finding 15 (P1, open HTML container scope across `## ` headings in `## Writer note:` body) repaired in `c611a4a9`: replaced the separate `_mask_note_code_spans` / `_advance_html_tag_state` pair with one streaming `_mask_line_and_advance_html` feeding a single `_NoteVisibilityParser` instance per `## Writer note:` body and guarding the `## ` section break with `not parser.stack`, so `<div hidden>\n## Writer note: superseded\n</div>` stays refused (`False`), `<div>\n## Repair verified\n</div>` stays accepted (`True`), and closed `<div></div>\n## Other work\nUnrelated text.` still breaks cleanly (`False`), with regression tests in `kits/reviewer/templates/scripts/tests/test_three_pass.py` (`ResolutionGuard`) and synced SDK copies.
 - Gates on `c611a4a9`: `python forge.py self-sync` clean (updated `scripts/review-dispatch.py` and `scripts/tests/test_three_pass.py`); 36 targeted CSS/HTML adversarial checks passed; `python forge.py skill-copies --check` clean (`changed: []`, `stray: []`); `python -m unittest tests.test_forge -k test_the_sdk_uses_the_agent_setup_its_kits_ship -k markdown_table` passed (2 tests in 0.265s); `python forge.py check-all --only kit-reviewer` passed (230 tests in 398.9s).
+
+## Reconciliation review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-22T11:52:37Z
+- Candidate: 06b23ad282ae3b6cd6fe87ad122f9c212d511335
+- Effort: medium
+- Lenses: plan-delivery, record, repair-adversarial, repair-integration
+- Lines: 26
+- Digest: b48c34df16e363e9
+
+**Gaps 11, 12, and 14 remain open.** The newest repair fixes the reported hidden-div cases in gap 15, but it reintroduces two earlier failures on different inputs.
+
+1. **closed.** A multiline HTML comment containing a writer-note heading is refused. The writer recorded the fix and the dispatch test retains the input. `docs/reviews/00-reviewer/D00-T01-s12.md:112`, `scripts/tests/test_three_pass.py:1147`.
+2. **closed.** The writer recorded all five checkpoint mutations, the test each mutation broke, and exit code `1` for each. `docs/reviews/00-reviewer/D00-T01-s12.md:113`, `todo/00-reviewer/TODO-01-three-pass-review.md:481`.
+3. **closed.** The commented-draft test checks refusal before any reviewer call, actionable stderr, and unchanged findings bytes. `docs/reviews/00-reviewer/D00-T01-s12.md:112`, `scripts/tests/test_three_pass.py:182`, `scripts/tests/test_three_pass.py:1292`.
+4. **closed.** Comment-only titles are refused both with and without optional closing heading hashes. `docs/reviews/00-reviewer/D00-T01-s12.md:143`, `docs/reviews/00-reviewer/D00-T01-s12.md:177`, `scripts/tests/test_three_pass.py:1154`.
+5. **closed.** Visible prose after a closed HTML comment still counts as a note body. `docs/reviews/00-reviewer/D00-T01-s12.md:144`, `scripts/tests/test_three_pass.py:1506`.
+6. **closed.** The second of two adjacent comments can span lines without exposing its text or a superseded heading. `docs/reviews/00-reviewer/D00-T01-s12.md:178`, `docs/reviews/00-reviewer/D00-T01-s12.md:214`, `scripts/tests/test_three_pass.py:1158`.
+7. **closed.** A visible image still qualifies as note evidence. `docs/reviews/00-reviewer/D00-T01-s12.md:179`, `scripts/tests/test_three_pass.py:1508`.
+8. **closed.** Empty multiline formatting and a heading inside a multiline HTML attribute are both covered by refusal tests. `docs/reviews/00-reviewer/D00-T01-s12.md:215`, `docs/reviews/00-reviewer/D00-T01-s12.md:252`, `docs/reviews/00-reviewer/D00-T01-s12.md:292`, `scripts/tests/test_three_pass.py:1165`.
+9. **closed.** The title `## Writer note:###` retains its literal hashes. `docs/reviews/00-reviewer/D00-T01-s12.md:216`, `scripts/tests/test_three_pass.py:1518`.
+10. **closed.** An ordinary visible progress indicator is accepted. `docs/reviews/00-reviewer/D00-T01-s12.md:253`, `scripts/tests/test_three_pass.py:1510`.
+11. **open, P1.** A hidden widget still satisfies the guard. **Path:** A writer pastes a progress indicator styled with a CSS custom property into the findings file as the entire note body. **Evidence:** Ran `python -B` against both Git objects. `_has_resolution_entry` returned `True` on both for `<progress style="--state:none;display:var(--state)"></progress>`. The variable resolves to `none`, but the guard discards the declaration and counts the widget as visible. The recorded typo and quoted-semicolon examples now both return `False`. `docs/reviews/00-reviewer/D00-T01-s12.md:377`, `scripts/review-dispatch.py:2873`, `scripts/review-dispatch.py:2917`.
+12. **open, P1.** The newest repair lets an empty note borrow the next section’s heading. **Path:** A writer leaves an empty HTML paragraph before a blank line and an unrelated Markdown heading. HTML permits the paragraph’s closing tag to be omitted before a heading. **Evidence:** Ran `python -B` against both Git objects with `_has_resolution_entry(['## Writer note:', '<p>', '', '## Other work', 'Unrelated text.'])`. The result changed from `False` to `True`. The parser keeps `p` on its stack, so the new heading-boundary check admits `## Other work` as note content. The explicitly closed `<div></div>` case still returns `False`. `docs/reviews/00-reviewer/D00-T01-s12.md:333`, `docs/reviews/00-reviewer/D00-T01-s12.md:378`, `scripts/review-dispatch.py:2920`, `scripts/review-dispatch.py:3148`.
+13. **closed.** The visible placeholder `<repair_commit>` remains accepted as title text. `docs/reviews/00-reviewer/D00-T01-s12.md:334`, `scripts/tests/test_three_pass.py:1516`.
+14. **open, P2.** The newest repair rejects a visible widget when a valid later declaration overrides `display:none`. **Path:** A writer pastes a progress indicator whose final display value comes from an inline CSS custom property. **Evidence:** Ran `python -B` against both Git objects with `<progress style="--state:block;display:none;display:var(--state)"></progress>` as the sole body. Acceptance changed from `True` to `False`. The keyword check discards the final declaration, leaving the earlier `none` in force inside the guard. The literal `display:block` regression test still covers only the direct override. `docs/reviews/00-reviewer/D00-T01-s12.md:335`, `docs/reviews/00-reviewer/D00-T01-s12.md:377`, `scripts/review-dispatch.py:2873`, `scripts/tests/test_three_pass.py:1512`.
+15. **closed.** Ran both reported inputs against the repaired candidate. A superseded heading inside `<div hidden>` returned `False`, and `## Repair verified` inside a visible `<div>` returned `True`. `docs/reviews/00-reviewer/D00-T01-s12.md:378`, `scripts/review-dispatch.py:3148`, `scripts/tests/test_three_pass.py:1514`.
+
+The section resolved with exit `0`, and its contract is unchanged from the failed completion. The open Commit item and Implementation Order row belong to the stamp. The kit and installed dispatcher have identical Git blobs, as do their tests. Only the findings record changed after the reported 230-test gate commit. I independently ran the probes above and used the supplied result for the full kit suite. `todo/00-reviewer/TODO-01-three-pass-review.md:460`, `todo/00-reviewer/TODO-01-three-pass-review.md:479`, `docs/reviews/00-reviewer/D00-T01-s12.md:377`.
+
+LENS plan-delivery: findings
+LENS record: clean
+LENS repair-adversarial: findings
+LENS repair-integration: findings
+HIGHEST: P1
+RECONCILIATION: gaps
