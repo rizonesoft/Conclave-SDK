@@ -3997,6 +3997,87 @@ class ThreePassStamp(Stamp):
             with self.assertRaises(PermissionError):
                 tg.review_rounds(self.root)
 
+    def test_query_rounds_handle_read_defeats_post_validation_and_post_scandir_symlink_swap(self):
+        # D00 T01 §9 (Completion review Gap 1): prove deterministically that handle-verified reading never attributes
+        # another section's passes when a regular archive is swapped for a symlink after validation or after scandir.
+        # Against the superseded validate-then-open implementation (71c0cc91), swapping inside _contained_path makes
+        # read_bytes() follow the symlink and report the external target's pass count.
+        import errno
+        self.chain(completion=("P2", True))
+        own = self.root / self.FILE
+        other_bytes = own.read_bytes()  # 3 returned passes (plan + round + completion)
+        # Build a 1-pass archive (plan only) so any leak from other_bytes (3 passes) is unmistakable.
+        plan_only = other_bytes.split(b"\n## Round 1:", 1)[0] + b"\n"
+        chain1 = own.with_name(f"{own.stem}-chain1.md")
+        chain1.write_bytes(plan_only)
+        own.unlink()
+
+        with tempfile.TemporaryDirectory() as ext_tmp:
+            ext_target = pathlib.Path(ext_tmp) / "other-section.md"
+            ext_target.write_bytes(other_bytes)
+            # Probe file symlink support cleanly; skip only on Windows missing-privilege error 1314/EPERM.
+            probe = pathlib.Path(ext_tmp) / "probe.md"
+            try:
+                os.symlink(ext_target, probe)
+                probe.unlink()
+            except OSError as exc:
+                if os.name == "nt" and (getattr(exc, "winerror", None) == 1314 or exc.errno == errno.EPERM):
+                    self.skipTest(f"file symlinks require elevated privilege on this Windows host: {exc}")
+                raise
+
+            # 1. Post-_contained_path swap: fails against 71c0cc91 (which calls _contained_path then read_bytes() and
+            #    reports 3 passes from ext_target); passes against _read_contained_bytes (reports original 1 pass).
+            real_contained = tg._contained_path
+            chain1_rel = chain1.relative_to(self.root).as_posix()
+
+            def swap_after_contained(root_arg, rel_arg, label_arg):
+                res = real_contained(root_arg, rel_arg, label_arg)
+                if rel_arg.replace("\\", "/") == chain1_rel and not chain1.is_symlink():
+                    chain1.unlink()
+                    os.symlink(ext_target, chain1)
+                return res
+
+            with unittest.mock.patch.object(tg, "_contained_path", side_effect=swap_after_contained):
+                rounds = tg.review_rounds(self.root)
+            sec = [s for s in rounds["sections"] if s["ref"] == "D00 T01 §1"]
+            self.assertEqual(len(sec), 1)
+            self.assertEqual(sec[0]["kept_chains"], [{"file": chain1_rel, "passes_returned": 1}])
+
+            # 2. Post-scandir swap: entry is regular when scandir returns, then replaced with a symlink before open;
+            #    _read_contained_bytes refuses via O_NOFOLLOW / FILE_FLAG_OPEN_REPARSE_POINT (never reports 3 passes).
+            real_scandir = os.scandir
+            review_dir = chain1.parent.resolve()
+            swapped = [False]
+
+            class _SwappingScandir:
+                def __init__(self, inner):
+                    self._inner = inner
+
+                def __enter__(self):
+                    entries = list(self._inner.__enter__())
+                    if not swapped[0]:
+                        swapped[0] = True
+                        chain1.unlink()
+                        os.symlink(ext_target, chain1)
+                    return entries
+
+                def __exit__(self, *exc):
+                    return self._inner.__exit__(*exc)
+
+            def scandir_then_swap(path="."):
+                cm = real_scandir(path)
+                if pathlib.Path(path).resolve() == review_dir:
+                    return _SwappingScandir(cm)
+                return cm
+
+            with unittest.mock.patch.object(os, "scandir", side_effect=scandir_then_swap):
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.review_rounds(self.root)
+            self.assertIn("symlink or junction", str(ctx.exception))
+            self.assertTrue(swapped[0])
+            if chain1.is_symlink() or chain1.exists():
+                chain1.unlink()
+
     def test_fallback_lock_backend_matches_review_dispatch(self):
         # D00 T01 §13 Round 1 finding 5: standalone todo-kit fallback must stay aligned with review-dispatch.py.
         dispatch = tg.review_dispatch()
