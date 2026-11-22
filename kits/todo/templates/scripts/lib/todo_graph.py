@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import copy
 from dataclasses import asdict, dataclass
+import errno
 import hashlib
 import json
 import os
 from pathlib import Path
 import queue
 import re
+import stat
 import subprocess
 import tempfile
 import threading
@@ -2160,14 +2162,97 @@ def _todo_lock_backend():
     return review_dispatch() if DISPATCHER.is_file() else _fallback_lock_backend()
 
 
+TODO_LOCK_WAIT_SECONDS = 60.0
+_SUPPORTS_DIR_FD_REPLACE = (
+    os.rename in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
+)
+
+
+def _replace_contained(root, src_rel, dst_rel):
+    """Rename `src_rel` to `dst_rel` inside the same verified non-linked directory beneath `root`, closing the TOCTOU
+    window between containment checks and `os.replace`: POSIX walks components with `O_NOFOLLOW | O_DIRECTORY` and
+    renames via `src_dir_fd`/`dst_dir_fd`; Windows pins every ancestor directory without `FILE_SHARE_DELETE` so no
+    other process can swap a directory for a junction before `os.replace` completes."""
+    root = Path(root)
+    src_parts = [p for p in src_rel.replace("\\", "/").split("/") if p]
+    dst_parts = [p for p in dst_rel.replace("\\", "/").split("/") if p]
+    require(len(src_parts) >= 2 and src_parts[:-1] == dst_parts[:-1]
+            and all(p not in (".", "..") for p in src_parts + dst_parts),
+            f"archive path {dst_rel} must sit beside {src_rel}")
+    src_name, dst_name = src_parts[-1], dst_parts[-1]
+    if _SUPPORTS_DIR_FD_REPLACE:
+        dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in src_parts[:-1]:
+                try:
+                    nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+                except OSError as exc:
+                    if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                        raise Refused(
+                            f"findings file {src_rel} is reached through a symlink or junction: refusing to touch it"
+                        ) from None
+                    raise
+                os.close(dir_fd)
+                dir_fd = nxt
+            st = os.lstat(src_name, dir_fd=dir_fd)
+            require(not stat.S_ISLNK(st.st_mode),
+                    f"findings file {src_rel} is reached through a symlink or junction: refusing to touch it")
+            try:
+                os.lstat(dst_name, dir_fd=dir_fd)
+            except FileNotFoundError:
+                pass
+            else:
+                raise Refused(f"{root / dst_rel} exists: a kept chain is never written over")
+            os.replace(src_name, dst_name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+            return
+        finally:
+            os.close(dir_fd)
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateFileW.restype = wintypes.HANDLE
+        k32.CreateFileW.argtypes = (
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        )
+        invalid = wintypes.HANDLE(-1).value
+        handles = []
+        try:
+            cur = root
+            for part in src_parts[:-1]:
+                cur = cur / part
+                # FILE_LIST_DIRECTORY (0x1) with share READ|WRITE and NO FILE_SHARE_DELETE pins the directory in place
+                # so no other process can rename or replace it with a junction before os.replace finishes.
+                h = k32.CreateFileW(str(cur), 0x0001, 0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None)
+                require(h not in (0, invalid), f"cannot pin directory {cur} for contained rename")
+                handles.append(h)
+            own = _contained_path(root, src_rel, "findings file")
+            moved = _contained_path(root, dst_rel, "archive path")
+            require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
+            os.replace(own, moved)
+            return
+        finally:
+            for h in reversed(handles):
+                k32.CloseHandle(h)
+    own = _contained_path(root, src_rel, "findings file")
+    moved = _contained_path(root, dst_rel, "archive path")
+    require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
+    os.replace(own, moved)
+
+
 def _lock_owner_free(dispatch, lock_path, raw_bytes):
-    """True only when an observed lock file's bytes show a dead owner or an expired deadline (never for absence)."""
+    """True only when an observed lock file's bytes show a dead owner process, or (when no valid PID is present) an
+    expired timestamp. A live PID is never treated as free just because a lease elapsed, preventing two live writers."""
     fields = raw_bytes.decode("ascii", errors="replace").split()
     try:
         pid = int(fields[0])
-        owner_gone = pid > 0 and pid != os.getpid() and dispatch._process_gone(pid)
     except (IndexError, ValueError):
-        owner_gone = False
+        pid = None
+    if pid is not None and pid > 0:
+        if pid == os.getpid():
+            return False
+        return bool(dispatch._process_gone(pid))
     try:
         expiry = float(fields[1])
     except (IndexError, ValueError):
@@ -2175,14 +2260,16 @@ def _lock_owner_free(dispatch, lock_path, raw_bytes):
             expiry = lock_path.stat().st_mtime + dispatch.LOCK_GRACE_SECONDS
         except FileNotFoundError:
             return False  # vanished: caller retries exclusive creation without unlinking
-    return owner_gone or time.time() > expiry
+    return time.time() > expiry
 
 
-def _acquire_todo_lock(dispatch, path, rel, action="update", timeout_seconds=REPLAN_LOCK_SECONDS, wait_seconds=2.0):
-    """Take the exclusive per-TODO-file lock used by replan, stamp, and unstamp.
+def _acquire_todo_lock(dispatch, path, rel, action="update", timeout_seconds=REPLAN_LOCK_SECONDS, wait_seconds=None):
+    """Take the exclusive lock for `path` (a TODO file or the repo-wide `todo` root used by stamp and unstamp).
 
     An abandoned lock is cleared only under a separate exclusive takeover file after distinguishing an absent lock
     (where `_create_exclusive` is retried without calling `unlink`) from an observed stale owner."""
+    if wait_seconds is None:
+        wait_seconds = TODO_LOCK_WAIT_SECONDS
     todo_lock = dispatch.section_lock_path(path)
     todo_owned = f"{os.getpid()} {time.time() + timeout_seconds + dispatch.LOCK_GRACE_SECONDS:.0f} {os.urandom(8).hex()}"
     takeover = todo_lock.with_name(todo_lock.name + ".takeover")
@@ -2230,6 +2317,12 @@ def _acquire_todo_lock(dispatch, path, rel, action="update", timeout_seconds=REP
         time.sleep(0.05)
 
 
+def _acquire_repo_lock(dispatch, root, action="update", wait_seconds=None):
+    """Repo-wide lock acquired before any per-TODO lock in stamp and unstamp so shared repo files
+    (todo/implementation-plan.md and docs/reviews/legacy-receipts.json) never race across different TODO files."""
+    return _acquire_todo_lock(dispatch, Path(root) / "todo", "todo/", action=action, wait_seconds=wait_seconds)
+
+
 def replan(root, ref, date, now):
     """Re-plan a section whose review chain cannot settle (D00 T01 §9): keep its findings file as the next unused
     `-chain<k>.md` beside it (never over a kept one), then replace its `Started:` line with `now` and keep the old
@@ -2272,9 +2365,10 @@ def replan(root, ref, date, now):
             if own.exists():
                 number = max([int(KEPT_CHAIN.search(p.name)[1]) for p in chains], default=0) + 1
                 moved = own.with_name(f"{own.stem}-chain{number}.md")
-                _contained_path(root, moved.relative_to(root).as_posix(), "archive path")
+                moved_rel = moved.relative_to(root).as_posix()
+                _contained_path(root, moved_rel, "archive path")
                 require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
-                os.replace(own, moved)
+                _replace_contained(root, findings_rel, moved_rel)
                 kept = moved
             else:
                 require(bool(chains), f"{ref} has no findings file to keep: nothing to re-plan")
@@ -2405,74 +2499,78 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     receipt_path = root / receipt
     plan_path = root / plan_file(root)
     path = root / row.path
-    todo_lock, todo_owned = _acquire_todo_lock(dispatch, path, row.path, action="stamp")
+    repo_lock, repo_owned = _acquire_repo_lock(dispatch, root, action="stamp")
     try:
-        rows = graph(root)
-        require(ref in rows, "unresolved section: " + ref)
-        row = rows[ref]
-        stamped = row.done
-        if not stamped:
-            require(all(settled(d, rows) for d in row.depends),
-                    f"open prerequisite, or one resting on a reopened section: {ref}")
-            require(not row.waiting, f"still waiting on {', '.join(row.waiting)}: {ref}")
-            open_items = re.findall(r"^- \[ \] (?!Commit:)(.+)$", row.body, re.M)
-            require(not open_items,
-                    f"unticked checklist items in {ref}: {open_items[0] if open_items else ''}")
-        # A receipt already on disk is what a stamp killed between its writes leaves. It is replaced (or, once the TODO
-        # file carries the stamp, accepted) only when it records this same request; any other is refused untouched.
-        receipt_before = receipt_path.read_bytes() if receipt_path.is_file() else None
-        if stamped or receipt_before is not None:
-            differs = same_request(receipt_before, data)
-            if stamped:
-                require(receipt_before is not None and not differs, f"already verified: {ref}"
-                        + (f" (receipt {receipt} " + ("is missing)" if receipt_before is None
-                                                      else "records a different " + ", ".join(differs) + ")")))
-                fresh = plan_path.is_file() and read_text(plan_path) == projection(root)
-                if (sync_plan or plan_path.is_file()) and not fresh:
-                    projections(root, sync=True)  # the retry of a stamp that was cut short before its plan write
-                return receipt
-            require(not differs, f"receipt already exists: {receipt} (a leftover that records a different "
-                                 + ", ".join(differs) + "); nothing was written")
-        original_bytes = path.read_bytes()
-        original = read_text(path)
-        text = original
-        body = row.body
-        new_body = re.sub(r"^- \[ \] (Commit:.+)$", r"- [x] \1", body, flags=M_FLAG)
-        new_body += f"\n\n> **Verified:** {date} | §{row.number} | {sha}\n> **Review:** `{receipt}`"
-        require(text.count(body) == 1, f"section body is not unique in {row.path}")
-        text = text.replace(body, new_body)
-        line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[ \](\s*\|)$", re.M)
-        require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
-        text = line.sub(r"\1[x]\2", text)
-        siblings = [r for r in rows.values() if r.path == row.path and r.ref != ref]
-        if all(r.done for r in siblings):
-            text, n = re.subn(r"\A(---\n(?:.*\n)*?)status: [a-z]+\n", r"\1status: done\n", text, count=1)
-            require(n == 1, f"frontmatter status not found: {row.path}")
-        original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
+        todo_lock, todo_owned = _acquire_todo_lock(dispatch, path, row.path, action="stamp")
         try:
-            atomic(receipt_path, json.dumps(data, indent=2) + "\n")
-            atomic(path, text)
-            graph(root)
-            if sync_plan or original_plan_bytes is not None:
-                projections(root, sync=True)
-        except BaseException:  # an interrupt between writes must roll back as an error does
-            if receipt_before is None:
-                receipt_path.unlink(missing_ok=True)
-            elif not receipt_path.is_file() or receipt_path.read_bytes() != receipt_before:
-                atomic(receipt_path, receipt_before)  # the leftover this call replaced goes back as it was
+            rows = graph(root)
+            require(ref in rows, "unresolved section: " + ref)
+            row = rows[ref]
+            stamped = row.done
+            if not stamped:
+                require(all(settled(d, rows) for d in row.depends),
+                        f"open prerequisite, or one resting on a reopened section: {ref}")
+                require(not row.waiting, f"still waiting on {', '.join(row.waiting)}: {ref}")
+                open_items = re.findall(r"^- \[ \] (?!Commit:)(.+)$", row.body, re.M)
+                require(not open_items,
+                        f"unticked checklist items in {ref}: {open_items[0] if open_items else ''}")
+            # A receipt already on disk is what a stamp killed between its writes leaves. It is replaced (or, once the TODO
+            # file carries the stamp, accepted) only when it records this same request; any other is refused untouched.
+            receipt_before = receipt_path.read_bytes() if receipt_path.is_file() else None
+            if stamped or receipt_before is not None:
+                differs = same_request(receipt_before, data)
+                if stamped:
+                    require(receipt_before is not None and not differs, f"already verified: {ref}"
+                            + (f" (receipt {receipt} " + ("is missing)" if receipt_before is None
+                                                          else "records a different " + ", ".join(differs) + ")")))
+                    fresh = plan_path.is_file() and read_text(plan_path) == projection(root)
+                    if (sync_plan or plan_path.is_file()) and not fresh:
+                        projections(root, sync=True)  # the retry of a stamp that was cut short before its plan write
+                    return receipt
+                require(not differs, f"receipt already exists: {receipt} (a leftover that records a different "
+                                     + ", ".join(differs) + "); nothing was written")
+            original_bytes = path.read_bytes()
+            original = read_text(path)
+            text = original
+            body = row.body
+            new_body = re.sub(r"^- \[ \] (Commit:.+)$", r"- [x] \1", body, flags=M_FLAG)
+            new_body += f"\n\n> **Verified:** {date} | §{row.number} | {sha}\n> **Review:** `{receipt}`"
+            require(text.count(body) == 1, f"section body is not unique in {row.path}")
+            text = text.replace(body, new_body)
+            line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[ \](\s*\|)$", re.M)
+            require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
+            text = line.sub(r"\1[x]\2", text)
+            siblings = [r for r in rows.values() if r.path == row.path and r.ref != ref]
+            if all(r.done for r in siblings):
+                text, n = re.subn(r"\A(---\n(?:.*\n)*?)status: [a-z]+\n", r"\1status: done\n", text, count=1)
+                require(n == 1, f"frontmatter status not found: {row.path}")
+            original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
             try:
-                if not path.is_file() or path.read_bytes() != original_bytes:
-                    atomic(path, original_bytes)
-            finally:
-                if original_plan_bytes is not None:
-                    if not plan_path.is_file() or plan_path.read_bytes() != original_plan_bytes:
-                        atomic(plan_path, original_plan_bytes)
-                elif plan_path.exists():
-                    plan_path.unlink(missing_ok=True)
-            raise
-        return receipt
+                atomic(receipt_path, json.dumps(data, indent=2) + "\n")
+                atomic(path, text)
+                graph(root)
+                if sync_plan or original_plan_bytes is not None:
+                    projections(root, sync=True)
+            except BaseException:  # an interrupt between writes must roll back as an error does
+                if receipt_before is None:
+                    receipt_path.unlink(missing_ok=True)
+                elif not receipt_path.is_file() or receipt_path.read_bytes() != receipt_before:
+                    atomic(receipt_path, receipt_before)  # the leftover this call replaced goes back as it was
+                try:
+                    if not path.is_file() or path.read_bytes() != original_bytes:
+                        atomic(path, original_bytes)
+                finally:
+                    if original_plan_bytes is not None:
+                        if not plan_path.is_file() or plan_path.read_bytes() != original_plan_bytes:
+                            atomic(plan_path, original_plan_bytes)
+                    elif plan_path.exists():
+                        plan_path.unlink(missing_ok=True)
+                raise
+            return receipt
+        finally:
+            dispatch.release_section(todo_lock, todo_owned)
     finally:
-        dispatch.release_section(todo_lock, todo_owned)
+        dispatch.release_section(repo_lock, repo_owned)
 
 
 def adopt_stamps(root=ROOT, phase_map=None, date=None):
@@ -2566,57 +2664,61 @@ def unstamp(root, ref, reason, date):
     require(row.done, f"not stamped: {ref}")
     dispatch = _todo_lock_backend()
     path = root / row.path
-    todo_lock, todo_owned = _acquire_todo_lock(dispatch, path, row.path, action="unstamp")
+    repo_lock, repo_owned = _acquire_repo_lock(dispatch, root, action="unstamp")
     try:
-        rows = graph(root)
-        require(ref in rows, "unresolved section: " + ref)
-        row = rows[ref]
-        require(row.done, f"not stamped: {ref}")
-        stamp_lines = re.compile(r"\n\n> \*\*Verified:\*\* [^\n]*\n> \*\*Review:\*\* `[^`\n]*`")
-        require(len(stamp_lines.findall(row.body)) == 1, f"stamp lines not found: {ref}")
-        receipt_path = root / row.receipt
-        revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}.json")
-        n = 2
-        while revoked_path.exists():
-            revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}-{n}.json")
-            n += 1
-        revoked = revoked_path.relative_to(root).as_posix()
-        body = stamp_lines.sub("", row.body)
-        body = re.sub(r"^- \[x\] (Commit:.+)$", r"- [ ] \1", body, flags=re.M)
-        body += f"\n\n> **Unstamped:** {date}: {reason.strip()} (revoked receipt `{revoked}`)"
-        original_bytes = path.read_bytes()
-        text = read_text(path)
-        require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
-        text = text.replace(row.body, body)
-        line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[x\](\s*\|)$", re.M)
-        require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
-        text = line.sub(r"\1[ ]\2", text)
-        text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)
-        receipt_bytes = receipt_path.read_bytes()
-        plan_path = root / plan_file(root)
-        original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
+        todo_lock, todo_owned = _acquire_todo_lock(dispatch, path, row.path, action="unstamp")
         try:
-            atomic(revoked_path, receipt_bytes)
-            atomic(path, text)
-            receipt_path.unlink()
-            graph(root)
-            if original_plan_bytes is not None:
-                projections(root, sync=True)
-        except BaseException:  # an interrupt between writes must roll back as an error does
+            rows = graph(root)
+            require(ref in rows, "unresolved section: " + ref)
+            row = rows[ref]
+            require(row.done, f"not stamped: {ref}")
+            stamp_lines = re.compile(r"\n\n> \*\*Verified:\*\* [^\n]*\n> \*\*Review:\*\* `[^`\n]*`")
+            require(len(stamp_lines.findall(row.body)) == 1, f"stamp lines not found: {ref}")
+            receipt_path = root / row.receipt
+            revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}.json")
+            n = 2
+            while revoked_path.exists():
+                revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}-{n}.json")
+                n += 1
+            revoked = revoked_path.relative_to(root).as_posix()
+            body = stamp_lines.sub("", row.body)
+            body = re.sub(r"^- \[x\] (Commit:.+)$", r"- [ ] \1", body, flags=re.M)
+            body += f"\n\n> **Unstamped:** {date}: {reason.strip()} (revoked receipt `{revoked}`)"
+            original_bytes = path.read_bytes()
+            text = read_text(path)
+            require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
+            text = text.replace(row.body, body)
+            line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[x\](\s*\|)$", re.M)
+            require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
+            text = line.sub(r"\1[ ]\2", text)
+            text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)
+            receipt_bytes = receipt_path.read_bytes()
+            plan_path = root / plan_file(root)
+            original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
             try:
-                if not receipt_path.is_file():
-                    atomic(receipt_path, receipt_bytes)
-                revoked_path.unlink(missing_ok=True)
-                if not path.is_file() or path.read_bytes() != original_bytes:
-                    atomic(path, original_bytes)
-            finally:
-                if original_plan_bytes is not None and (not plan_path.is_file()
-                                                        or plan_path.read_bytes() != original_plan_bytes):
-                    atomic(plan_path, original_plan_bytes)
-            raise
-        return revoked
+                atomic(revoked_path, receipt_bytes)
+                atomic(path, text)
+                receipt_path.unlink()
+                graph(root)
+                if original_plan_bytes is not None:
+                    projections(root, sync=True)
+            except BaseException:  # an interrupt between writes must roll back as an error does
+                try:
+                    if not receipt_path.is_file():
+                        atomic(receipt_path, receipt_bytes)
+                    revoked_path.unlink(missing_ok=True)
+                    if not path.is_file() or path.read_bytes() != original_bytes:
+                        atomic(path, original_bytes)
+                finally:
+                    if original_plan_bytes is not None and (not plan_path.is_file()
+                                                            or plan_path.read_bytes() != original_plan_bytes):
+                        atomic(plan_path, original_plan_bytes)
+                raise
+            return revoked
+        finally:
+            dispatch.release_section(todo_lock, todo_owned)
     finally:
-        dispatch.release_section(todo_lock, todo_owned)
+        dispatch.release_section(repo_lock, repo_owned)
 
 
 def _adopted_section(root, ref):
@@ -2664,74 +2766,79 @@ def _unstamp_adopted(root, ref, reason, date):
     row = _adopted_section(root, ref)  # from the tree: a changed body or receipt drops it from the graph
     dispatch = _todo_lock_backend()
     path = root / row.path
-    todo_lock, todo_owned = _acquire_todo_lock(dispatch, path, row.path, action="unstamp")
+    repo_lock, repo_owned = _acquire_repo_lock(dispatch, root, action="unstamp")
     try:
-        row = _adopted_section(root, ref)
-        elsewhere = _faults_elsewhere(root, ref, row.path)
-        require(not elsewhere, "unstamp refused: reopening " + ref + " leaves faults elsewhere:\n  " +
-                "\n  ".join(elsewhere))
-        registry = root / f"{receipts_folder(root)}/{LEGACY_RECEIPTS}"
-        registry_bytes = registry.read_bytes()
-        data = json.loads(registry_bytes.decode("utf-8"))
-        entry = data["adopted"].pop(ref)
-        receipt_path = root / entry["review"] if entry["review"] else None
-        if receipt_path is not None and not receipt_path.is_file():
-            receipt_path = None  # the receipt it recorded is gone: nothing to keep as revoked
-        revoked_path = None
-        if receipt_path is not None:
-            revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}{receipt_path.suffix}")
-            n = 2
-            while revoked_path.exists():
-                revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}-{n}{receipt_path.suffix}")
-                n += 1
-        body = re.sub(r"\n*^> \*\*(?:Verified|Review):\*\*[^\n]*$", "", row.body, flags=re.M)
-        body = re.sub(r"^- \[x\] (Commit:.+)$", r"- [ ] \1", body, flags=re.M)
-        note = f" (revoked receipt `{revoked_path.relative_to(root).as_posix()}`)" if revoked_path else ""
-        body += f"\n\n> **Unstamped:** {date}: {reason.strip()}{note}"
-        original_bytes = path.read_bytes()
-        text = read_text(path)
-        require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
-        text = text.replace(row.body, body)
-        # The box may be ticked or not: adoption reads a section's stamp from its body, whatever its row says.
-        line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[[x ]\](\s*\|)$", re.M)
-        require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
-        text = line.sub(r"\1[ ]\2", text)
-        text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)
-        receipt_bytes = receipt_path.read_bytes() if receipt_path is not None else None
-        plan_path = root / plan_file(root)
-        original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
+        todo_lock, todo_owned = _acquire_todo_lock(dispatch, path, row.path, action="unstamp")
         try:
-            if revoked_path is not None:
-                atomic(revoked_path, receipt_bytes)
-            atomic(registry, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-            atomic(path, text)
+            row = _adopted_section(root, ref)
+            elsewhere = _faults_elsewhere(root, ref, row.path)
+            require(not elsewhere, "unstamp refused: reopening " + ref + " leaves faults elsewhere:\n  " +
+                    "\n  ".join(elsewhere))
+            registry = root / f"{receipts_folder(root)}/{LEGACY_RECEIPTS}"
+            registry_bytes = registry.read_bytes()
+            data = json.loads(registry_bytes.decode("utf-8"))
+            require(ref in data.get("adopted", {}), f"not stamped: {ref}")
+            entry = data["adopted"].pop(ref)
+            receipt_path = root / entry["review"] if entry["review"] else None
+            if receipt_path is not None and not receipt_path.is_file():
+                receipt_path = None  # the receipt it recorded is gone: nothing to keep as revoked
+            revoked_path = None
             if receipt_path is not None:
-                receipt_path.unlink()
-            others = _faults_elsewhere(root, ref, row.path)
-            require(not others, "unstamp rolled back: reopening " + ref + " leaves faults elsewhere:\n  " +
-                    "\n  ".join(others))
-            remaining = []
-            graph(root, remaining)
-            if original_plan_bytes is not None and not remaining:  # a reopened section in its own format waits for repair:
-                projections(root, sync=True)  # the plan syncs then, and the pre-commit hook asks for both
-        except BaseException:  # an interrupt between writes must roll back as an error does
+                revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}{receipt_path.suffix}")
+                n = 2
+                while revoked_path.exists():
+                    revoked_path = receipt_path.with_name(f"{receipt_path.stem}.revoked-{date}-{n}{receipt_path.suffix}")
+                    n += 1
+            body = re.sub(r"\n*^> \*\*(?:Verified|Review):\*\*[^\n]*$", "", row.body, flags=re.M)
+            body = re.sub(r"^- \[x\] (Commit:.+)$", r"- [ ] \1", body, flags=re.M)
+            note = f" (revoked receipt `{revoked_path.relative_to(root).as_posix()}`)" if revoked_path else ""
+            body += f"\n\n> **Unstamped:** {date}: {reason.strip()}{note}"
+            original_bytes = path.read_bytes()
+            text = read_text(path)
+            require(text.count(row.body) == 1, f"section body is not unique in {row.path}")
+            text = text.replace(row.body, body)
+            # The box may be ticked or not: adoption reads a section's stamp from its body, whatever its row says.
+            line = re.compile(r"^(\|\s*\d+\s*\|\s*§" + str(row.number) + r"\s*\|[^\n]*\|\s*)\[[x ]\](\s*\|)$", re.M)
+            require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
+            text = line.sub(r"\1[ ]\2", text)
+            text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)
+            receipt_bytes = receipt_path.read_bytes() if receipt_path is not None else None
+            plan_path = root / plan_file(root)
+            original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
             try:
-                if receipt_path is not None and not receipt_path.is_file():
-                    atomic(receipt_path, receipt_bytes)
                 if revoked_path is not None:
-                    revoked_path.unlink(missing_ok=True)
-                if registry.read_bytes() != registry_bytes:
-                    atomic(registry, registry_bytes)
-                if not path.is_file() or path.read_bytes() != original_bytes:
-                    atomic(path, original_bytes)
-            finally:
-                if original_plan_bytes is not None and (not plan_path.is_file()
-                                                        or plan_path.read_bytes() != original_plan_bytes):
-                    atomic(plan_path, original_plan_bytes)
-            raise
-        return revoked_path.relative_to(root).as_posix() if revoked_path else "none (no receipt was recorded)"
+                    atomic(revoked_path, receipt_bytes)
+                atomic(registry, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+                atomic(path, text)
+                if receipt_path is not None:
+                    receipt_path.unlink()
+                others = _faults_elsewhere(root, ref, row.path)
+                require(not others, "unstamp rolled back: reopening " + ref + " leaves faults elsewhere:\n  " +
+                        "\n  ".join(others))
+                remaining = []
+                graph(root, remaining)
+                if original_plan_bytes is not None and not remaining:  # a reopened section in its own format waits for repair:
+                    projections(root, sync=True)  # the plan syncs then, and the pre-commit hook asks for both
+            except BaseException:  # an interrupt between writes must roll back as an error does
+                try:
+                    if receipt_path is not None and not receipt_path.is_file():
+                        atomic(receipt_path, receipt_bytes)
+                    if revoked_path is not None:
+                        revoked_path.unlink(missing_ok=True)
+                    if registry.read_bytes() != registry_bytes:
+                        atomic(registry, registry_bytes)
+                    if not path.is_file() or path.read_bytes() != original_bytes:
+                        atomic(path, original_bytes)
+                finally:
+                    if original_plan_bytes is not None and (not plan_path.is_file()
+                                                            or plan_path.read_bytes() != original_plan_bytes):
+                        atomic(plan_path, original_plan_bytes)
+                raise
+            return revoked_path.relative_to(root).as_posix() if revoked_path else "none (no receipt was recorded)"
+        finally:
+            dispatch.release_section(todo_lock, todo_owned)
     finally:
-        dispatch.release_section(todo_lock, todo_owned)
+        dispatch.release_section(repo_lock, repo_owned)
 
 
 def suspects(root, ref):

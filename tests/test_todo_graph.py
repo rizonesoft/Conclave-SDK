@@ -2935,6 +2935,7 @@ class ThreePassStamp(Stamp):
 
     def test_replan_serializes_updates_to_shared_todo_file(self):
         # Round 1 finding 1: a held TODO lock blocks concurrent replan from clobbering the shared TODO file.
+        self.assertGreaterEqual(tg.TODO_LOCK_WAIT_SECONDS, 30.0)
         self.chain(completion=("P2", True))
         todo = self.root / "todo/00-workspace/TODO-01-a.md"
         dispatch = tg.review_dispatch()
@@ -2945,8 +2946,9 @@ class ThreePassStamp(Stamp):
         before_todo = todo.read_bytes()
         own = self.root / self.FILE
         before_own = own.read_bytes()
-        with self.assertRaises(tg.Refused) as ctx:
-            self.replan_now()
+        with unittest.mock.patch.object(tg, "TODO_LOCK_WAIT_SECONDS", 0.25):
+            with self.assertRaises(tg.Refused) as ctx:
+                self.replan_now()
         self.assertIn("another replan is updating", str(ctx.exception))
         self.assertEqual((todo.read_bytes(), own.read_bytes()), (before_todo, before_own))
 
@@ -3028,27 +3030,83 @@ class ThreePassStamp(Stamp):
                     chain1.unlink()
                     own.write_bytes(saved_own)
             else:
-                # Even if Windows file symlinks are restricted without Developer Mode, verify linked() check on both branches.
+                # Even if Windows file symlinks are restricted without Developer Mode, verify linked() on each branch
+                # separately so the retry assertion only matches the kept archive and never the absent canonical path.
                 real_linked = tg.linked
-                with unittest.mock.patch.object(tg, "linked", side_effect=lambda r, rel: rel.endswith(".md") or real_linked(r, rel)):
-                    todo_before = todo.read_bytes()
+                todo_before = todo.read_bytes()
+                with unittest.mock.patch.object(
+                    tg, "linked", side_effect=lambda r, rel: rel == self.FILE or real_linked(r, rel)
+                ):
                     with self.assertRaises(tg.Refused) as ctx:
                         self.replan_now()
                     self.assertIn("symlink or junction", str(ctx.exception))
                     self.assertEqual(todo.read_bytes(), todo_before)
-                    # Retry branch (own archived already, chain1 treated as linked).
-                    chain1 = domain_dir / own.name.replace(".md", "-chain1.md")
-                    os.replace(own, chain1)
-                    try:
+                # Retry branch (own archived already, ONLY chain1 treated as linked).
+                chain1 = domain_dir / own.name.replace(".md", "-chain1.md")
+                chain1_rel = chain1.relative_to(self.root).as_posix()
+                os.replace(own, chain1)
+                try:
+                    with unittest.mock.patch.object(
+                        tg, "linked", side_effect=lambda r, rel: rel == chain1_rel or real_linked(r, rel)
+                    ):
                         with self.assertRaises(tg.Refused) as ctx:
                             self.replan_now()
                         self.assertIn("symlink or junction", str(ctx.exception))
                         self.assertEqual(todo.read_bytes(), todo_before)
-                    finally:
-                        os.replace(chain1, own)
+                finally:
+                    os.replace(chain1, own)
+
+    def test_replace_contained_blocks_directory_swap_toctou(self):
+        # D00 T01 §13 Round 1 finding 2: _replace_contained closes the TOCTOU window between containment check and rename.
+        self.chain(completion=("P2", True))
+        own = self.root / self.FILE
+        domain_dir = own.parent
+        dst_rel = self.FILE.replace(".md", "-chain1.md")
+        dst = self.root / dst_rel
+        real_replace = os.replace
+        probed = [False]
+        if os.name == "nt":
+            # Windows pins every ancestor directory without FILE_SHARE_DELETE, blocking directory rename until replace finishes.
+            def probe_pinned(src, target, *args, **kwargs):
+                if not probed[0] and pathlib.Path(src) == own:
+                    probed[0] = True
+                    with self.assertRaises(PermissionError):
+                        os.rename(domain_dir, domain_dir.with_name("swapped-domain"))
+                return real_replace(src, target, *args, **kwargs)
+
+            with unittest.mock.patch.object(os, "replace", side_effect=probe_pinned):
+                tg._replace_contained(self.root, self.FILE, dst_rel)
+            self.assertTrue(probed[0])
+            self.assertFalse(own.exists())
+            self.assertTrue(dst.is_file())
+        else:
+            # POSIX opens directories with O_NOFOLLOW and renames inside the pinned dir_fd even if the path is swapped.
+            with tempfile.TemporaryDirectory() as ext_tmp:
+                ext_domain = pathlib.Path(ext_tmp) / "outside-domain"
+                ext_domain.mkdir()
+                moved_dir = domain_dir.with_name("pinned-original")
+
+                def swap_domain_before_replace(src, target, *args, **kwargs):
+                    if not probed[0] and kwargs.get("src_dir_fd") is not None:
+                        probed[0] = True
+                        os.rename(domain_dir, moved_dir)
+                        os.symlink(ext_domain, domain_dir, target_is_directory=True)
+                    return real_replace(src, target, *args, **kwargs)
+
+                try:
+                    with unittest.mock.patch.object(os, "replace", side_effect=swap_domain_before_replace):
+                        tg._replace_contained(self.root, self.FILE, dst_rel)
+                    self.assertTrue(probed[0])
+                    self.assertTrue((moved_dir / dst.name).is_file(), "rename must land inside pinned directory inode")
+                    self.assertEqual(list(ext_domain.iterdir()), [], "external symlink target must remain untouched")
+                finally:
+                    if domain_dir.is_symlink():
+                        domain_dir.unlink()
+                    if moved_dir.is_dir():
+                        os.rename(moved_dir, domain_dir)
 
     def test_replan_stale_lock_takeover_and_missing_lock_race(self):
-        # D00 T01 §13: stale-lock takeover must never unlink a fresh live owner's lock after an abandoned lock vanishes.
+        # D00 T01 §13: stale-lock takeover never unlinks a fresh live owner or takes over an expired lock of a live PID.
         self.chain(completion=("P2", True))
         todo = self.root / "todo/00-workspace/TODO-01-a.md"
         dispatch = tg.review_dispatch()
@@ -3056,35 +3114,88 @@ class ThreePassStamp(Stamp):
         takeover = todo_lock.with_name(todo_lock.name + ".takeover")
         stale = "999999 1 stale000"
         fresh_live = f"{os.getpid()} {time.time() + 120:.0f} freshlive1"
-        self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
         self.addCleanup(lambda: todo_lock.unlink(missing_ok=True))
 
-        # Force the exact missing-lock race: contender 2 observes the stale lock, then right as it claims takeover,
-        # contender 1 finishes & releases the stale lock and fresh worker 3 acquires todo_lock live.
-        real_create = dispatch._create_exclusive
-        injected = [False]
+        # 1. Expired lock whose PID is still alive must NOT be treated as free (Round 1 finding 1).
+        expired_self = f"{os.getpid()} 1 expiredself"
+        self.assertTrue(dispatch._create_exclusive(todo_lock, expired_self))
+        self.assertFalse(tg._lock_owner_free(dispatch, todo_lock, expired_self.encode("ascii")))
+        with self.assertRaises(tg.Refused):
+            tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                  action="replan", wait_seconds=0.15)
+        self.assertEqual(todo_lock.read_text(encoding="ascii"), expired_self)
+        todo_lock.unlink()
+        other_live = "424242 1 expiredother"
+        self.assertTrue(dispatch._create_exclusive(todo_lock, other_live))
+        with unittest.mock.patch.object(dispatch, "_process_gone", return_value=False):
+            self.assertFalse(tg._lock_owner_free(dispatch, todo_lock, other_live.encode("ascii")))
+            with self.assertRaises(tg.Refused):
+                tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                      action="replan", wait_seconds=0.15)
+        self.assertEqual(todo_lock.read_text(encoding="ascii"), other_live)
+        todo_lock.unlink()
 
-        def racing_create(path, content):
-            if path == takeover and not injected[0]:
-                injected[0] = True
+        # 2. Force the exact missing-lock race inside takeover (Round 1 finding 6):
+        #    todo_lock vanishes right before takeover's read_bytes() so read_bytes() actually raises FileNotFoundError,
+        #    then a fresh live worker creates fresh_live right before the retry _create_exclusive().
+        self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
+        real_create = dispatch._create_exclusive
+        stage = [0]
+
+        def missing_lock_race_create(path, content):
+            if path == takeover and stage[0] == 0:
+                stage[0] = 1
+                return real_create(path, content)
+            if path == todo_lock and stage[0] == 1:
+                # First _create_exclusive(todo_lock) inside takeover sees stale still present, then stale vanishes
+                # BEFORE the immediately following todo_lock.read_bytes() call, exercising except FileNotFoundError.
+                stage[0] = 2
                 ok = real_create(path, content)
-                # Simulate contender 1 releasing the abandoned lock and fresh worker 3 acquiring todo_lock live.
-                todo_lock.unlink(missing_ok=True)
-                self.assertTrue(real_create(todo_lock, fresh_live))
+                self.assertFalse(ok)
+                todo_lock.unlink()
                 return ok
+            if path == todo_lock and stage[0] == 2:
+                # Inside except FileNotFoundError (takeover still held), fresh worker acquires lock before retry.
+                self.assertTrue(takeover.exists(), "retry after FileNotFoundError must run while takeover is held")
+                stage[0] = 3
+                self.assertTrue(real_create(todo_lock, fresh_live))
+                return real_create(path, content)
             return real_create(path, content)
 
-        with unittest.mock.patch.object(dispatch, "_create_exclusive", side_effect=racing_create), \
+        with unittest.mock.patch.object(dispatch, "_create_exclusive", side_effect=missing_lock_race_create), \
                 unittest.mock.patch.object(tg, "REPLAN_LOCK_SECONDS", 60):
             with self.assertRaises(tg.Refused) as ctx:
                 tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
                                       action="replan", wait_seconds=0.25)
         self.assertIn("another replan is updating", str(ctx.exception))
-        self.assertTrue(injected[0])
+        self.assertEqual(stage[0], 3, "test must exercise the FileNotFoundError branch inside takeover")
         self.assertTrue(todo_lock.is_file(), "fresh live owner's lock must never be unlinked")
         self.assertEqual(todo_lock.read_text(encoding="ascii"), fresh_live)
         self.assertFalse(takeover.exists(), "takeover lock must be released")
-        # Now place an uncontested stale lock and verify takeover succeeds cleanly.
+
+        # 3. Also cover the case where fresh_live replaces stale before takeover's read_bytes() runs.
+        todo_lock.unlink()
+        self.assertTrue(real_create(todo_lock, stale))
+        injected = [False]
+
+        def replaced_race_create(path, content):
+            if path == takeover and not injected[0]:
+                injected[0] = True
+                ok = real_create(path, content)
+                todo_lock.unlink(missing_ok=True)
+                self.assertTrue(real_create(todo_lock, fresh_live))
+                return ok
+            return real_create(path, content)
+
+        with unittest.mock.patch.object(dispatch, "_create_exclusive", side_effect=replaced_race_create), \
+                unittest.mock.patch.object(tg, "REPLAN_LOCK_SECONDS", 60):
+            with self.assertRaises(tg.Refused):
+                tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                      action="replan", wait_seconds=0.25)
+        self.assertTrue(injected[0])
+        self.assertEqual(todo_lock.read_text(encoding="ascii"), fresh_live)
+
+        # 4. Now place an uncontested stale lock and verify takeover succeeds cleanly.
         todo_lock.unlink()
         self.assertTrue(real_create(todo_lock, stale))
         lock_path, owned = tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
@@ -3095,6 +3206,118 @@ class ThreePassStamp(Stamp):
         finally:
             dispatch.release_section(lock_path, owned)
         self.assertFalse(todo_lock.exists())
+
+    def test_fallback_lock_backend_matches_review_dispatch(self):
+        # D00 T01 §13 Round 1 finding 5: standalone todo-kit fallback must stay aligned with review-dispatch.py.
+        dispatch = tg.review_dispatch()
+        fb = tg._fallback_lock_backend()
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        self.assertEqual(fb.LOCK_GRACE_SECONDS, dispatch.LOCK_GRACE_SECONDS)
+        self.assertEqual(fb.TAKEOVER_SECONDS, dispatch.TAKEOVER_SECONDS)
+        self.assertEqual(fb.section_lock_path(todo), dispatch.section_lock_path(todo))
+
+    def test_cross_todo_stamp_rollback_serializes_on_repo_lock(self):
+        # D00 T01 §13 Round 1 finding 3: repo_lock serializes shared implementation-plan.md across different TODO files
+        # so a failed stamp rollback in TODO-01-a never clobbers a concurrent stamp in TODO-02-b.
+        import threading
+        todo_b = self.root / "todo/00-workspace/TODO-02-b.md"
+        todo_b.write_text(
+            todo_file([(1, "Second feature", 0, "none", "--")], ident="bravo")
+            .replace("- [ ] Work.", "- [x] Work.")
+            .replace("**Test checkpoint:**", STARTED + "**Test checkpoint:**"),
+            encoding="utf-8",
+        )
+        self.index("TODO-02-b.md")
+        tg.projections(self.root, sync=True)
+        b_start = self.commit("start bravo")
+        # Prepare a complete 3-pass review chain for D00 T01 §1 (TODO-01-a) and D00 T02 §1 (TODO-02-b).
+        sha_a = self.chain()
+        b_rel = "docs/reviews/00-workspace/D00-T02-s1.md"
+        b_file = self.root / b_rel
+        b_file.parent.mkdir(parents=True, exist_ok=True)
+        b_file.write_text("# Review findings\n", encoding="utf-8")
+        orig_file = self.FILE
+        self.FILE = b_rel
+        try:
+            self.passed("plan", b_start)
+            (self.root / "b.txt").write_text("b\n", encoding="utf-8")
+            sha_b = self.commit("build b")
+            self.passed("round", sha_b)
+            self.passed("completion", sha_b)
+        finally:
+            self.FILE = orig_file
+
+        def stamp_b():
+            return tg.stamp(
+                self.root, "D00 T02 §1", sha_b,
+                [{"round": 1, "report": b_rel, "verdict": "clean"}],
+                ["true -> ok"], "2026-10-24",
+                completion={"report": b_rel, "verdict": "complete"},
+                plan=b_rel,
+            )
+
+        with unittest.mock.patch.object(tg, "CACHE_RUNS", False):
+            # Cross-TODO stamp rollback (finding 3): A fails projections() and rolls back while B waits on repo_lock.
+            real_proj = tg.projections
+            real_repo_lock = tg._acquire_repo_lock
+            real_todo_lock = tg._acquire_todo_lock
+            a_in_proj = threading.Event()
+            b_entered_repo_lock = threading.Event()
+            b_passed_repo_lock = threading.Event()
+            b_wrote_plan = threading.Event()
+            b_err = []
+            failed_once = [False]
+            repo_calls = [0]
+
+            def track_repo_lock(dispatch, root, action="update", **kwargs):
+                repo_calls[0] += 1
+                if repo_calls[0] >= 2:
+                    b_entered_repo_lock.set()
+                return real_repo_lock(dispatch, root, action=action, **kwargs)
+
+            def track_todo_lock(dispatch, path, rel, action="update", **kwargs):
+                if str(rel).endswith("TODO-02-b.md"):
+                    b_passed_repo_lock.set()
+                return real_todo_lock(dispatch, path, rel, action=action, **kwargs)
+
+            def fail_first_proj(root, sync=False):
+                if not failed_once[0]:
+                    failed_once[0] = True
+                    a_in_proj.set()
+                    b_entered_repo_lock.wait(timeout=15.0)
+                    # With repo_lock held, B never reaches TODO-02-b's lock; without it, B passes and writes plan first.
+                    if b_passed_repo_lock.wait(timeout=0.3):
+                        b_wrote_plan.wait(timeout=20.0)
+                    raise OSError("simulated plan write failure in TODO-01-a")
+                out = real_proj(root, sync=sync)
+                b_wrote_plan.set()
+                return out
+
+            def run_stamp_b():
+                a_in_proj.wait(timeout=5.0)
+                try:
+                    stamp_b()
+                except BaseException as exc:
+                    b_err.append(exc)
+
+            t_b = threading.Thread(target=run_stamp_b)
+            t_b.start()
+            try:
+                with unittest.mock.patch.object(tg, "projections", side_effect=fail_first_proj), \
+                        unittest.mock.patch.object(tg, "_acquire_repo_lock", side_effect=track_repo_lock), \
+                        unittest.mock.patch.object(tg, "_acquire_todo_lock", side_effect=track_todo_lock):
+                    with self.assertRaises(OSError):
+                        self.stamp3(sha_a)
+            finally:
+                a_in_proj.set()
+                t_b.join(timeout=30.0)
+            self.assertFalse(t_b.is_alive())
+            self.assertEqual(b_err, [], f"TODO-02-b stamp failed: {b_err}")
+            rows = tg.graph(self.root)
+            self.assertFalse(rows["D00 T01 §1"].done, "failed TODO-01-a stamp must roll back")
+            self.assertTrue(rows["D00 T02 §1"].done, "TODO-02-b stamp must survive TODO-01-a rollback")
+            plan_text = (self.root / "todo/implementation-plan.md").read_text(encoding="utf-8")
+            self.assertRegex(plan_text, r"\[x\]\s*\|\s*D00 T02 §1", "plan must still show D00 T02 §1 done")
 
     def test_queued_replan_racing_behind_stamp_refuses_without_archiving(self):
         # D00 T01 §13: if stamp closes a section while replan waits on todo_lock, replan rechecks under lock and refuses.
@@ -4477,6 +4700,93 @@ class Adoption(Tree):
         faults = []
         tg.graph(self.root, faults)
         self.assertIn(("D00 T01 §1", "executable Build order required: D00 T01 §1"), faults)
+
+    def test_concurrent_adopted_unstamps_across_todo_files_serialize_on_repo_lock(self):
+        # D00 T01 §13 Round 1 finding 4: two concurrent adopted-section unstamps in different TODO files serialize
+        # on repo_lock so neither write to docs/reviews/legacy-receipts.json reinstates the other's removed entry.
+        import threading
+        a = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")])
+        b = todo_file([(1, "A", 0, "none", "--"), (2, "B", 0, "none", "--")], ident="beta")
+        self.write(a)
+        self.write(b, name="TODO-02-b.md")
+        base = self.commit("base")
+
+        def stamped_kit_format(text, stamp):
+            text = text.replace("| 1 | §1 | A | -- | [ ] |", "| 1 | §1 | A | -- | [x] |")
+            head, rest = text.split("## 1. A\n", 1)
+            first, after = rest.split("\n## 2.", 1)
+            first = first.replace("- [ ] ", "- [x] ")
+            return head + "## 1. A\n" + first.rstrip("\n") + "\n\n" + stamp + "\n\n## 2." + after
+
+        self.write(stamped_kit_format(a, f"> **Verified:** 2026-09-28 | §1 | {base}"))
+        self.write(stamped_kit_format(b, f"> **Verified:** 2026-04-17 | commit `{base[:8]}` | 5/5 items"),
+                   name="TODO-02-b.md")
+        self.commit("adopted kit-format stamps")
+        self.assertEqual(tg.adopt_stamps(self.root), [("D00 T01 §1", base), ("D00 T02 §1", base)])
+        self.assertEqual(sorted(self.registry()["adopted"]), ["D00 T01 §1", "D00 T02 §1"])
+
+        registry_path = self.root / self.REGISTRY
+        real_atomic = tg.atomic
+        real_repo_lock = tg._acquire_repo_lock
+        real_todo_lock = tg._acquire_todo_lock
+        t1_writing_registry = threading.Event()
+        t2_entered_repo_lock = threading.Event()
+        t2_passed_repo_lock = threading.Event()
+        t2_wrote_registry = threading.Event()
+        paused_once = [False]
+        repo_calls = [0]
+        errs = []
+
+        def track_repo_lock(dispatch, root, action="update", **kwargs):
+            repo_calls[0] += 1
+            if repo_calls[0] >= 2:
+                t2_entered_repo_lock.set()
+            return real_repo_lock(dispatch, root, action=action, **kwargs)
+
+        def track_todo_lock(dispatch, path, rel, action="update", **kwargs):
+            if str(rel).endswith("TODO-02-b.md"):
+                t2_passed_repo_lock.set()
+            return real_todo_lock(dispatch, path, rel, action=action, **kwargs)
+
+        def pause_first_registry_write(path, data):
+            if pathlib.Path(path) == registry_path and not paused_once[0]:
+                paused_once[0] = True
+                t1_writing_registry.set()
+                t2_entered_repo_lock.wait(timeout=15.0)
+                # With repo_lock held, t2 never reaches TODO-02-b's lock; without it, t2 reads stale registry and writes first.
+                if t2_passed_repo_lock.wait(timeout=0.3):
+                    t2_wrote_registry.wait(timeout=20.0)
+                return real_atomic(path, data)
+            out = real_atomic(path, data)
+            if pathlib.Path(path) == registry_path:
+                t2_wrote_registry.set()
+            return out
+
+        def run_t2():
+            t1_writing_registry.wait(timeout=5.0)
+            try:
+                tg.unstamp(self.root, "D00 T02 §1", "concurrent adopted unstamp b", "2026-11-15")
+            except BaseException as exc:
+                errs.append(exc)
+
+        with unittest.mock.patch.object(tg, "CACHE_RUNS", False), \
+                unittest.mock.patch.object(tg, "atomic", side_effect=pause_first_registry_write), \
+                unittest.mock.patch.object(tg, "_acquire_repo_lock", side_effect=track_repo_lock), \
+                unittest.mock.patch.object(tg, "_acquire_todo_lock", side_effect=track_todo_lock):
+            t2 = threading.Thread(target=run_t2)
+            t2.start()
+            try:
+                tg.unstamp(self.root, "D00 T01 §1", "concurrent adopted unstamp a", "2026-11-15")
+            finally:
+                t1_writing_registry.set()
+                t2.join(timeout=30.0)
+        self.assertFalse(t2.is_alive())
+        self.assertEqual(errs, [], errs)
+        self.assertTrue(paused_once[0])
+        self.assertEqual(self.registry()["adopted"], {}, "both adopted entries must be removed without clobber")
+        rows = tg.graph(self.root)
+        self.assertFalse(rows["D00 T01 §1"].done)
+        self.assertFalse(rows["D00 T02 §1"].done)
 
 
 class Repository(unittest.TestCase):
