@@ -283,6 +283,8 @@ Filed 2026-11-21 from the `D00 T01 §10` shadow audit of `D07 T02 §2` (`docs/re
 
 ## 9. Shadow-audit repairs for `open-dashboard.py` and browser test
 
+> **Started:** 2026-11-22T14:23Z
+
 Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T02 §2` chain 3 (`docs/reviews/07-launchers/audit-d07-t02-s2-c3.md`), which found 6 P2 defects and 1 P3 missed by repair-diff at `d86bc31a`. The signed 64-bit `wordpress_user_id` guard was subsequently fixed in production by `5a6d5fd6` (`wp_site.py:195`, `open-dashboard.py:156`), leaving its regression test in `test_open_dashboard.py` plus the other 5 open P2 defects and 1 P3.
 
 **Phase:** 8
