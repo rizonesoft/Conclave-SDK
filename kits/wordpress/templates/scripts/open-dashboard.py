@@ -4,9 +4,11 @@
 Installed by the Conclave-SDK WordPress kit. It makes a token of 64 lower-case hex characters and its SHA-256 digest,
 stores only the digest on the site (one option, 60 seconds, the one WordPress user the pin names) through the pinned
 SSH connection, and opens `<site url>/?conclave_ticket=<token>`, which the ticket login plugin
-(`tools/ticket-login/conclave-ticket-login.php`) redeems once. The token never reaches an argument, a file other than
-the browser's private redirect page, the output or a log. When the browser cannot be started the ticket is removed
-again; `--check` stores a ticket, removes it again and opens nothing.
+(`tools/ticket-login/conclave-ticket-login.php`) redeems once upon reaching WordPress. The opener never puts the token
+in an argument, local output or local log, writing it only to the browser's private redirect page; over HTTPS the
+browser redeems `?conclave_ticket=<token>`, which web-server or proxy access logs may record, so security rests on
+one-use consumption upon reaching WordPress and the 60-second expiry. When the browser cannot be started the ticket is
+removed again; `--check` stores a ticket, removes it again and opens nothing.
 
 It runs in WSL or on Linux: the pinned SSH hands its password to `sshpass` on a private pipe, which native Windows
 has not, so there it refuses before it makes a ticket.
@@ -31,8 +33,14 @@ import tempfile
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-import site_ssh
-import wp_site
+_LOCAL_SETTINGS_ERROR = False
+try:
+    import site_ssh
+    import wp_site
+except (ValueError, OSError):
+    site_ssh = None
+    wp_site = None
+    _LOCAL_SETTINGS_ERROR = True
 
 QUERY = "conclave_ticket"
 OPTION = "conclave_login_ticket"
@@ -222,16 +230,17 @@ def _page(url):
                     pass   # a stale file that cannot go holds a dead ticket only; the next launch tries again
         text = _redirect_html(url)
         fd, temporary = tempfile.mkstemp(prefix=".open-", suffix=".tmp", dir=PAGES)   # mode 0600
+        page = PAGES / ("open-" + Path(temporary).name[len(".open-"):-len(".tmp")] + ".html")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(text)
-            page = PAGES / ("open-" + Path(temporary).name[len(".open-"):-len(".tmp")] + ".html")
             os.replace(temporary, page)
         except BaseException:
-            try:
-                os.unlink(temporary)
-            except OSError:
-                pass
+            for cleanup in (temporary, page):
+                try:
+                    os.unlink(cleanup)
+                except OSError:
+                    pass   # best-effort temp/page cleanup must never mask the primary error or interrupt
             raise
     except OSError:
         raise Refusal("the local redirect folder cannot be written, so the browser cannot be handed the link") from None
@@ -557,22 +566,22 @@ def _clean_up(pin, digest, err):
 
 def _pin():
     """The pin and the pinned user, refused before any ticket exists (exit 2) when they cannot carry a login."""
+    if _LOCAL_SETTINGS_ERROR or wp_site is None:
+        raise Refusal("the local settings file .conclave/local.toml is not valid", 2)
     try:
         pin = wp_site.load()
-        if not wp_site.ssh_enabled(pin):
-            raise Refusal("the site pin has no SSH (ssh.ssh_host is null), so no ticket can be stored", 2)
-        missing = wp_site.unset(pin, "url", "site_id", "ssh.item", "ssh.ssh_host", "ssh.sftp_host",
-                                "ssh.port", "ssh.username", "ssh.wp_path")
-        if missing:
-            raise Refusal("not set in .conclave/wordpress-site.json yet: " + ", ".join(missing), 2)
-        wp_site.ssh_identity(pin)
-    except Refusal:
-        raise
     except OSError:
         raise Refusal("the site pin .conclave/wordpress-site.json cannot be read", 2) from None
     except ValueError:
         raise Refusal("the site pin .conclave/wordpress-site.json is not valid: python3 scripts/site-access.py check "
                       "says why", 2) from None
+    if not wp_site.ssh_enabled(pin):
+        raise Refusal("the site pin has no SSH (ssh.ssh_host is null), so no ticket can be stored", 2)
+    try:
+        wp_site.ssh_identity(pin)
+        wp_site.require(pin, "ssh.wp_path")
+    except ValueError as error:
+        raise Refusal(str(error), 2) from None
     return pin, pinned_user(pin)
 
 

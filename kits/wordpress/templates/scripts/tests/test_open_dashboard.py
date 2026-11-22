@@ -186,6 +186,12 @@ class RefusedBeforeATicketTest(unittest.TestCase):
                  "not set in .conclave/wordpress-site.json yet: site_id"),
                 ("no ssh.item", pin(ssh__item=None), False,
                  "not set in .conclave/wordpress-site.json yet: ssh.item"),
+                ("no ssh.ssh_host", pin(ssh__ssh_host=None), False,
+                 "not set in .conclave/wordpress-site.json yet: ssh.ssh_host"),
+                ("no ssh.sftp_host", pin(ssh__sftp_host=None), False,
+                 "not set in .conclave/wordpress-site.json yet: ssh.sftp_host"),
+                ("no ssh.port", pin(ssh__port=None), False,
+                 "not set in .conclave/wordpress-site.json yet: ssh.port"),
                 ("no ssh.username", pin(ssh__username=None), False,
                  "not set in .conclave/wordpress-site.json yet: ssh.username"),
                 ("no wp_path", pin(ssh__wp_path=None), False,
@@ -198,6 +204,16 @@ class RefusedBeforeATicketTest(unittest.TestCase):
                     code, out, err, opened = run_main(site=site, the_pin=the_pin, windows=windows)
                 self.assertEqual((code, out, err), (2, "", f"open-dashboard: {said}\n"))
                 self.assertEqual((made.call_count, dropped.call_count, site.calls, opened), (0, 0, [], []))
+        # Single source of truth: an extra required field raised by wp_site.ssh_identity surfaces with exit 2.
+        site = FakeSite()
+        with mock.patch.object(od.wp_site, "ssh_identity",
+                               side_effect=ValueError("not set in .conclave/wordpress-site.json yet: ssh.extra_field")), \
+                mock.patch.object(od, "ticket", wraps=od.ticket) as made, \
+                mock.patch.object(od, "drop", wraps=od.drop) as dropped:
+            code, out, err, opened = run_main(site=site, the_pin=pin(), windows=False)
+        self.assertEqual((code, out, err),
+                         (2, "", "open-dashboard: not set in .conclave/wordpress-site.json yet: ssh.extra_field\n"))
+        self.assertEqual((made.call_count, dropped.call_count, site.calls, opened), (0, 0, [], []))
 
     def test_an_invalid_pin_is_refused_in_a_fixed_sentence(self):
         # Round 1: the validator's text named an unknown key, which a malformed pin could fill with anything.
@@ -1547,6 +1563,21 @@ class BrowserTest(unittest.TestCase):
                 self.assertEqual(remaining, [concurrent_page.name],
                                  f"failed Linux launch ({label}) must remove only its own page")
                 self.assertEqual(concurrent_page.read_text(encoding="utf-8"), "concurrent launch")
+        # Interrupt landing right after os.replace(temporary, page) inside _page() must still delete the published page.
+        real_replace = os.replace
+
+        def interrupt_after_replace(src, dst):
+            real_replace(src, dst)
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(od.os, "replace", side_effect=interrupt_after_replace):
+            with self.assertRaises(KeyboardInterrupt):
+                self.open(wsl=False, which=self.LINUX)
+        remaining = sorted(p.name for p in self.pages.glob("open-*.html"))
+        self.assertEqual(remaining, [concurrent_page.name],
+                         "KeyboardInterrupt right after os.replace must delete the published redirect page")
+        self.assertEqual(list(self.pages.glob(".open-*.tmp")), [])
+        self.assertEqual(concurrent_page.read_text(encoding="utf-8"), "concurrent launch")
 
 
 class CommandLineTest(unittest.TestCase):
@@ -1605,6 +1636,52 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(out, "open-dashboard: launched the browser with a one-use dashboard login link "
                               "(works once, within 60 seconds)\n")
         self.assertNotIn("logged in", out)
+
+    def test_malformed_local_toml_uses_fixed_messages_without_path_or_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            proj = Path(tmp) / "sentinel-bad-toml-proj"
+            scripts = proj / "scripts"
+            (scripts / "lib").mkdir(parents=True)
+            (proj / ".conclave").mkdir(parents=True)
+            (proj / ".conclave" / "local.toml").write_text("vault = []\n", encoding="utf-8")
+            shutil.copyfile(OPENER, scripts / "open-dashboard.py")
+            for name in ("site_ssh.py", "wp_site.py"):
+                shutil.copyfile(SCRIPTS / "lib" / name, scripts / "lib" / name)
+            opener_path = str(scripts / "open-dashboard.py")
+            # 1. --help still works with exit 0 and no traceback/path leak.
+            h = subprocess.run([sys.executable, "-B", opener_path, "--help"],
+                               capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+            self.assertEqual(h.returncode, 0, h.stderr)
+            self.assertNotIn("sentinel-bad-toml-proj", h.stdout + h.stderr)
+            self.assertNotIn("Traceback", h.stdout + h.stderr)
+            # 2. Invalid CLI flag still gets fixed exit-2 refusal without echoing arg or local.toml path.
+            bad = subprocess.run([sys.executable, "-B", opener_path, "--invalid-review-marker"],
+                                 capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+            self.assertEqual(bad.returncode, 2)
+            self.assertEqual(bad.stderr, "open-dashboard: invalid arguments; pass --check or --help\n")
+            self.assertNotIn("sentinel-bad-toml-proj", bad.stdout + bad.stderr)
+            self.assertNotIn("Traceback", bad.stdout + bad.stderr)
+            # 3. Direct non-Windows launch reports fixed local.toml refusal with exit 2 and no traceback/path leak.
+            run_code = "\n".join((
+                "import importlib.util, io, sys",
+                "from unittest import mock",
+                f"spec = importlib.util.spec_from_file_location('od_bad', {opener_path!r})",
+                "m = importlib.util.module_from_spec(spec)",
+                "spec.loader.exec_module(m)",
+                "out, err = io.StringIO(), io.StringIO()",
+                "with mock.patch.object(m, 'native_windows', return_value=False):",
+                "    rc = m.main([], out=out, err=err)",
+                "sys.stdout.write(out.getvalue())",
+                "sys.stderr.write(err.getvalue())",
+                "sys.exit(rc)",
+            ))
+            launched = subprocess.run([sys.executable, "-B", "-c", run_code],
+                                      capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+            self.assertEqual(launched.returncode, 2)
+            self.assertEqual(launched.stdout, "")
+            self.assertEqual(launched.stderr, "open-dashboard: the local settings file .conclave/local.toml is not valid\n")
+            self.assertNotIn("sentinel-bad-toml-proj", launched.stdout + launched.stderr)
+            self.assertNotIn("Traceback", launched.stdout + launched.stderr)
 
 
 class OverflowUserIdTest(unittest.TestCase):

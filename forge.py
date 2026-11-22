@@ -1884,8 +1884,14 @@ def _doctor_wordpress(target_root: Path, add_check) -> None:
         add_check("ticket-login-user", "optional", "no SSH in site pin; ticket login needs SSH")
     else:
         missing_files = [rel for rel in ticket_files if not (target_root / rel).is_file()]
-        if wp_site.unset(pin, "ssh.wp_path"):
-            add_check("ticket-login", "setup_required", "see site-ssh: missing ssh.wp_path")
+        missing_ssh = None
+        try:
+            wp_site.ssh_identity(pin)
+            wp_site.require(pin, "ssh.wp_path")
+        except ValueError as error:
+            missing_ssh = str(error).removeprefix("not set in .conclave/wordpress-site.json yet: ")
+        if missing_ssh:
+            add_check("ticket-login", "setup_required", f"see site-ssh: missing {missing_ssh}")
         elif missing_files:
             add_check("ticket-login", "setup_required", "missing: " + ", ".join(missing_files))
         else:

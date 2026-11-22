@@ -96,5 +96,6 @@ jobs:
       # byte, from an installed copy in the full suite above, with tmux (once per OS, not twice on Linux).
       - name: Every suite but tests/ and kit-unattended (each kit's own, the SDK's installed copy, the agent checks)
         run: python forge.py check-all --full --skip tests --skip kit-unattended
-      - name: WordPress dashboard opener verbose platform evidence (Linux PHP and native headless browser)
-        run: python3 kits/wordpress/templates/scripts/tests/test_open_dashboard.py -v
+      - name: WordPress dashboard opener non-skip platform gate (Linux PHP and native headless browser)
+        run: |
+          python3 -c "import importlib.util, sys, unittest; spec = importlib.util.spec_from_file_location('od_tests', 'kits/wordpress/templates/scripts/tests/test_open_dashboard.py'); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); loader = unittest.defaultTestLoader; suite = unittest.TestSuite([loader.loadTestsFromTestCase(m.StoreAndDropOnTheSiteTest), loader.loadTestsFromName('BrowserTest.test_headless_browser_follows_redirect_via_linux_open_browser', m)]); res = unittest.TextTestRunner(verbosity=2).run(suite); sys.exit(0 if res.wasSuccessful() and not res.skipped else 1)"

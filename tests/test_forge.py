@@ -4741,12 +4741,17 @@ class WordPressTicketLoginDoctorTests(unittest.TestCase):
             self.assertEqual(rows["ticket-login-user"][0], "setup_required")
             self.assertIn("site-pin", rows["ticket-login-user"][1])
 
-            # 4. SSH-enabled pin lacking ssh.wp_path points to site-ssh.
+            # 4. SSH-enabled pin lacking ssh.wp_path or SSH identity fields (e.g. ssh.item) points to site-ssh.
             self._write_pin(target, {**atomic_pin, "ssh": {**base_ssh, "wp_path": None}})
             rows, _ = self._doctor_rows(target)
             self.assertEqual(rows["ticket-login"][0], "setup_required")
             self.assertIn("site-ssh", rows["ticket-login"][1])
             self.assertIn("ssh.wp_path", rows["ticket-login"][1])
+            self._write_pin(target, {**atomic_pin, "ssh": {**base_ssh, "item": None}})
+            rows, _ = self._doctor_rows(target)
+            self.assertEqual(rows["ticket-login"][0], "setup_required")
+            self.assertIn("site-ssh", rows["ticket-login"][1])
+            self.assertIn("ssh.item", rows["ticket-login"][1])
 
             # 5. Removing each of the three files independently reports setup_required naming that path.
             self._write_pin(target, atomic_pin)
@@ -5158,7 +5163,7 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
             "private local redirect page",
             "never prints or logs the token locally",
             "access logs",
-            "consumed immediately on first request",
+            "reaches WordPress",
             "expires after 60 seconds and is consumed on first redemption",
             "no standing login key",
             "SHA-256 hash",
