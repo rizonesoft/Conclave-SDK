@@ -84,6 +84,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import unicodedata
 import threading
 import time
 
@@ -692,7 +693,7 @@ IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
 REPO_QUALIFIED_REF = re.compile(r"^(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@(.+)$")
-WWW_URL = re.compile(r"^www\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?:/\S*)?$", re.IGNORECASE)
+WWW_URL = re.compile(r"^www\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::\d{1,5})?(?:[/?#]\S*)?$", re.IGNORECASE)
 REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
@@ -2043,12 +2044,17 @@ def _unwrap_markdown_segments(text, ref_defs=()):
                 continue
         out.append((ch, False))
         i += 1
-    merged = []
+    merged, buf = [], []
     for chunk, is_lbl in out:
-        if merged and not is_lbl and not merged[-1][1]:
-            merged[-1] = (merged[-1][0] + chunk, False)
+        if is_lbl:
+            if buf:
+                merged.append(("".join(buf), False))
+                buf = []
+            merged.append((chunk, True))
         else:
-            merged.append((chunk, is_lbl))
+            buf.append(chunk)
+    if buf:
+        merged.append(("".join(buf), False))
     return merged
 
 
@@ -2057,26 +2063,44 @@ def _unwrap_markdown_links(text, ref_defs=()):
     return "".join(chunk for chunk, _ in _unwrap_markdown_segments(text, ref_defs))
 
 
+def _is_outer_unicode_punct(ch):
+    return ord(ch) > 127 and unicodedata.category(ch).startswith("P")
+
+
+def _strip_outer_url_punct(raw):
+    i, j = 0, len(raw)
+    while i < j and (raw[i] in ".,:;()<>\"'!?" or _is_outer_unicode_punct(raw[i])):
+        i += 1
+    while j > i and (raw[j - 1] in ".,:;()<>\"'!?" or _is_outer_unicode_punct(raw[j - 1])):
+        j -= 1
+    return raw[i:j]
+
+
 def _is_url_token(raw):
-    """True when `raw` is an explicit scheme URL (`://`) or GFM extended autolink (`www.<host>...`)."""
+    """True when `raw` is an explicit scheme URL (`://`) or GFM extended autolink (`www.<host>[:port]...`)."""
     if "://" in raw:
         return True
-    trimmed = raw.strip(".,:;()<>\"'!?")
+    trimmed = _strip_outer_url_punct(raw)
     return bool(trimmed and WWW_URL.fullmatch(trimmed))
 
 
 def _strip_paired_md(raw):
-    """Strip outer sentence punctuation (never brackets, git revspec operators `~`/`^`/`^!`, or a leading `:/`
-    search prefix) and matched/paired Markdown emphasis or inline-code wrappers (`**`, `__`, `~~`, `*`, `_`, `` ` ``)."""
-    tok = raw.lstrip(".,;()<>\"'")
-    while tok and (tok[-1] in ".,:;()<>\"'?" or (tok.endswith("!") and not tok.endswith("^!"))):
-        tok = tok[:-1]
+    """Strip outer ASCII and Unicode sentence punctuation (never ASCII brackets, git revspec operators `~`/`^`/`^!`,
+    or a leading `:/` search prefix) and matched inline-code backticks (` `` `, `` ` ``). Span-level emphasis
+    (`*`, `_`, `~~`) is already resolved by `_strip_inline_emphasis_segments` respecting link boundaries."""
+    i, j = 0, len(raw)
+    while i < j and (raw[i] in ".,;()<>\"'" or _is_outer_unicode_punct(raw[i])):
+        i += 1
+    while j > i and (raw[j - 1] in ".,:;()<>\"'?" or _is_outer_unicode_punct(raw[j - 1])
+                     or (raw[j - 1] == "!" and not raw[:j].endswith("^!"))):
+        j -= 1
+    tok = raw[i:j]
     if tok.startswith(":") and not tok.startswith(":/"):
         tok = tok.lstrip(":")
     changed = True
     while changed and tok:
         changed = False
-        for mark in ("``", "`", "**", "__", "~~", "*", "_"):
+        for mark in ("``", "`"):
             if len(tok) > 2 * len(mark) and tok.startswith(mark) and tok.endswith(mark):
                 tok = tok[len(mark) : -len(mark)]
                 changed = True
@@ -2178,7 +2202,7 @@ def _split_plain_revspecs(text):
                 buf.append(text[i : close + 1])
                 i = close + 1
                 continue
-        if text[i].isspace():
+        if text[i].isspace() or (_is_outer_unicode_punct(text[i]) and not (buf and buf[0] == ":")):
             if buf:
                 tokens.append("".join(buf))
                 buf = []
@@ -2239,8 +2263,8 @@ def _split_revspec_tokens(text):
         if not parts:
             glued = False
             return
-        lead_ws = seg[0].isspace()
-        trail_ws = seg[-1].isspace()
+        lead_ws = seg[0].isspace() or _is_outer_unicode_punct(seg[0])
+        trail_ws = seg[-1].isspace() or _is_outer_unicode_punct(seg[-1])
         if glued and not lead_ws and tokens:
             tokens[-1] += parts[0]
             tokens.extend(parts[1:])

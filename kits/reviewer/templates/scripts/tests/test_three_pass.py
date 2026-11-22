@@ -1108,9 +1108,13 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} owner/repo@{built[:8]}"),
             ("SHA plus www.github.com commit permalink with no description",
              f"- Implemented: {repaired[:8]} www.github.com/owner/repo/commit/{built}"),
+            ("SHA plus ported www commit permalink with no description",
+             f"- Implemented: {repaired[:8]} www.git.example.com:8443/project/commit/{built[:8]}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
             ("emphasis must not pair across link label boundary",
              f"- Implemented: fixed src/*.py in [{repaired[:8]}*](diff)"),
+            ("token cleanup must not pair asterisk across link boundary",
+             f"- Implemented: fixed *[{repaired[:8]}*](diff)"),
             ("backticked SHA with trailing tilde parent selector", f"- Implemented: fixed `{repaired[:8]}`~"),
             ("linked SHA with no description",
              f"- Implemented: [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
@@ -1304,6 +1308,7 @@ class ResolutionGuard(ThreePass):
             ("short=4 SHA", f"- Implemented: fixed in {short4}"),
             ("uppercase SHA", f"- Implemented: fixed in {repaired[:8].upper()}"),
             ("non-ASCII Unicode description", f"- Implemented: 修復 {repaired[:8]}"),
+            ("linked SHA followed by CJK full stop", f"- Implemented: 修復 [{repaired[:8]}](diff)。"),
         )
         for label, note in good_impl_cases:
             with self.subTest(good_impl=label):
@@ -1354,7 +1359,7 @@ class ResolutionGuard(ThreePass):
             nested_qual = f"- Implemented: {repaired[:8]} " + ("a/b@" * 600) + "HEAD"
             self.assertIsInstance(module._has_resolution_entry([nested_qual]), bool)
         # Linear-time bracket scanning on deeply nested literal brackets.
-        nested_brackets = "[" * 8000 + "x" + "]" * 8000
+        nested_brackets = "[" * 32000 + "x" + "]" * 32000
         t0 = time.monotonic()
         self.assertEqual(module._unwrap_markdown_links(nested_brackets, set()), nested_brackets)
         self.assertLess(time.monotonic() - t0, 0.15, "_unwrap_markdown_links must stay linear on nested brackets")
