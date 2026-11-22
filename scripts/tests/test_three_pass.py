@@ -1056,7 +1056,7 @@ class ResolutionGuard(ThreePass):
 
     def test_reconciliation_refuses_missing_or_incomplete_resolution_before_calling_reviewer(self):
         built = self.to_completion(top="P2", gaps=True)
-        repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
+        repaired = self.commit("repair the guard", {"src/app/a.py": "x = 2\n"})
         baseline = self.record.read_bytes()
         bad_notes = (
             ("empty", None),
@@ -1070,6 +1070,10 @@ class ResolutionGuard(ThreePass):
             ("SHA plus reflog selector with no description", f"- Implemented: {repaired[:8]} HEAD@{{0}}"),
             ("SHA plus date reflog selector with spaces and no description",
              f"- Implemented: {repaired[:8]} HEAD@{{1 minute ago}}"),
+            ("SHA plus commit-message search selector with no description",
+             f"- Implemented: {repaired[:8]} :/repair"),
+            ("SHA plus multiword commit-message search selector with no description",
+             f"- Implemented: {repaired[:8]} :/repair the guard"),
             ("SHA plus triple-dot range and HEAD with no description",
              f"- Implemented: {repaired[:8]} {built[:8]}...HEAD"),
             ("SHA plus bare commit URL with no description",
@@ -1087,6 +1091,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition inside fenced code block",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n```markdown\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}\n```"),
+            ("reference definition inside multiline HTML comment",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<!--\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}\n-->"),
             ("malformed angle-bracket reference definition",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: <unterminated"),
             ("blank line before reference destination",
@@ -1112,12 +1119,16 @@ class ResolutionGuard(ThreePass):
         short4 = self.git("rev-parse", "--short=4", repaired)
         good_impl_cases = (
             ("backticked short SHA", f"- Implemented: fixed the gap in `{repaired[:8]}`"),
+            ("prose with literal opening brace before SHA",
+             f"- Implemented: handled literal `{{` in {repaired[:8]}"),
             ("Markdown-linked SHA",
              f"- Implemented: repaired the guard in [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
             ("bold Markdown-linked SHA",
              f"- Implemented: fixed [**{repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
             ("full reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: https://example.com/commit/{repaired[:8]}"),
+            ("blockquoted reference-linked SHA",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n> [repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
             ("multiline quoted title reference-linked SHA",
@@ -1176,6 +1187,13 @@ class ResolutionGuard(ThreePass):
             line = "- Implemented: fixed " + " ".join(["deadbeef"] * 12)
             self.assertFalse(module._has_resolution_entry([line]))
         self.assertEqual(len(calls), 1, f"expected 1 deduplicated git lookup, got {len(calls)}")
+        # Linear-time reference definition collection (no quadratic rescan across adjacent definitions).
+        many = [f"[r{k}]: /commit/{k}" for k in range(2000)]
+        t0 = time.monotonic()
+        defs = module._collect_ref_defs(many)
+        elapsed = time.monotonic() - t0
+        self.assertEqual(len(defs), 2000)
+        self.assertLess(elapsed, 0.25, f"_collect_ref_defs took {elapsed:.3f}s on 2000 consecutive definitions")
 
     def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
         cases = (

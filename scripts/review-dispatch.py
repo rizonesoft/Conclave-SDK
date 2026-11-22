@@ -692,6 +692,8 @@ COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^][0-9]*)+$")
 REF_DEF_LINE = re.compile(r"^\s{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
 FENCE_OPEN = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
+BLOCKQUOTE_PREFIX = re.compile(r"^(?:[ ]{0,3}>[ ]?)+")
+HTML_COMMENT_OPEN = re.compile(r"^[ ]{0,3}<!--")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1463,6 +1465,11 @@ def _parse_link_title(text, pos):
     return j + 1 if j < n and text[j] == closer else None
 
 
+def _strip_blockquote(line):
+    m = BLOCKQUOTE_PREFIX.match(line)
+    return (m.group(0).count(">"), line[m.end():]) if m else (0, line)
+
+
 def _fence_step(line, fence):
     """Track CommonMark §4.5 fenced code blocks (` ``` ` or `~~~`). Returns `(new_fence, inside_fence)`."""
     if fence is None:
@@ -1478,59 +1485,106 @@ def _fence_step(line, fence):
     return fence, True
 
 
-def _valid_ref_block(block):
-    """True when a consecutive non-blank reference-definition `block` starts with a valid CommonMark destination
-    followed either by end-of-line or by horizontal space and a valid (possibly multiline) CommonMark title."""
-    end = _parse_link_dest(block, 0)
-    if end is None:
-        return False
-    nl = block.find("\n", end)
-    line_end = len(block) if nl == -1 else nl
-    if block[end:line_end].strip(" \t") == "":
-        return True
-    j = end
-    while j < line_end and block[j] in " \t":
-        j += 1
-    if j == end:
-        return False
-    title_end = _parse_link_title(block, j)
-    if title_end is None:
-        return False
-    tail_nl = block.find("\n", title_end)
-    tail_end = len(block) if tail_nl == -1 else tail_nl
-    return block[title_end:tail_end].strip(" \t") == ""
+def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
+    """Scan a CommonMark link title starting at `(start_line, start_pos)` across consecutive non-blank, non-fence
+    lines at blockquote depth `bq`. Returns closing line index when valid, else None."""
+    opener = start_text[start_pos]
+    closer = ")" if opener == "(" else opener
+    line_idx = start_line
+    text = start_text
+    pos = start_pos + 1
+    n = len(raw_lines)
+    while True:
+        while pos < len(text) and text[pos] != closer:
+            if opener == "(" and text[pos] == "(":
+                return None
+            pos += 2 if text[pos] == "\\" and pos + 1 < len(text) else 1
+        if pos < len(text) and text[pos] == closer:
+            return line_idx if text[pos + 1 :].strip(" \t") == "" else None
+        line_idx += 1
+        if line_idx >= n:
+            return None
+        next_bq, next_content = _strip_blockquote(raw_lines[line_idx])
+        if next_bq != bq or not next_content.strip():
+            return None
+        if _fence_step(next_content, None)[1]:
+            return None
+        text, pos = next_content, 0
 
 
 def _collect_ref_defs(raw_lines):
-    """Collect valid CommonMark link reference definitions from `raw_lines`, skipping fenced code blocks and
-    supporting next-line destinations and multiline link titles."""
+    """Collect valid CommonMark link reference definitions from `raw_lines` in linear time, skipping fenced code
+    blocks and HTML comment blocks, unwrapping block quotes, and supporting next-line destinations and multiline
+    link titles."""
     defs = set()
-    fence = None
+    fence, fence_bq = None, 0
+    in_comment, comment_bq = False, 0
     i, n = 0, len(raw_lines)
     while i < n:
-        fence, inside = _fence_step(raw_lines[i], fence)
+        bq, content = _strip_blockquote(raw_lines[i])
+        if fence is not None:
+            if bq < fence_bq:
+                fence = None
+            else:
+                fence, inside = _fence_step(content, fence)
+                if inside:
+                    i += 1
+                    continue
+        if in_comment:
+            if bq < comment_bq:
+                in_comment = False
+            else:
+                if "-->" in content:
+                    in_comment = False
+                i += 1
+                continue
+        new_fence, inside = _fence_step(content, None)
         if inside:
+            fence, fence_bq = new_fence, bq
             i += 1
             continue
-        m = REF_DEF_LINE.match(raw_lines[i])
-        if m:
-            rest = m.group(2)
-            start = i if rest else i + 1
-            if start < n and (rest or raw_lines[start].strip()):
-                first = rest if rest else raw_lines[start].lstrip(" \t")
-                # Gather consecutive non-blank, non-fence lines for multiline title validation.
-                block_lines = [first]
-                k = start + 1
-                while k < n and raw_lines[k].strip():
-                    next_fence, next_in = _fence_step(raw_lines[k], None)
-                    if next_in:
-                        break
-                    block_lines.append(raw_lines[k])
-                    k += 1
-                if _valid_ref_block("\n".join(block_lines)):
-                    defs.add(_norm_ref_label(m.group(1)))
-                    if not rest:
-                        i = start
+        if HTML_COMMENT_OPEN.match(content):
+            open_end = content.find("<!--") + 4
+            if "-->" not in content[open_end:]:
+                in_comment, comment_bq = True, bq
+            i += 1
+            continue
+        m = REF_DEF_LINE.match(content)
+        if not m:
+            i += 1
+            continue
+        rest = m.group(2)
+        start = i
+        if not rest:
+            if i + 1 >= n:
+                i += 1
+                continue
+            next_bq, next_content = _strip_blockquote(raw_lines[i + 1])
+            if next_bq != bq or not next_content.strip() or _fence_step(next_content, None)[1] \
+                    or HTML_COMMENT_OPEN.match(next_content):
+                i += 1
+                continue
+            start = i + 1
+            rest = next_content.lstrip(" \t")
+        dest_end = _parse_link_dest(rest, 0)
+        if dest_end is None:
+            i += 1
+            continue
+        if rest[dest_end:].strip(" \t") == "":
+            defs.add(_norm_ref_label(m.group(1)))
+            i = start + 1
+            continue
+        j = dest_end
+        while j < len(rest) and rest[j] in " \t":
+            j += 1
+        if j == dest_end or rest[j] not in "\"'(":
+            i += 1
+            continue
+        end_line = _scan_multiline_title(raw_lines, start, rest, j, bq)
+        if end_line is not None:
+            defs.add(_norm_ref_label(m.group(1)))
+            i = end_line + 1
+            continue
         i += 1
     return defs
 
@@ -1590,9 +1644,11 @@ def _unwrap_markdown_links(text, ref_defs=()):
 
 
 def _strip_paired_md(raw):
-    """Strip outer sentence punctuation (never brackets or git revspec operators `~`/`^`) and matched/paired
-    Markdown emphasis or inline-code wrappers (`**`, `__`, `~~`, `*`, `_`, `` ` ``)."""
-    tok = raw.strip(".,:;()<>\"'")
+    """Strip outer sentence punctuation (never brackets, git revspec operators `~`/`^`, or a leading `:/` search
+    prefix) and matched/paired Markdown emphasis or inline-code wrappers (`**`, `__`, `~~`, `*`, `_`, `` ` ``)."""
+    tok = raw.rstrip(".,:;()<>\"'").lstrip(".,;()<>\"'")
+    if tok.startswith(":") and not tok.startswith(":/"):
+        tok = tok.lstrip(":")
     changed = True
     while changed and tok:
         changed = False
@@ -1614,7 +1670,12 @@ def _is_commit_in_git(tok, seen):
 def _is_revspec_in_git(expr, seen):
     key = ("rev", expr)
     if key not in seen:
-        seen[key] = git("rev-parse", "--verify", "--quiet", f"{expr}^{{commit}}").returncode == 0
+        if expr.startswith(":/"):
+            done = git("rev-parse", "--verify", "--quiet", expr)
+            sha = done.stdout.decode("ascii", "replace").strip() if done.returncode == 0 else ""
+            seen[key] = bool(sha) and _is_commit_in_git(sha, seen)
+        else:
+            seen[key] = git("rev-parse", "--verify", "--quiet", f"{expr}^{{commit}}").returncode == 0
     return seen[key]
 
 
@@ -1645,38 +1706,38 @@ def _is_commit_ref_token(raw, seen):
             continue
         if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
             continue
-        if any(ch in piece for ch in "@^~:/{}") and _is_revspec_in_git(piece.lstrip("^"), seen):
+        if any(ch in piece for ch in "@^~:/{}") and piece.count("{") == piece.count("}") \
+                and _is_revspec_in_git(piece.lstrip("^"), seen):
             continue
         return False
     return True
 
 
-def _split_tokens(text):
-    """Split `text` on whitespace while keeping balanced `{...}` groups (such as Git reflog/search selectors
-    `HEAD@{1 minute ago}` or `HEAD^{/fix bug}`) inside one token."""
-    tokens, buf, depth = [], [], 0
-    for ch in text:
-        if ch == "{":
-            depth += 1
-            buf.append(ch)
-        elif ch == "}" and depth > 0:
-            depth -= 1
-            buf.append(ch)
-        elif ch.isspace() and depth == 0:
-            if buf:
-                tokens.append("".join(buf))
-                buf = []
-        else:
-            buf.append(ch)
-    if buf:
-        tokens.append("".join(buf))
-    return tokens
+def _is_multiword_revspec(expr, seen):
+    """True when a space-containing remainder like `:/check resolution`, `HEAD@{1 minute ago}`, `HEAD^{/fix}`, or a
+    range whose endpoint uses one resolves in git as a commit reference."""
+    if not expr:
+        return True
+    pieces = [p.strip() for chunk in expr.split(",") for p in re.split(r"\.{2,3}", chunk) if p.strip()]
+    if not pieces:
+        return True
+    refs = _repo_refs(seen)
+    for piece in pieces:
+        base = REVSPEC_SUFFIX.sub("", piece.lstrip("^"))
+        if base and base in refs:
+            continue
+        if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
+            continue
+        if (piece.startswith(":/") or "@{" in piece or "^{" in piece) and _is_revspec_in_git(piece.lstrip("^"), seen):
+            continue
+        return False
+    return True
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
-    entry with non-empty description text (distinct from commit references, ranges, refs, reflog selectors, and URLs)
-    and a standalone or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching
+    entry with non-empty description text (distinct from commit references, ranges, refs, reflog/search selectors,
+    and URLs) and a standalone or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching
     `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or body before the next `## `)."""
     if seen is None:
         seen = {}
@@ -1685,7 +1746,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
         m = IMPLEMENTED_LINE.match(line)
         if m:
             visible = _unwrap_markdown_links(m.group(1).strip(), ref_defs)
-            parts = _split_tokens(visible)
+            parts = visible.split()
             commit_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or "://" in raw:
@@ -1693,9 +1754,15 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
                 tok = _strip_paired_md(raw)
                 if COMMIT_TOKEN.fullmatch(tok) and _is_commit_in_git(tok, seen):
                     commit_pos.add(pos)
-            if commit_pos and any(any(ch.isalnum() for ch in other) and not _is_commit_ref_token(other, seen)
-                                  for other_pos, other in enumerate(parts) if other_pos not in commit_pos):
-                return True
+            if commit_pos:
+                non_commit = [other for other_pos, other in enumerate(parts)
+                              if other_pos not in commit_pos and "://" not in other]
+                if not non_commit or _is_multiword_revspec(_strip_paired_md(" ".join(non_commit)), seen):
+                    continue
+                remaining = [other for other in non_commit
+                             if any(ch.isalnum() for ch in other) and not _is_commit_ref_token(other, seen)]
+                if remaining and not _is_multiword_revspec(_strip_paired_md(" ".join(remaining)), seen):
+                    return True
         if FILED_LINE.match(line):
             return True
         wn = WRITER_NOTE.match(line)
