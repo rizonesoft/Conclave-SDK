@@ -563,21 +563,39 @@ class BrowserTest(unittest.TestCase):
                 self.assertEqual(kwargs["cwd"], "/mnt/c")
                 self.assertNotIn("conclave_ticket", " ".join(argv))
 
-    _REGVAL_HELPER = "function _RegVal($rp, $rn) { (Get-ItemProperty -LiteralPath $rp -ErrorAction Ignore).$rn };"
-
     def _patch_ps_reg(self, script, mapping, escape_percent=False):
-        self.assertIn(self._REGVAL_HELPER, script)
-        pairs = []
+        """Inject a fake Get-ItemProperty cmdlet so the production _RegVal and selection logic run unmodified."""
+        by_path = {}
         for (reg_path, name), value in mapping.items():
-            k = f"{reg_path}|{name}".replace("'", "''")
-            v = value.replace("'", "''")
+            by_path.setdefault(reg_path, {})[name] = value
+        branches = []
+        for reg_path, props in by_path.items():
+            kp = reg_path.replace("'", "''")
             if escape_percent:
-                k = k.replace("%", "%%")
-                v = v.replace("%", "%%")
-            pairs.append(f"'{k}' = '{v}'")
-        table = "@{ " + "; ".join(pairs) + " }"
-        replacement = f'function _RegVal($rp, $rn) {{ $m = {table}; $m["$rp|$rn"] }};'
-        return script.replace(self._REGVAL_HELPER, replacement, 1)
+                kp = kp.replace("%", "%%")
+            if "__error__" in props:
+                msg = str(props["__error__"]).replace("'", "''")
+                if escape_percent:
+                    msg = msg.replace("%", "%%")
+                body = f"throw [UnauthorizedAccessException]::new('{msg}')"
+            else:
+                items = []
+                for name, value in props.items():
+                    kn = name.replace("'", "''")
+                    kv = value.replace("'", "''")
+                    if escape_percent:
+                        kn = kn.replace("%", "%%")
+                        kv = kv.replace("%", "%%")
+                    items.append(f"'{kn}' = '{kv}'")
+                body = "[PSCustomObject]@{ " + "; ".join(items) + " }"
+            branches.append(f"'{kp}' {{ {body} }}")
+        switch_body = "; ".join(branches)
+        prefix = (
+            f"function Get-ItemProperty([string]$LiteralPath, $ErrorAction) {{ "
+            f"switch -Exact ($LiteralPath) {{ {switch_body}; "
+            f"default {{ throw [Management.Automation.ItemNotFoundException]::new($LiteralPath) }} }} }}; "
+        )
+        return prefix + script
 
     def test_powershell_atomic_write_failure_and_immediate_exit_clean_up(self):
         pwsh = shutil.which("pwsh") or shutil.which("pwsh.exe") or shutil.which("powershell.exe")
@@ -730,6 +748,32 @@ class BrowserTest(unittest.TestCase):
         self.assertFalse(html_out.exists())
         self.assertEqual(list((app4 / "conclave-dashboard").glob("open-*.html")), [])
 
+        # 5. Access-denied read failure on UserChoice refuses, removes page, and never falls back to machine/.html.
+        app5 = Path(self._tmp.name) / "sel_denied_user"
+        app5.mkdir(parents=True, exist_ok=True)
+        done5 = run_case(app5, {
+            (uc_key, "__error__"): "access denied reading UserChoice",
+            (machine_cmd_key, "(default)"): machine_cmd,
+            (html_cmd_key, "(default)"): html_cmd,
+        })
+        self.assertNotEqual(done5.returncode, 0)
+        self.assertFalse(user_out.exists())
+        self.assertFalse(machine_out.exists(), "must not fall back to machine default when UserChoice read fails")
+        self.assertFalse(html_out.exists())
+        self.assertEqual(list((app5 / "conclave-dashboard").glob("open-*.html")), [])
+
+        # 6. Present UserChoice key with missing ProgId property falls back cleanly to machine HTTPS handler.
+        app6 = Path(self._tmp.name) / "sel_empty_uc"
+        app6.mkdir(parents=True, exist_ok=True)
+        done6 = run_case(app6, {
+            (uc_key, "Hash"): "unused-hash",
+            (machine_cmd_key, "(default)"): machine_cmd,
+            (html_cmd_key, "(default)"): html_cmd,
+        })
+        self.assertEqual(done6.returncode, 0, done6.stderr)
+        self.assertTrue(machine_out.exists(), "machine HTTPS handler should run when UserChoice has no ProgId")
+        self.assertFalse(html_out.exists())
+
     @staticmethod
     def _is_native_posix_executable(path):
         try:
@@ -762,7 +806,7 @@ class BrowserTest(unittest.TestCase):
             ]
         return next((c for c in candidates if c and Path(c).is_file()), None)
 
-    def _start_loopback_server(self, socket_timeout=1.0):
+    def _start_loopback_server(self, socket_timeout=1.0, on_accept=None):
         import http.server
         import threading
         hits = []
@@ -770,6 +814,11 @@ class BrowserTest(unittest.TestCase):
 
         class Handler(http.server.BaseHTTPRequestHandler):
             timeout = socket_timeout
+
+            def setup(self):
+                super().setup()
+                if on_accept is not None:
+                    on_accept()
 
             def do_GET(self):
                 if self.path != "/favicon.ico":
@@ -791,7 +840,7 @@ class BrowserTest(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
+        self.addCleanup(lambda: server.shutdown() if thread.is_alive() else None)
         return server, port, hits, done_event
 
     def _start_loopback(self):
@@ -799,24 +848,49 @@ class BrowserTest(unittest.TestCase):
         return port, hits, done_event
 
     def test_loopback_server_serves_second_request_and_shuts_down_with_idle_socket(self):
+        import select
         import threading
         import urllib.request
-        server, port, hits, done_event = self._start_loopback_server(socket_timeout=0.5)
-        idle = socket.create_connection(("127.0.0.1", port), timeout=3)
-        self.addCleanup(idle.close)
-        # While the first connection sits completely idle, a second connection must still be served.
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/?conclave_ticket=concurrent", timeout=3) as resp:
+        accepted_cond = threading.Condition()
+        accepted_count = [0]
+
+        def _on_accept():
+            with accepted_cond:
+                accepted_count[0] += 1
+                accepted_cond.notify_all()
+
+        def _wait_accepted(target):
+            with accepted_cond:
+                ok = accepted_cond.wait_for(lambda: accepted_count[0] >= target, timeout=2.0)
+            self.assertTrue(ok, f"timed out waiting for server to accept connection #{target}")
+
+        # Use a 2.0s idle timeout so single-threaded serial handling cannot meet the 0.8s second-request deadline.
+        server, port, hits, done_event = self._start_loopback_server(socket_timeout=2.0, on_accept=_on_accept)
+        idle1 = socket.create_connection(("127.0.0.1", port), timeout=3)
+        self.addCleanup(idle1.close)
+        _wait_accepted(1)
+        # 1. While idle1 is accepted and held open, a second connection must be served concurrently before idle1 expires.
+        t0 = time.monotonic()
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/?conclave_ticket=concurrent", timeout=0.8) as resp:
             self.assertEqual(resp.status, 200)
             self.assertEqual(resp.read(), b"ok")
-        self.assertTrue(done_event.wait(timeout=2))
+        self.assertLess(time.monotonic() - t0, 1.0, "second request waited on idle socket instead of running concurrently")
+        self.assertTrue(done_event.wait(timeout=1.0))
         self.assertEqual(hits, ["/?conclave_ticket=concurrent"])
-        # The idle socket must time out and close cleanly without hanging server.shutdown().
-        idle.settimeout(3.0)
-        self.assertEqual(idle.recv(1), b"")
+        self.assertEqual(select.select([idle1], [], [], 0)[0], [], "idle1 already closed before concurrency check ended")
+        # 2. idle1 must time out and receive EOF via Handler.timeout.
+        idle1.settimeout(3.5)
+        self.assertEqual(idle1.recv(1), b"")
+        # 3. With a fresh accepted idle socket still open, server.shutdown() must return before its 2.0s timeout.
+        idle2 = socket.create_connection(("127.0.0.1", port), timeout=3)
+        self.addCleanup(idle2.close)
+        _wait_accepted(3)
+        t_shut = time.monotonic()
         stop_thread = threading.Thread(target=server.shutdown, daemon=True)
         stop_thread.start()
-        stop_thread.join(timeout=3.0)
-        self.assertFalse(stop_thread.is_alive(), "server.shutdown() hung on idle loopback connection")
+        stop_thread.join(timeout=0.8)
+        self.assertFalse(stop_thread.is_alive(), "server.shutdown() blocked on an active idle loopback connection")
+        self.assertLess(time.monotonic() - t_shut, 1.0)
 
     def _kill_windows_profile(self, pwsh, win_profile, cim_class="Win32_Process",
                               kill_action="taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null"):
@@ -845,10 +919,10 @@ class BrowserTest(unittest.TestCase):
         lookalike_profile = str(Path(self._tmp.name) / f"{token}w")
         exact = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", f"--user-data-dir={exact_profile}"],
                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        self.addCleanup(lambda p=exact: (p.kill(), p.wait()) if p.poll() is None else None)
         lookalike = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", f"--user-data-dir={lookalike_profile}"],
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
-        self.addCleanup(lambda: (exact.kill(), exact.wait()) if exact.poll() is None else None)
-        self.addCleanup(lambda: (lookalike.kill(), lookalike.wait()) if lookalike.poll() is None else None)
+        self.addCleanup(lambda p=lookalike: (p.kill(), p.wait()) if p.poll() is None else None)
         # Survivor check: when kill_action is a no-op, the live exact-match process must fail cleanup.
         with self.assertRaises(AssertionError):
             self._kill_windows_profile(pwsh, exact_profile, kill_action="Out-Null")
@@ -909,35 +983,53 @@ class BrowserTest(unittest.TestCase):
     def test_kill_browser_tree_kills_orphaned_posix_child_after_leader_exits(self):
         if os.name != "posix":
             self.skipTest("POSIX process-group orphan cleanup requires POSIX")
+        import select
         import signal
-        pid_file = Path(self._tmp.name) / "orphan.pid"
-        # Leader spawns a sleeping child in the same process group and exits immediately.
-        proc = subprocess.Popen(
-            ["sh", "-c", f'sleep 60 </dev/null >/dev/null 2>&1 & echo $! > "{pid_file}"'],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
-        )
-        proc.wait(timeout=5)
-        self.assertIsNotNone(proc.poll(), "leader must have exited before teardown")
-        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        r_fd, w_fd = os.pipe()
+        r_open = [True]
 
-        def _ensure_dead():
+        def _close_r():
+            if r_open[0]:
+                r_open[0] = False
+                os.close(r_fd)
+        self.addCleanup(_close_r)
+        # Leader spawns a sleeping child in the same process group holding stdout (w_fd) open, then leader exits.
+        # No temp path is interpolated into sh -c, and pipe EOF proves child termination even if PID 1 does not reap zombies.
+        try:
+            proc = subprocess.Popen(
+                ["sh", "-c", '(printf "ready\\n"; exec sleep 60 <&- 2>/dev/null) &', "sh"],
+                stdin=subprocess.DEVNULL, stdout=w_fd, stderr=subprocess.DEVNULL, start_new_session=True,
+            )
+        finally:
+            os.close(w_fd)
+
+        def _ensure_pg_dead():
             try:
-                os.kill(child_pid, signal.SIGKILL)
+                os.killpg(proc.pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass   # already terminated by _kill_browser_tree
-        self.addCleanup(_ensure_dead)
-        os.kill(child_pid, 0)   # child is independently observed alive after leader exit
+            if proc.poll() is None:
+                proc.wait(timeout=5)
+        self.addCleanup(_ensure_pg_dead)
+        buf = b""
+        deadline = time.monotonic() + 5.0
+        while b"\n" not in buf and time.monotonic() < deadline:
+            ready, _, _ = select.select([r_fd], [], [], max(0.0, deadline - time.monotonic()))
+            self.assertTrue(ready, "timed out waiting for orphaned POSIX child to signal readiness")
+            chunk = os.read(r_fd, 64)
+            self.assertTrue(chunk, "orphaned POSIX child exited before signaling readiness")
+            buf += chunk
+        self.assertEqual(buf, b"ready\n")
+        proc.wait(timeout=5)
+        self.assertIsNotNone(proc.poll(), "leader must have exited before teardown")
+        # Pipe remains open (no EOF) while the orphaned child is alive after leader exit.
+        ready, _, _ = select.select([r_fd], [], [], 0.2)
+        self.assertEqual(ready, [], "orphaned POSIX child exited before _kill_browser_tree")
         self._kill_browser_tree(proc)
-        deadline = time.monotonic() + 3.0
-        alive = True
-        while time.monotonic() < deadline:
-            try:
-                os.kill(child_pid, 0)
-            except ProcessLookupError:
-                alive = False
-                break
-            time.sleep(0.05)
-        self.assertFalse(alive, f"orphaned child {child_pid} survived _kill_browser_tree")
+        # Kernel closes child's stdout fd on termination regardless of zombie reaping, producing EOF on r_fd.
+        ready, _, _ = select.select([r_fd], [], [], 3.0)
+        self.assertEqual(ready, [r_fd], "orphaned POSIX child survived _kill_browser_tree (pipe still open)")
+        self.assertEqual(os.read(r_fd, 64), b"", "expected EOF on pipe after orphaned POSIX child terminated")
 
     def _windows_temp_profile(self, prefix):
         if os.name == "nt":
