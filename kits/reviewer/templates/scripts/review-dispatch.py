@@ -2778,29 +2778,45 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             return True
         wn = WRITER_NOTE.match(line)
         if wn:
-            if wn.group(1).strip():
+            if _strip_inline_html(wn.group(1)).strip():
                 return True
             k = idx + 1
             body_comment = False
             while k < total:
                 body_line = lines[k]
                 if body_comment:
-                    if "-->" in body_line:
-                        body_comment = False
+                    close = body_line.find("-->")
+                    if close == -1:
+                        k += 1
+                        continue
+                    body_comment = False
+                    rem = body_line[close + 3 :]
+                    if _strip_inline_html(rem).strip():
+                        return True
                     k += 1
                     continue
                 if not body_line.strip():
                     k += 1
                     continue
-                body_exp = _expand_leading_tabs(body_line, 0)
-                if HTML_TYPE2_OPEN.match(body_exp):
-                    if "-->" not in body_exp:
-                        body_comment = True
-                    k += 1
-                    continue
                 if body_line.startswith("## "):
                     break
-                return True
+                body_exp = _expand_leading_tabs(body_line, 0)
+                if body_exp.startswith("    "):
+                    return True
+                if HTML_TYPE2_OPEN.match(body_exp):
+                    close = body_exp.find("-->")
+                    if close == -1:
+                        body_comment = True
+                        k += 1
+                        continue
+                    rem = body_exp[close + 3 :]
+                    if _strip_inline_html(rem).strip():
+                        return True
+                    k += 1
+                    continue
+                if _strip_inline_html(body_line).strip():
+                    return True
+                k += 1
         idx += 1
     return False
 

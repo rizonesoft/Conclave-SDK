@@ -1151,6 +1151,8 @@ class ResolutionGuard(ThreePass):
              "<!--\n- Filed: D00 T01 §2\n-->"),
             ("empty Writer note followed only by HTML comment refused",
              "## Writer note:\n\n<!-- draft only -->"),
+            ("Writer note with comment-only title refused",
+             "## Writer note: <!-- draft only -->"),
             ("paired link-only description refused when prose sits only inside link label",
              f"- Implemented: [Corrected parser](diff) {repaired[:8]}"),
             ("Git rev:path expression with linked hash filename refused",
@@ -1473,6 +1475,8 @@ class ResolutionGuard(ThreePass):
             ("documented SKILL.md copyable stamp-only writer note",
              "## Writer note: open Commit item and Implementation Order row are ticked by stamp per "
              "docs/reconciliation-review-prompt.md"),
+            ("writer note body with visible prose after inline HTML comment",
+             "## Writer note:\n\n<!-- internal --> The pending stamp accounts for this gap."),
         )
         for label, note in cases:
             with self.subTest(case=label):
