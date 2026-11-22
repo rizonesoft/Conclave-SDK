@@ -89,7 +89,9 @@ The plugin is the half of the design that runs on the site. It is one small file
 
 ## 2. Dashboard opener `scripts/open-dashboard.py`
 
-> **Started:** 2026-11-21T11:38Z
+> **Started:** 2026-11-22T15:27Z
+
+**Corrected 2026-11-22:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-21T11:38Z; its review chain is kept as `docs/reviews/07-launchers/D07-T02-s2-chain3.md`. Chain 4 re-verifies `D07 T02 §2` on HEAD after `D07 T02 §9` (`738206a4`, stamped `baccda5c`) closed all 6 P2s and 1 P3 from `audit-d07-t02-s2-c3.md` (adding machine-default `HKCR\https\shell\open\command` fallback when `UserChoice` is absent/empty with access-denied refusal and no `.html` fallback, fixed desktop-entry stderr without child ID, age-gated `.open-*.tmp` pruning on Windows and Linux, 64-bit overflow tests, POSIX pipe-EOF orphan teardown, literal Windows `[work]` profile cleanup, and threaded loopback server) under the restored full-reconciliation pin, clearing suspect status on `D07 T02 §4`, `§5`, and `§6`.
 
 **Corrected 2026-11-21:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-21T11:18Z; its review chain is kept as `docs/reviews/07-launchers/D07-T02-s2-chain2.md`.
 
