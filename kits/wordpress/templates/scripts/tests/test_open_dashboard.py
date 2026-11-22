@@ -50,7 +50,7 @@ od = load_opener()
 def pin(**changes):
     """A pin the kit accepts: a Pressable staging site under a subpath, SSH set up, one WordPress user."""
     value = {"host": "pressable", "site_id": 101, "url": "https://example.com/blog", "environment": "staging",
-             "ssh": {"item": None, "ssh_host": "ssh.example.com", "sftp_host": "sftp.example.com", "port": "22",
+             "ssh": {"item": "a" * 26, "ssh_host": "ssh.example.com", "sftp_host": "sftp.example.com", "port": "22",
                      "username": "site-user", "wp_path": "~/htdocs"},
              "mcp": {"site": {"scheme": "basic", "item": None, "url": None, "username": "admin",
                               "wordpress_user_id": 7, "application_password_uuid": None}}}
@@ -182,15 +182,22 @@ class RefusedBeforeATicketTest(unittest.TestCase):
                 ("no ssh", wpcom, False, "the site pin has no SSH (ssh.ssh_host is null), so no ticket can be stored"),
                 ("no url", pin(url=None, mcp={"site": {"scheme": "basic", "wordpress_user_id": 7}}), False,
                  "not set in .conclave/wordpress-site.json yet: url"),
+                ("no site_id", pin(site_id=None), False,
+                 "not set in .conclave/wordpress-site.json yet: site_id"),
+                ("no ssh.item", pin(ssh__item=None), False,
+                 "not set in .conclave/wordpress-site.json yet: ssh.item"),
+                ("no ssh.username", pin(ssh__username=None), False,
+                 "not set in .conclave/wordpress-site.json yet: ssh.username"),
                 ("no wp_path", pin(ssh__wp_path=None), False,
                  "not set in .conclave/wordpress-site.json yet: ssh.wp_path"),
                 ("native windows", pin(), True, od.WINDOWS)):
             with self.subTest(label):
                 site = FakeSite()
-                with mock.patch.object(od, "ticket", wraps=od.ticket) as made:
+                with mock.patch.object(od, "ticket", wraps=od.ticket) as made, \
+                        mock.patch.object(od, "drop", wraps=od.drop) as dropped:
                     code, out, err, opened = run_main(site=site, the_pin=the_pin, windows=windows)
                 self.assertEqual((code, out, err), (2, "", f"open-dashboard: {said}\n"))
-                self.assertEqual((made.call_count, site.calls, opened), (0, [], []))
+                self.assertEqual((made.call_count, dropped.call_count, site.calls, opened), (0, 0, [], []))
 
     def test_an_invalid_pin_is_refused_in_a_fixed_sentence(self):
         # Round 1: the validator's text named an unknown key, which a malformed pin could fill with anything.
@@ -307,8 +314,8 @@ class StoreAndDropOnTheSiteTest(unittest.TestCase):
         [(url, held)] = seen
         self.assertRegex(url, r"^https://example\.com/blog/\?conclave_ticket=[0-9a-f]{64}$")
         self.assertTrue(held, "the browser was opened on a token the site does not hold")
-        self.assertEqual(out, "open-dashboard: the dashboard is opening in the browser, logged in "
-                              "(the link works once, within 60 seconds)\n")
+        self.assertEqual(out, "open-dashboard: launched the browser with a one-use dashboard login link "
+                              "(works once, within 60 seconds)\n")
 
     def test_check_stores_confirms_drops_and_opens_nothing(self):
         site = PhpSite(self)
@@ -534,7 +541,9 @@ class BrowserTest(unittest.TestCase):
         def popen(argv, **kwargs):
             self.started.append((list(argv), kwargs))
             if starts:
-                starts(argv)
+                custom = starts(argv)
+                if custom is not None:
+                    return custom
             proc = mock.Mock()
             proc.wait.side_effect = subprocess.TimeoutExpired(argv, od.LAUNCH_CHECK)
             return proc
@@ -1502,8 +1511,42 @@ class BrowserTest(unittest.TestCase):
         with self.assertRaises(od.Refusal) as caught:
             self.open(wsl=False, which=self.LINUX)
         self.assertEqual(str(caught.exception),
-                         f"the folder {self.pages} cannot be written, so the browser cannot be handed the link")
+                         "the local redirect folder cannot be written, so the browser cannot be handed the link")
+        self.assertNotIn(str(self.pages), str(caught.exception))
         self.assertEqual(self.started, [])
+
+    def test_linux_open_browser_removes_only_its_own_redirect_page_on_failure_and_interrupt(self):
+        self.pages.mkdir(parents=True, exist_ok=True)
+        concurrent_page = self.pages / "open-concurrent-keep.html"
+        concurrent_page.write_text("concurrent launch", encoding="utf-8")
+
+        def fail_popen(argv):
+            raise OSError("exec failed")
+
+        def interrupt_popen(argv):
+            raise KeyboardInterrupt()
+
+        class ImmediateFailProc:
+            def wait(self, timeout=None):
+                return 1
+
+        class InterruptWaitProc:
+            def wait(self, timeout=None):
+                raise KeyboardInterrupt()
+
+        for label, kwargs, expected_exc in (
+                ("missing desktop entry", {"handler": "missing.desktop"}, od.Refusal),
+                ("spawn OSError", {"starts": fail_popen}, od.Refusal),
+                ("immediate non-zero exit", {"starts": lambda argv: ImmediateFailProc()}, od.Refusal),
+                ("KeyboardInterrupt in Popen", {"starts": interrupt_popen}, KeyboardInterrupt),
+                ("KeyboardInterrupt in wait", {"starts": lambda argv: InterruptWaitProc()}, KeyboardInterrupt)):
+            with self.subTest(label):
+                with self.assertRaises(expected_exc):
+                    self.open(wsl=False, which=self.LINUX, **kwargs)
+                remaining = sorted(p.name for p in self.pages.glob("open-*.html"))
+                self.assertEqual(remaining, [concurrent_page.name],
+                                 f"failed Linux launch ({label}) must remove only its own page")
+                self.assertEqual(concurrent_page.read_text(encoding="utf-8"), "concurrent launch")
 
 
 class CommandLineTest(unittest.TestCase):
@@ -1520,6 +1563,48 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("usage: open-dashboard.py [-h] [--check]", done.stdout)
         self.assertIn("Run it from WSL or Linux.", done.stdout)
+
+    def test_invalid_cli_arguments_and_unwritable_cache_refuse_without_echoing_sentinels(self):
+        arg_sentinel = "--invalid-review-marker"
+        # 1. Direct main() parser refusal never echoes unknown CLI flags.
+        out, err = io.StringIO(), io.StringIO()
+        code = od.main([arg_sentinel], out=out, err=err)
+        self.assertEqual(code, 2)
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(err.getvalue(), "open-dashboard: invalid arguments; pass --check or --help\n")
+        self.assertNotIn(arg_sentinel, err.getvalue())
+        # 2. Real CLI subprocess refusal never echoes unknown CLI flags on stdout or stderr.
+        done = subprocess.run([sys.executable, "-B", str(OPENER), arg_sentinel],
+                              capture_output=True, text=True, timeout=30, creationflags=NO_WINDOW)
+        self.assertEqual(done.returncode, 2)
+        self.assertEqual(done.stdout, "")
+        self.assertEqual(done.stderr, "open-dashboard: invalid arguments; pass --check or --help\n")
+        self.assertNotIn(arg_sentinel, done.stdout + done.stderr)
+        # 3. Unwritable local redirect cache refusal never echoes the home-derived sentinel path.
+        with tempfile.TemporaryDirectory() as tmp:
+            sentinel_path = Path(tmp) / "sentinel-private-home-dir"
+            sentinel_path.write_text("file blocking dir", encoding="utf-8")
+            out2, err2 = io.StringIO(), io.StringIO()
+            with mock.patch.object(od, "native_windows", return_value=False), \
+                    mock.patch.object(od, "_pin", return_value=(pin(), 7)), \
+                    mock.patch.object(od, "store", return_value=None), \
+                    mock.patch.object(od, "drop", return_value="dropped"), \
+                    mock.patch.object(od, "PAGES", sentinel_path), \
+                    mock.patch.dict(od.os.environ, {}, clear=True):
+                code2 = od.main([], out=out2, err=err2)
+            self.assertEqual(code2, 1)
+            self.assertEqual(out2.getvalue(), "")
+            self.assertIn("the local redirect folder cannot be written", err2.getvalue())
+            self.assertNotIn("sentinel-private-home-dir", out2.getvalue() + err2.getvalue())
+
+    def test_default_launch_reports_browser_launch_not_verified_login(self):
+        site = FakeSite()
+        code, out, err, opened = run_main(site=site, the_pin=pin())
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(len(opened), 1)
+        self.assertEqual(out, "open-dashboard: launched the browser with a one-use dashboard login link "
+                              "(works once, within 60 seconds)\n")
+        self.assertNotIn("logged in", out)
 
 
 class OverflowUserIdTest(unittest.TestCase):

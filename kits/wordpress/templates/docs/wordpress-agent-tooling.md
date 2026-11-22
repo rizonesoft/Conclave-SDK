@@ -46,7 +46,7 @@ tools/phpcs/vendor/bin/phpcs
 
 ## How do I open the dashboard?
 
-`scripts/open-dashboard.py` opens the pinned site's WordPress admin logged in as the pinned user through a one-use ticket. It generates a 64-character hex token locally, stores only the token's SHA-256 hash, the pinned WordPress user ID, and a 60-second expiry in the `conclave_login_ticket` option over the pinned SSH connection, and launches your browser on the one-use link without putting the token in process arguments or logs.
+`scripts/open-dashboard.py` launches your browser on a one-use ticket link (`?conclave_ticket=<token>`) for the pinned site's WordPress admin as the pinned user through a one-use ticket. It generates a 64-character hex token locally, stores only the token's SHA-256 hash, the pinned WordPress user ID, and a 60-second expiry in the `conclave_login_ticket` option over the pinned SSH connection, and hands the link to the browser through a private local redirect page so the opener never prints or logs the token locally or puts it in process arguments. Because the browser redeems the ticket over HTTPS via `?conclave_ticket=<token>`, web-server or proxy access logs may record that query string; security rests on the token being consumed immediately on first request (right or wrong) and expiring after 60 seconds rather than access-log secrecy.
 
 Dashboard login adds no standing login key anywhere: there is no extra password, shared secret, or API key beyond the existing pinned SSH identity. The one-use link expires after 60 seconds and is consumed on first redemption, while an established WordPress browser session follows normal WordPress session rules. Removing the plugin prevents future ticket logins but does not sign out an already-open WordPress session.
 

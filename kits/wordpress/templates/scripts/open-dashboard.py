@@ -234,7 +234,7 @@ def _page(url):
                 pass
             raise
     except OSError:
-        raise Refusal(f"the folder {PAGES} cannot be written, so the browser cannot be handed the link") from None
+        raise Refusal("the local redirect folder cannot be written, so the browser cannot be handed the link") from None
     return page
 
 
@@ -510,20 +510,27 @@ def open_browser(url):
             raise Refusal("PowerShell could not open the browser")
         return
     page = _page(url)
-    argv = _https_browser(page)
     try:
-        # Not waited for to completion: a browser started fresh runs until closed, but an immediate non-zero exit
-        # (e.g. no graphical display) is caught within LAUNCH_CHECK so the ticket is revoked.
-        proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                start_new_session=True)
-    except OSError:
-        raise Refusal("the browser that opens https links could not be started") from None
-    try:
-        code = proc.wait(timeout=LAUNCH_CHECK)
-    except subprocess.TimeoutExpired:
-        return
-    if code != 0:
-        raise Refusal("the browser that opens https links could not be started")
+        argv = _https_browser(page)
+        try:
+            # Not waited for to completion: a browser started fresh runs until closed, but an immediate non-zero exit
+            # (e.g. no graphical display) is caught within LAUNCH_CHECK so the ticket is revoked.
+            proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True)
+        except OSError:
+            raise Refusal("the browser that opens https links could not be started") from None
+        try:
+            code = proc.wait(timeout=LAUNCH_CHECK)
+        except subprocess.TimeoutExpired:
+            return
+        if code != 0:
+            raise Refusal("the browser that opens https links could not be started")
+    except BaseException:
+        try:
+            page.unlink(missing_ok=True)
+        except OSError:
+            pass   # best-effort page cleanup must never mask the primary launch refusal or interrupt
+        raise
 
 
 def _say(stream, text):
@@ -554,9 +561,11 @@ def _pin():
         pin = wp_site.load()
         if not wp_site.ssh_enabled(pin):
             raise Refusal("the site pin has no SSH (ssh.ssh_host is null), so no ticket can be stored", 2)
-        missing = wp_site.unset(pin, "url", "ssh.wp_path")
+        missing = wp_site.unset(pin, "url", "site_id", "ssh.item", "ssh.ssh_host", "ssh.sftp_host",
+                                "ssh.port", "ssh.username", "ssh.wp_path")
         if missing:
             raise Refusal("not set in .conclave/wordpress-site.json yet: " + ", ".join(missing), 2)
+        wp_site.ssh_identity(pin)
     except Refusal:
         raise
     except OSError:
@@ -567,15 +576,22 @@ def _pin():
     return pin, pinned_user(pin)
 
 
+class _FixedParser(argparse.ArgumentParser):
+    """ArgumentParser whose parse failures become a fixed Refusal without echoing caller-supplied arguments."""
+
+    def error(self, message):
+        raise Refusal("invalid arguments; pass --check or --help", 2)
+
+
 def main(argv=None, out=None, err=None):
     out, err = out or sys.stdout, err or sys.stderr
-    parser = argparse.ArgumentParser(prog="open-dashboard.py", description=(
-        "Open the pinned WordPress site's dashboard, logged in, through a one-use ticket that works for "
+    parser = _FixedParser(prog="open-dashboard.py", description=(
+        "Launch the browser on a one-use WordPress dashboard login link that works for "
         f"{LIFETIME} seconds. Run it from WSL or Linux."))
     parser.add_argument("--check", action="store_true",
                         help="store a ticket on the site, remove it again and open nothing")
-    args = parser.parse_args(argv)
     try:
+        args = parser.parse_args(argv)
         if native_windows():
             raise Refusal(WINDOWS, 2)
         pin, user = _pin()
@@ -621,7 +637,7 @@ def main(argv=None, out=None, err=None):
         _say(err, _failed(error))
         _clean_up(pin, digest, err)
         return 1
-    _say(out, f"the dashboard is opening in the browser, logged in (the link works once, within {LIFETIME} seconds)")
+    _say(out, f"launched the browser with a one-use dashboard login link (works once, within {LIFETIME} seconds)")
     return 0
 
 

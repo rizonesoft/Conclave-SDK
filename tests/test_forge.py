@@ -5155,6 +5155,10 @@ class WordPressDashboardLoginDocsTests(unittest.TestCase):
         section = page[heading_pos:next_heading] if next_heading > 0 else page[heading_pos:]
         for token in (
             "through a one-use ticket",
+            "private local redirect page",
+            "never prints or logs the token locally",
+            "access logs",
+            "consumed immediately on first request",
             "expires after 60 seconds and is consumed on first redemption",
             "no standing login key",
             "SHA-256 hash",
