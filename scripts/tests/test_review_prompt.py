@@ -698,6 +698,38 @@ class FidelityLookup(Filler):
                 os.environ.pop(var, None)
             self.assertIsNone(mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF))
 
+        # Reconciliation 5 finding 1: existing repo whose .git/objects is inaccessible causes Git to emit the
+        # discovery-only diagnostic; _has_git_marker_within_discovery_boundary catches it and refuses.
+        with unittest.mock.patch.dict(os.environ, {}, clear=False), \
+                unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
+            for var in mod._GIT_STORE_ENV_VARS:
+                os.environ.pop(var, None)
+            with self.assertRaises(mod.Refused) as ctx:
+                mod._section_body_at_commit(outer, outer_cand, "todo/00-x/TODO-01-y.md", REF)
+        self.assertIn("git repository check failed", str(ctx.exception))
+
+        # Filesystem mount boundary stops the marker scan unless GIT_DISCOVERY_ACROSS_FILESYSTEM is set.
+        real_stat = os.stat
+        outer_real = os.path.normcase(os.path.realpath(outer))
+
+        class _FakeStat:
+            def __init__(self, dev):
+                self.st_dev = dev
+
+        def mount_boundary_stat(p, *a, **kw):
+            st = real_stat(p, *a, **kw)
+            if os.path.normcase(os.path.realpath(p)) == outer_real:
+                return _FakeStat(st.st_dev + 1)
+            return st
+
+        with unittest.mock.patch.dict(os.environ, {}, clear=False), \
+                unittest.mock.patch.object(mod.os, "stat", side_effect=mount_boundary_stat), \
+                unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
+            for var in mod._GIT_STORE_ENV_VARS:
+                os.environ.pop(var, None)
+            os.environ.pop("GIT_DISCOVERY_ACROSS_FILESYSTEM", None)
+            self.assertIsNone(mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF))
+
 
 class NoGraph(Filler):
     def test_no_lookup_script_asks_for_todo(self):

@@ -139,13 +139,40 @@ _GIT_STORE_ENV_VARS = (
 )
 
 
+def _git_across_fs(env: dict[str, str]) -> bool:
+    """True when `GIT_DISCOVERY_ACROSS_FILESYSTEM` enables crossing mount boundaries (Git's truthy values)."""
+    return (env.get("GIT_DISCOVERY_ACROSS_FILESYSTEM") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _has_git_marker_within_discovery_boundary(root: Path, env: dict[str, str]) -> bool:
+    """True when `root` or an ancestor before `GIT_CEILING_DIRECTORIES` and (unless `GIT_DISCOVERY_ACROSS_FILESYSTEM`
+    is set) before a filesystem mount boundary holds a `.git` entry."""
+    ceilings = {
+        os.path.normcase(os.path.realpath(entry))
+        for entry in env.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep)
+        if entry and os.path.isabs(entry)
+    }
+    across_fs = _git_across_fs(env)
+    cur = Path(os.path.realpath(root))
+    root_dev = os.stat(cur).st_dev
+    while True:
+        if (cur / ".git").exists():
+            return True
+        parent = cur.parent
+        if parent == cur or os.path.normcase(str(parent)) in ceilings:
+            return False
+        if not across_fs and os.stat(parent).st_dev != root_dev:
+            return False
+        cur = parent
+
+
 def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, ref: str,
                             explicit_todo: str | None = None) -> str | None:
     """Read `ref`'s section body from `candidate` when `root` is inside a git repository. Inside a git repository
     (including when `GIT_WORK_TREE` points elsewhere), an unavailable candidate or git failure/timeout refuses rather
-    than silently falling back to the working tree. Returns None only when Git's own `rev-parse --git-dir` (respecting
-    `GIT_CEILING_DIRECTORIES` and filesystem boundaries, both with caller env and with repo/store overrides stripped)
-    proves `root` is outside any git repository."""
+    than silently falling back to the working tree. Returns None only when Git's own `rev-parse --git-dir` (both with
+    caller env and with repo/store overrides stripped) and a boundary-aware `.git` check (respecting
+    `GIT_CEILING_DIRECTORIES` and filesystem mount boundaries) prove `root` is outside any git repository."""
     c_env = {**os.environ, "LC_ALL": "C", "LANG": "C", "LANGUAGE": "C"}
     try:
         probe_repo = subprocess.run(
@@ -157,6 +184,11 @@ def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, re
     if probe_repo.returncode != 0:
         err = (probe_repo.stderr or "").strip()
         if "not a git repository (or any" not in err.lower():
+            raise Refused(
+                f"--fidelity is needed: git repository check failed for {root} "
+                f"(exit {probe_repo.returncode}: {err or 'no stderr'})"
+            )
+        if _has_git_marker_within_discovery_boundary(root, os.environ):
             raise Refused(
                 f"--fidelity is needed: git repository check failed for {root} "
                 f"(exit {probe_repo.returncode}: {err or 'no stderr'})"
