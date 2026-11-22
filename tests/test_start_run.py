@@ -190,42 +190,70 @@ class StartRunTests(unittest.TestCase):
     @unittest.skipUnless(os.name == "nt", "a .lnk shortcut is a Windows file")
     def test_the_two_campaign_shortcuts_start_this_script_for_their_runner_with_a_badged_icon(self):
         # The owner's shape (2026-11-12), as Office's and Isotone's launchers have it: "<project> Claude campaign" and
-        # "<project> Gemini campaign", each with the project's mark and its runner's badge.
+        # "<project> Gemini campaign", each with the project's mark and its runner's badge, locking the Windows
+        # Terminal tab title with --title and --suppressApplicationTitle when wt.exe is available.
+        def read_shortcut(link):
+            quoted = str(link).replace("'", "''")
+            read = subprocess.run(
+                [PWSH or "pwsh", "-NoProfile", "-NonInteractive", "-Command",
+                 f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{quoted}'); "
+                 "$s.TargetPath; $s.Arguments; $s.WorkingDirectory; $s.IconLocation"],
+                capture_output=True, text=True, timeout=120, creationflags=windowless())
+            self.assertEqual(read.returncode, 0, read.stderr)
+            return read.stdout.strip().splitlines()
+
         icons = self.folder / "icons"
         retired = self.folder / "Conclave-SDK unattended run.lnk"
         retired.write_bytes(b"the shortcut written before the runners split")
         codex_link = self.folder / "Conclave-SDK Codex campaign.lnk"
         codex_link.write_bytes(b"retired Codex writer shortcut")
-        dry = run("-InstallShortcut", "-DryRun", "-ShortcutDir", str(self.folder), "-IconDir", str(icons))
+        fake_wt = self.folder / "wt.exe"
+        fake_wt.write_bytes(b"")
+        dry = run("-InstallShortcut", "-DryRun", "-ShortcutDir", str(self.folder), "-IconDir", str(icons),
+                  "-WtPath", str(fake_wt))
         self.assertEqual(dry.returncode, 0, dry.stderr)
         self.assertIn(f"would remove: {retired}", dry.stdout)
+        self.assertIn('new-tab --title "Conclave-SDK Gemini campaign" --suppressApplicationTitle', dry.stdout)
         self.assertFalse(icons.exists(), "a dry run must not render an icon")
 
-        proc = run("-InstallShortcut", "-ShortcutDir", str(self.folder), "-IconDir", str(icons))
+        proc = run("-InstallShortcut", "-ShortcutDir", str(self.folder), "-IconDir", str(icons),
+                   "-WtPath", str(fake_wt))
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertFalse(retired.exists(), "the old shortcut was left on the desktop")
         self.assertFalse(codex_link.exists(), "Codex is reviewer only")
+        pwsh_resolved = pathlib.Path(PWSH).resolve()
         for name, runner, ico in (("Conclave-SDK Claude campaign", "claude", "conclave-sdk-campaign-claude.ico"),
                                   ("Conclave-SDK Gemini campaign", "agy", "conclave-sdk-campaign-gemini.ico")):
-            with self.subTest(runner=runner):
+            with self.subTest(mode="wt", runner=runner):
                 link = self.folder / f"{name}.lnk"
                 self.assertTrue(link.is_file(), proc.stdout)
-                quoted = str(link).replace("'", "''")
-                read = subprocess.run(
-                    [PWSH or "pwsh", "-NoProfile", "-NonInteractive", "-Command",
-                     f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{quoted}'); "
-                     "$s.TargetPath; $s.Arguments; $s.WorkingDirectory; $s.IconLocation"],
-                    capture_output=True, text=True, timeout=120, creationflags=windowless())
-                self.assertEqual(read.returncode, 0, read.stderr)
-                target, arguments, folder_set, icon = read.stdout.strip().splitlines()
-                self.assertEqual(pathlib.Path(target).name.lower(), "pwsh.exe")
-                self.assertEqual(arguments, f'-NoLogo -NoExit -NoProfile -File "{SCRIPT}" -Runner {runner}')
+                target, arguments, folder_set, icon = read_shortcut(link)
+                self.assertEqual(pathlib.Path(target).resolve(), fake_wt.resolve())
+                prefix = f'new-tab --title "{name}" --suppressApplicationTitle -d "{ROOT}" "'
+                suffix = f'" -NoLogo -NoExit -NoProfile -File "{SCRIPT}" -Runner {runner}'
+                self.assertTrue(arguments.startswith(prefix), arguments)
+                self.assertTrue(arguments.endswith(suffix), arguments)
+                embedded_pwsh = arguments[len(prefix):-len(suffix)]
+                self.assertEqual(pathlib.Path(embedded_pwsh).resolve(), pwsh_resolved)
                 self.assertEqual(pathlib.Path(folder_set).resolve(), ROOT)
                 self.assertEqual(pathlib.Path(icon.rsplit(",", 1)[0]).resolve(), (icons / ico).resolve())
                 data = (icons / ico).read_bytes()
                 self.assertEqual(data[:4], b"\x00\x00\x01\x00", "not a Windows icon")
                 self.assertEqual(int.from_bytes(data[4:6], "little"), 10, "the icon lacks a size")
         self.assertNotIn(str(ROOT / "assets"), str(list(icons.iterdir())), "an icon was written into the repository")
+
+        # Without Windows Terminal (-WtPath none), the shortcut falls back to launching pwsh.exe directly.
+        fallback_dir = self.folder / "fallback"
+        fallback_dir.mkdir()
+        fallback = run("-InstallShortcut", "-ShortcutDir", str(fallback_dir), "-IconDir", str(icons), "-WtPath", "none")
+        self.assertEqual(fallback.returncode, 0, fallback.stdout + fallback.stderr)
+        for name, runner in (("Conclave-SDK Claude campaign", "claude"),
+                             ("Conclave-SDK Gemini campaign", "agy")):
+            with self.subTest(mode="fallback", runner=runner):
+                target, arguments, folder_set, _ = read_shortcut(fallback_dir / f"{name}.lnk")
+                self.assertEqual(pathlib.Path(target).name.lower(), "pwsh.exe")
+                self.assertEqual(arguments, f'-NoLogo -NoExit -NoProfile -File "{SCRIPT}" -Runner {runner}')
+                self.assertEqual(pathlib.Path(folder_set).resolve(), ROOT)
 
 
 @unittest.skipUnless(PWSH and os.name == "nt", "start-run.ps1 is the SDK's Windows launcher: PowerShell 7 on Windows")

@@ -49,9 +49,11 @@ param(
   [string]$IconDir = (Join-Path $env:LOCALAPPDATA 'Conclave-SDK'),
   [string]$UserEnvKey = 'HKCU:\Environment',
   [string]$Goal = '',
-  # The three below exist for the tests: stand-ins for claude and agy, and a guard file outside the real build folder.
+  # The four below exist for the tests: stand-ins for claude, agy and wt.exe ('none' forces the pwsh fallback),
+  # and a guard file outside the real build folder.
   [string]$ClaudePath = '',
   [string]$AgyPath = '',
+  [string]$WtPath = '',
   [string]$GuardFile = ''
 )
 $ErrorActionPreference = 'Stop'
@@ -76,6 +78,11 @@ $title = ($shortcuts | Where-Object { $_.Runner -eq $Runner }).Name
 
 if ($InstallShortcut) {
   $pwsh = (Get-Process -Id $PID).Path
+  # Launch through Windows Terminal when installed so --title and --suppressApplicationTitle lock the tab and window
+  # title to the campaign name; agy.exe otherwise overwrites the tab title with the workspace directory path.
+  $wt = if ($WtPath -eq 'none') { $null }
+        elseif ($WtPath) { $WtPath }
+        else { (Get-Command wt.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source }
   $brand = Join-Path $repo 'assets\brand\conclave-sdk.ico'
   $renderer = Join-Path $repo 'kits\launchers\templates\scripts\campaign-icon.py'
   # The one shortcut this file wrote before the runners split (2026-11-12), named for neither runner.
@@ -83,8 +90,11 @@ if ($InstallShortcut) {
               (Join-Path $ShortcutDir 'Conclave-SDK Codex campaign.lnk'))
   if ($DryRun) {
     foreach ($s in $shortcuts) {
+      $pwshArgs = "-NoLogo -NoExit -NoProfile -File `"$PSCommandPath`" -Runner $($s.Runner)"
+      $targetLine = if ($wt) { "$wt new-tab --title `"$($s.Name)`" --suppressApplicationTitle -d `"$repo`" `"$pwsh`" $pwshArgs" }
+                    else { "$pwsh $pwshArgs" }
       "would write: $(Join-Path $ShortcutDir "$($s.Name).lnk")"
-      "  target: $pwsh -NoLogo -NoExit -NoProfile -File `"$PSCommandPath`" -Runner $($s.Runner)"
+      "  target: $targetLine"
       "  icon: $(Join-Path $IconDir $s.Icon)"
     }
     foreach ($link in $retired) { if (Test-Path -LiteralPath $link) { "would remove: $link" } }
@@ -98,9 +108,15 @@ if ($InstallShortcut) {
     & $python $renderer badge $brand $s.Runner $icon
     if ($LASTEXITCODE -ne 0) { "the icon for $($s.Name) could not be rendered"; exit 1 }
     $link = Join-Path $ShortcutDir "$($s.Name).lnk"
+    $pwshArgs = "-NoLogo -NoExit -NoProfile -File `"$PSCommandPath`" -Runner $($s.Runner)"
     $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
-    $shortcut.TargetPath = $pwsh
-    $shortcut.Arguments = "-NoLogo -NoExit -NoProfile -File `"$PSCommandPath`" -Runner $($s.Runner)"
+    if ($wt) {
+      $shortcut.TargetPath = $wt
+      $shortcut.Arguments = "new-tab --title `"$($s.Name)`" --suppressApplicationTitle -d `"$repo`" `"$pwsh`" $pwshArgs"
+    } else {
+      $shortcut.TargetPath = $pwsh
+      $shortcut.Arguments = $pwshArgs
+    }
     $shortcut.WorkingDirectory = $repo
     $shortcut.Description = $s.Description
     $shortcut.IconLocation = "$icon,0"
@@ -188,7 +204,8 @@ if ($agent -eq 'agy') {
   }
 }
 
-# claude.exe shows --name in its title; Antigravity never rewrites the host title, so the one set here persists.
+# claude.exe shows --name in its title; Antigravity emits terminal title sequences that overwrite the host title unless
+# Windows Terminal locks the tab with --suppressApplicationTitle (which -InstallShortcut sets on wt.exe).
 try { $Host.UI.RawUI.WindowTitle = $title } catch { Write-Verbose "window title not set: $($_.Exception.Message)" }
 Set-Location -LiteralPath $repo
 & $program @arguments
