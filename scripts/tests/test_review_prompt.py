@@ -639,23 +639,43 @@ class FidelityLookup(Filler):
         self.assertEqual(seen_env.get("LANG"), "C")
         self.assertEqual(seen_env.get("LANGUAGE"), "C")
 
-        # Reconciliation 1 finding 1: explicit stale GIT_DIR refuses even in a directory with no .git of its own.
-        fake_bad_git_dir = subprocess.CompletedProcess(
-            ["git"], 128, stdout="", stderr="fatal: not a git repository: 'unavailable-git-dir'\n"
-        )
-        with unittest.mock.patch.dict(os.environ, {"GIT_DIR": "unavailable-git-dir"}, clear=False), \
-                unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_bad_git_dir):
-            with self.assertRaises(mod.Refused) as ctx:
-                mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF)
-        self.assertIn("git repository check failed", str(ctx.exception))
+        # Class-level regression (Reconciliation 3 redesign): every GIT_* repo/store override refuses instead of
+        # falling back to working-tree Fidelity, including real git under stale GIT_OBJECT_DIRECTORY.
+        for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
+                    "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_INDEX_FILE"):
+            with self.subTest(env_var=var):
+                with unittest.mock.patch.dict(os.environ, {var: "unavailable-git-path"}, clear=False), \
+                        unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
+                    with self.assertRaises(mod.Refused) as ctx:
+                        mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF)
+                self.assertIn("git repository check failed", str(ctx.exception))
 
-        # Reconciliation 2 finding 4: respect GIT_CEILING_DIRECTORIES when a standalone project sits under a repo.
+        # Real git checkout with stale GIT_OBJECT_DIRECTORY + standalone nested dir under GIT_CEILING_DIRECTORIES.
         outer = Path(self._tmp.name) / "outer-repo"
         nested = outer / "standalone-sub"
         nested.mkdir(parents=True)
         subprocess.run(["git", "-C", str(outer), "init", "-q"], check=True, capture_output=True)
+        with unittest.mock.patch.dict(os.environ, {"GIT_OBJECT_DIRECTORY": str(outer / "missing-objects")},
+                                      clear=False):
+            with self.assertRaises(mod.Refused) as ctx:
+                mod._section_body_at_commit(outer, CAND, "todo/00-x/TODO-01-y.md", REF)
+        self.assertIn("git repository check failed", str(ctx.exception))
+
+        # Corrupt .git marker inside a repo refuses even if git emits a discovery-style message.
+        corrupt = Path(self._tmp.name) / "corrupt-repo"
+        corrupt.mkdir()
+        (corrupt / ".git").write_text("gitdir: missing\n", encoding="utf-8")
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            for var in mod._GIT_REPO_ENV_VARS:
+                os.environ.pop(var, None)
+            with self.assertRaises(mod.Refused) as ctx:
+                mod._section_body_at_commit(corrupt, CAND, "todo/00-x/TODO-01-y.md", REF)
+        self.assertIn("git repository check failed", str(ctx.exception))
+
+        # Respect GIT_CEILING_DIRECTORIES when a standalone project sits under an enclosing repo.
         with unittest.mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(outer)}, clear=False):
-            os.environ.pop("GIT_DIR", None)
+            for var in mod._GIT_REPO_ENV_VARS:
+                os.environ.pop(var, None)
             self.assertIsNone(mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF))
 
 
