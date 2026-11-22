@@ -56,7 +56,9 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 
 ## 1. Design Lens by Path and Fidelity on Every Prompt
 
-The kit change is already in the tree (the commit `reviewer: design by path, design-plan, and Fidelity on every prompt` of 2026-11-17, written outside a section), so this section builds nothing new unless a check below fails: it verifies each item against the code, runs the checkpoint and takes the change through the three passes it has not had. The review candidate range starts at that commit's parent. It must not change what an existing pin schedules: `lenses_for` gives the same list as before for every pin without a conditional `design` entry.
+> **Started:** 2026-11-22T21:29Z
+
+The kit change is already in the tree (the commit `reviewer: design by path, design-plan, and Fidelity on every prompt` of 2026-11-17, written outside a section), so this section builds nothing new unless a check below fails: it verifies each item against the code, runs the checkpoint and takes the change through the three passes it has not had. The review candidate range starts at that commit's parent. It must not change what an existing pin schedules: `lenses_for` gives the same list as before for every pin without a conditional `design` entry. **Corrected 2026-11-22:** the 2026-11-17 commit is `30bbef0b521a8e4d5c23a0e4cd7fcad888e30860` (parent `30bbef0b~1`), and `kits/reviewer/templates/scripts/tests/test_review_pin.py` does not yet assert that declaring `design-plan` under `[schedule.lenses]` is refused as a built-in (item 3), so that assertion will be added and synced with `python forge.py self-sync`.
 
 **Phase:** 9
 **Needs:** none
