@@ -2700,20 +2700,27 @@ def _strip_inline_emphasis_segments(segments, seen=None):
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
-    """True when one pass's writer-authored lines hold at least one valid resolution outside fenced code blocks:
-    a populated `- Implemented:` list item (including continuation lines) with at least one plain-text description
-    word outside Markdown links (distinct from commit references, ranges, refs, reflog/search selectors, and
-    URLs/autolinks) and a standalone or Markdown-linked commit SHA resolving in git, a `- Filed: DNN TNN §N` line
-    matching `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or body before the next `## `)."""
+    """True when one pass's writer-authored lines hold at least one valid resolution outside fenced code blocks and
+    HTML comment blocks: a populated `- Implemented:` list item (including continuation lines) with at least one
+    plain-text description word outside Markdown links (distinct from commit references, ranges, refs, reflog/search
+    selectors, and URLs/autolinks) and a standalone or Markdown-linked commit SHA resolving in git, a `- Filed: DNN
+    TNN §N` line matching `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or visible body
+    before the next `## `)."""
     if seen is None:
         seen = {}
     lines = writer_lines if raw_lines is None else raw_lines
     if ref_defs is None:
         ref_defs = _collect_ref_defs(lines)
     fence = None  # (char, length)
+    in_comment = False
     idx, total = 0, len(lines)
     while idx < total:
         line = lines[idx]
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            idx += 1
+            continue
         if fence is not None:
             stripped = _expand_leading_tabs(line, 0)
             m_close = re.match(r"^[ ]{0,3}(`{3,}|~{3,})[ \t]*$", stripped)
@@ -2722,6 +2729,11 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             idx += 1
             continue
         expanded = _expand_leading_tabs(line, 0)
+        if HTML_TYPE2_OPEN.match(expanded):
+            if "-->" not in expanded:
+                in_comment = True
+            idx += 1
+            continue
         fm = FENCE_OPEN.match(expanded)
         if fm and not (fm.group(1)[0] == "`" and "`" in fm.group(2)):
             fence = (fm.group(1)[0], len(fm.group(1)))
@@ -2769,9 +2781,25 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             if wn.group(1).strip():
                 return True
             k = idx + 1
-            while k < total and not lines[k].strip():
-                k += 1
-            if k < total and not lines[k].startswith("## "):
+            body_comment = False
+            while k < total:
+                body_line = lines[k]
+                if body_comment:
+                    if "-->" in body_line:
+                        body_comment = False
+                    k += 1
+                    continue
+                if not body_line.strip():
+                    k += 1
+                    continue
+                body_exp = _expand_leading_tabs(body_line, 0)
+                if HTML_TYPE2_OPEN.match(body_exp):
+                    if "-->" not in body_exp:
+                        body_comment = True
+                    k += 1
+                    continue
+                if body_line.startswith("## "):
+                    break
                 return True
         idx += 1
     return False
