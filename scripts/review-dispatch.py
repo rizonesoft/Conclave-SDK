@@ -697,7 +697,25 @@ LIST_ITEM_ONE = re.compile(r"^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])")
 THEMATIC_BREAK = re.compile(r"^[ ]{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
 SETEXT_UNDERLINE = re.compile(r"^[ ]{0,3}(?:=+|-+)[ \t]*$")
 ATX_HEADING = re.compile(r"^[ ]{0,3}#{1,6}(?:[ \t]|$)")
-HTML_COMMENT_OPEN = re.compile(r"^[ ]{0,3}<!--")
+HTML_TYPE1_OPEN = re.compile(r"^[ ]{0,3}<(?:pre|script|style|textarea)(?:[ \t>]|$)", re.IGNORECASE)
+HTML_TYPE1_CLOSE = re.compile(r"</(?:pre|script|style|textarea)>", re.IGNORECASE)
+HTML_TYPE2_OPEN = re.compile(r"^[ ]{0,3}<!--")
+HTML_TYPE3_OPEN = re.compile(r"^[ ]{0,3}<\?")
+HTML_TYPE4_OPEN = re.compile(r"^[ ]{0,3}<![A-Za-z]")
+HTML_TYPE5_OPEN = re.compile(r"^[ ]{0,3}<!\[CDATA\[")
+HTML_TYPE6_OPEN = re.compile(
+    r"^[ ]{0,3}</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
+    r"dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h1|h2|h3|h4|h5|h6|head|header|hr|"
+    r"html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|"
+    r"table|tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t]|$|/?>)",
+    re.IGNORECASE,
+)
+HTML_TYPE7_OPEN = re.compile(
+    r"^[ ]{0,3}(?!<(?:/)?(?:pre|script|style|textarea)(?:[ \t/>]|$))(?:<[A-Za-z][A-Za-z0-9-]*"
+    r"(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?>"
+    r"|</[A-Za-z][A-Za-z0-9-]*[ \t]*>)[ \t]*$",
+    re.IGNORECASE,
+)
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1615,18 +1633,39 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
         text, pos = next_exp, 0
 
 
+def _html_block_start(content, in_para):
+    """Detect CommonMark §4.6 HTML block types 1 through 7. Returns `(started, active_end)` where `active_end` is
+    None if the block closed on the same line, `"blank"` for types 6-7 (ended by a blank line), or a callable
+    `closed(line) -> bool` for types 1-5."""
+    if HTML_TYPE1_OPEN.match(content):
+        return True, (None if HTML_TYPE1_CLOSE.search(content) else lambda ln: bool(HTML_TYPE1_CLOSE.search(ln)))
+    if HTML_TYPE2_OPEN.match(content):
+        return True, (None if "-->" in content else lambda ln: "-->" in ln)
+    if HTML_TYPE3_OPEN.match(content):
+        return True, (None if "?>" in content[content.find("<?") + 2 :] else lambda ln: "?>" in ln)
+    if HTML_TYPE4_OPEN.match(content):
+        return True, (None if ">" in content[content.find("<!") + 2 :] else lambda ln: ">" in ln)
+    if HTML_TYPE5_OPEN.match(content):
+        return True, (None if "]]>" in content[content.find("<![CDATA[") + 9 :] else lambda ln: "]]>" in ln)
+    if HTML_TYPE6_OPEN.match(content):
+        return True, "blank"
+    if not in_para and HTML_TYPE7_OPEN.match(content):
+        return True, "blank"
+    return False, None
+
+
 def _collect_ref_defs(raw_lines):
     """Collect valid CommonMark link reference definitions from `raw_lines` in linear time, skipping fenced code
-    blocks, HTML comment blocks, and open paragraphs per CommonMark §4.7 (tracking active list-item containers,
-    blockquote depth, and §2.2 tab stops so exiting a container closes inner blocks while indented continuation lines
-    after a blank line stay inside open list items without interrupting paragraphs), and supporting next-line
-    destinations and multiline link titles."""
+    blocks, all seven CommonMark §4.6 HTML block types, and open paragraphs per CommonMark §4.7 (tracking active
+    list-item containers, blockquote depth, and §2.2 tab stops so exiting a container closes inner blocks while
+    indented continuation lines after a blank line stay inside open list items without interrupting paragraphs),
+    and supporting next-line destinations and multiline link titles."""
     defs = set()
     open_lists = []
     in_para = False
     prev_bq = 0
     fence, fence_bq, fence_indent = None, 0, 0
-    in_comment, comment_bq, comment_indent = False, 0, 0
+    html_end, html_bq, html_indent = None, 0, 0
     i, n = 0, len(raw_lines)
     while i < n:
         if fence is not None:
@@ -1644,19 +1683,32 @@ def _collect_ref_defs(raw_lines):
                     prev_bq = bq_here
                     i += 1
                     continue
-        if in_comment:
-            bq_here, inner, bq_col = _strip_bq_at_most(raw_lines[i], comment_bq)
-            still_in, inner, _ = _strip_indent(inner, comment_indent, bq_col) \
-                if bq_here == comment_bq else (False, inner, bq_col)
+        if html_end is not None:
+            bq_here, inner, bq_col = _strip_bq_at_most(raw_lines[i], html_bq)
+            still_in, inner, _ = _strip_indent(inner, html_indent, bq_col) \
+                if bq_here == html_bq else (False, inner, bq_col)
             if not still_in:
-                in_comment = False
+                html_end = None
+            elif html_end == "blank":
+                if not inner.strip():
+                    html_end = None
+                    in_para = False
+                    prev_bq = bq_here
+                    i += 1
+                    continue
+                for item in open_lists:
+                    item[2] = False
+                in_para = False
+                prev_bq = bq_here
+                i += 1
+                continue
             else:
                 for item in open_lists:
                     item[2] = False
                 in_para = False
                 prev_bq = bq_here
-                if "-->" in inner:
-                    in_comment = False
+                if html_end(inner):
+                    html_end = None
                 i += 1
                 continue
         if not raw_lines[i].strip():
@@ -1709,10 +1761,9 @@ def _collect_ref_defs(raw_lines):
             in_para = False
             i += 1
             continue
-        if HTML_COMMENT_OPEN.match(content):
-            open_end = content.find("<!--") + 4
-            if "-->" not in content[open_end:]:
-                in_comment, comment_bq, comment_indent = True, bq, list_indent
+        html_started, next_html_end = _html_block_start(content, in_para)
+        if html_started:
+            html_end, html_bq, html_indent = next_html_end, bq, list_indent
             in_para = False
             i += 1
             continue
@@ -1742,7 +1793,7 @@ def _collect_ref_defs(raw_lines):
             next_bq, next_content, next_col = _strip_bq_at_most(raw_lines[i + 1], bq)
             next_exp = _expand_leading_tabs(next_content, next_col)
             if next_bq != bq or BLOCKQUOTE_ONE.match(next_exp) or not next_exp.strip() \
-                    or _fence_step(next_exp, None, next_col)[1] or HTML_COMMENT_OPEN.match(next_exp):
+                    or _fence_step(next_exp, None, next_col)[1] or _html_block_start(next_exp, True)[0]:
                 in_para = True
                 i += 1
                 continue
@@ -1895,6 +1946,8 @@ def _is_commit_ref_token(raw, seen):
         if base and base in refs:
             return True
         if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
+            return True
+        if base and base.isupper() and _is_revspec_in_git(base, seen):
             return True
         if base and any(ch in base for ch in "@^~:/{}") and base.count("{") == base.count("}") \
                 and _is_revspec_in_git(base, seen):

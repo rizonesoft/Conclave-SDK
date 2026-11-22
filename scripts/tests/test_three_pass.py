@@ -1057,6 +1057,7 @@ class ResolutionGuard(ThreePass):
     def test_reconciliation_refuses_missing_or_incomplete_resolution_before_calling_reviewer(self):
         built = self.to_completion(top="P2", gaps=True)
         repaired = self.commit("repair the guard", {"src/app/a.py": "x = 2\n"})
+        (self.repo / ".git" / "FETCH_HEAD").write_text(f"{repaired}\t\tbranch 'main' of .\n", encoding="utf-8")
         baseline = self.record.read_bytes()
         bad_notes = (
             ("empty", None),
@@ -1073,6 +1074,7 @@ class ResolutionGuard(ThreePass):
             ("SHA plus branch range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..main"),
             ("SHA plus reflog selector with no description", f"- Implemented: {repaired[:8]} HEAD@{{0}}"),
             ("SHA plus parent-set selector HEAD^@ with no description", f"- Implemented: {repaired[:8]} HEAD^@"),
+            ("SHA plus FETCH_HEAD pseudoref with no description", f"- Implemented: {repaired[:8]} FETCH_HEAD"),
             ("SHA plus date reflog selector with spaces and no description",
              f"- Implemented: {repaired[:8]} HEAD@{{1 minute ago}}"),
             ("SHA plus backticked date reflog selector with no description",
@@ -1132,6 +1134,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition inside multiline HTML comment",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<!--\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}\n-->"),
+            ("reference definition after thematic break inside HTML div block",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<div>\n---\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}\n</div>"),
             ("malformed angle-bracket reference definition",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: <unterminated"),
             ("blank line before reference destination",
@@ -1195,6 +1200,9 @@ class ResolutionGuard(ThreePass):
              f"    [repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition immediately below thematic break",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n---\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition immediately below single-line HTML pre block",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<pre>example</pre>\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
