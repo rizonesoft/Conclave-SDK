@@ -1114,6 +1114,10 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} https://git.example.com/cgit/fix\u2013tools/commit/?id={built[:8]}"),
             ("SHA plus www URL with Unicode punctuation in path and no description",
              f"- Implemented: {repaired[:8]} www.git.example.com:8443/cgit/fix\u2013tools/commit/{built[:8]}"),
+            ("SHA plus IDN www commit permalink with no description",
+             f"- Implemented: {repaired[:8]} www.m\u00fcnchen.de/project/commit/{built[:8]}"),
+            ("localized filename containing SHA is not a standalone repair SHA",
+             f"- Implemented: fixed src/\u4fee\u5fa9{repaired[:8]}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
             ("emphasis must not pair across link label boundary",
              f"- Implemented: fixed src/*.py in [{repaired[:8]}*](diff)"),
@@ -1316,6 +1320,8 @@ class ResolutionGuard(ThreePass):
             ("non-ASCII Unicode description", f"- Implemented: 修復 {repaired[:8]}"),
             ("linked SHA followed by CJK full stop", f"- Implemented: 修復 [{repaired[:8]}](diff)。"),
             ("linked SHA directly adjacent to preceding CJK prose", f"- Implemented: 修復於[{repaired[:8]}](diff)。"),
+            ("linked SHA directly adjacent to mixed CJK and ASCII prose", f"- Implemented: 修復API[{repaired[:8]}](diff)。"),
+            ("linked backticked SHA directly adjacent to mixed prose", f"- Implemented: 修復API[`{repaired[:8]}`](diff)。"),
             ("linked SHA directly adjacent to following CJK prose", f"- Implemented: [{repaired[:8]}](diff)已修復。"),
         )
         for label, note in good_impl_cases:
@@ -1381,6 +1387,12 @@ class ResolutionGuard(ThreePass):
             max(t_small * 16, 0.25),
             f"_unwrap_markdown_links scaled super-linearly: 16k={t_small:.4f}s, 128k={t_large:.4f}s",
         )
+        # Linear-time www. prefix detection on repeated embedded "www." tokens (fails quadratic slice regression).
+        www_repeat = "x" + ("www." * 16000)
+        t0 = time.monotonic()
+        self.assertEqual(module._split_plain_revspecs(www_repeat), [www_repeat])
+        t_www = time.monotonic() - t0
+        self.assertLess(t_www, 0.10, f"_split_plain_revspecs took {t_www:.3f}s on 16k repeated www. tokens")
 
     def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
         cases = (

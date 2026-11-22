@@ -693,10 +693,6 @@ IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
 REPO_QUALIFIED_REF = re.compile(r"^(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@(.+)$")
-WWW_URL = re.compile(
-    r"^www\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.[A-Za-z0-9-]+(?::\d{1,5})?(?:[/?#]\S*)?$",
-    re.IGNORECASE,
-)
 REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
@@ -2070,37 +2066,6 @@ def _is_outer_unicode_punct(ch):
     return ord(ch) > 127 and unicodedata.category(ch).startswith("P")
 
 
-def _is_spaceless_script(ch):
-    """True for non-ASCII spaceless-script letters and combining marks (CJK, Kana, Hangul, Thai, etc.)."""
-    return ord(ch) > 127 and unicodedata.category(ch) in ("Lo", "Lm", "Mn", "Mc")
-
-
-def _split_spaceless_script(raw):
-    """Split a non-URL, non-ref token on boundaries between spaceless-script letters and other characters so entries
-    like CJK prose directly adjacent to a linked SHA expose both the commit SHA and surrounding prose."""
-    has_sp = False
-    has_other = False
-    for ch in raw:
-        if _is_spaceless_script(ch):
-            has_sp = True
-        else:
-            has_other = True
-        if has_sp and has_other:
-            break
-    if not (has_sp and has_other):
-        return [raw]
-    out, start = [], 0
-    prev_sp = _is_spaceless_script(raw[0])
-    for idx in range(1, len(raw)):
-        cur_sp = _is_spaceless_script(raw[idx])
-        if cur_sp != prev_sp:
-            out.append(raw[start:idx])
-            start = idx
-            prev_sp = cur_sp
-    out.append(raw[start:])
-    return out
-
-
 def _strip_outer_url_punct(raw):
     i, j = 0, len(raw)
     while i < j and (raw[i] in ".,:;()<>\"'!?" or _is_outer_unicode_punct(raw[i])):
@@ -2110,12 +2075,55 @@ def _strip_outer_url_punct(raw):
     return raw[i:j]
 
 
+def _is_www_url(trimmed):
+    """True when `trimmed` is a GFM §6.9 / IDN extended `www.` autolink (`www.<domain>[:port][/?#...]`)."""
+    if len(trimmed) < 5 or trimmed[:4].lower() != "www.":
+        return False
+    rest = trimmed[4:]
+    end = len(rest)
+    for sep in ("/", "?", "#"):
+        pos = rest.find(sep)
+        if pos != -1 and pos < end:
+            end = pos
+    hostport = rest[:end]
+    colon = hostport.rfind(":")
+    if colon != -1:
+        port = hostport[colon + 1 :]
+        if not (1 <= len(port) <= 5 and port.isascii() and port.isdigit()):
+            return False
+        host = hostport[:colon]
+    else:
+        host = hostport
+    labels = host.split(".")
+    if len(labels) < 2 or any(not lbl for lbl in labels):
+        return False
+    for idx, lbl in enumerate(labels):
+        allow_underscore = idx < len(labels) - 2
+        has_alnum = False
+        for ch in lbl:
+            if ch == "-":
+                continue
+            if ch == "_":
+                if not allow_underscore:
+                    return False
+                continue
+            if ch.isalnum():
+                has_alnum = True
+            elif unicodedata.category(ch) in ("Mn", "Mc"):
+                continue
+            else:
+                return False
+        if not has_alnum:
+            return False
+    return True
+
+
 def _is_url_token(raw):
     """True when `raw` is an explicit scheme URL (`://`) or GFM extended autolink (`www.<host>[:port]...`)."""
     if "://" in raw:
         return True
     trimmed = _strip_outer_url_punct(raw)
-    return bool(trimmed and WWW_URL.fullmatch(trimmed))
+    return bool(trimmed and _is_www_url(trimmed))
 
 
 def _strip_paired_md(raw):
@@ -2229,6 +2237,7 @@ def _split_plain_revspecs(text):
     selectors (`@{...}`, `^{...}`), `:/...` commit-message search tokens, and URLs (`://` or `www.`) intact."""
     tokens, buf = [], []
     in_url = False
+    lead_delims = 0
     i, n = 0, len(text)
     while i < n:
         ch = text[i]
@@ -2244,14 +2253,17 @@ def _split_plain_revspecs(text):
                 tokens.append("".join(buf))
                 buf = []
             in_url = False
+            lead_delims = 0
         else:
+            if len(buf) == lead_delims and ch in "(\"'<":
+                lead_delims += 1
             buf.append(ch)
             if not in_url:
-                if ch == "/" and len(buf) >= 4 and buf[-3:] == [":", "/", "/"] and buf[-4].isascii() and buf[-4].isalnum():
+                if (ch == "/" and len(buf) >= 4 and buf[-3:] == [":", "/", "/"]
+                        and buf[-4].isascii() and (buf[-4].isalnum() or buf[-4] in "+-.")):
                     in_url = True
-                elif ch == "." and len(buf) >= 4 and "".join(buf[-4:-1]).lower() == "www":
-                    if all(c in "(\"'<" for c in buf[:-4]):
-                        in_url = True
+                elif ch == "." and len(buf) == lead_delims + 4 and "".join(buf[-4:-1]).lower() == "www":
+                    in_url = True
         i += 1
     if buf:
         tokens.append("".join(buf))
@@ -2498,51 +2510,57 @@ def _strip_inline_emphasis(text):
 def _strip_inline_emphasis_segments(segments):
     """Strip matched span-level CommonMark/GFM emphasis wrappers (`***`, `**`, `*`, `___`, `__`, `_`, `~~`) across
     outer `(chunk, False)` segments while treating link-label `(chunk, True)` segments as their own already-resolved
-    scope so unmatched `*`/`_`/`~` never pair across link boundaries."""
+    scope so unmatched `*`/`_`/`~` never pair across link boundaries, and insert a token-separating space at a
+    link-label boundary when alphanumeric prose directly abuts a link label."""
     resolved = [(chunk if not is_lbl else _strip_inline_emphasis(_strip_inline_html(chunk)), is_lbl)
                 for chunk, is_lbl in segments]
-    # Flatten with per-character protection flags so outer flanking checks see exact neighbor characters.
+    # Flatten with per-character segment ownership (sid > 0 for link labels, 0 for outer text) so outer flanking
+    # checks see exact neighbor characters while link-label boundaries remain observable when reassembling.
     chars = []
-    protected = []
+    seg_ids = []
+    next_lbl = 1
     for chunk, is_lbl in resolved:
         text = chunk if is_lbl else _strip_inline_html(chunk)
+        sid = next_lbl if is_lbl else 0
+        if is_lbl:
+            next_lbl += 1
         for ch in text:
             chars.append(ch)
-            protected.append(is_lbl)
+            seg_ids.append(sid)
     flat = "".join(chars)
-    out = []
+    out = []  # each [text, sid]
     stack = []  # each [char, count, out_index]
     i, n = 0, len(flat)
     while i < n:
-        if protected[i]:
-            out.append(flat[i])
+        if seg_ids[i]:
+            out.append([flat[i], seg_ids[i]])
             i += 1
             continue
         ch = flat[i]
-        if ch == "\\" and i + 1 < n and not protected[i + 1] and flat[i + 1] in ASCII_PUNCT:
-            out.append(flat[i : i + 2])
+        if ch == "\\" and i + 1 < n and not seg_ids[i + 1] and flat[i + 1] in ASCII_PUNCT:
+            out.append([flat[i : i + 2], 0])
             i += 2
             continue
         if ch == "`":
             j = i
-            while j < n and not protected[j] and flat[j] == "`":
+            while j < n and not seg_ids[j] and flat[j] == "`":
                 j += 1
             close = _find_closing_ticks(flat, j, j - i)
-            if close != -1 and not any(protected[j : close + (j - i)]):
+            if close != -1 and not any(seg_ids[j : close + (j - i)]):
                 end = close + (j - i)
-                out.append(flat[i:end])
+                out.append([flat[i:end], 0])
                 i = end
                 continue
-            out.append(flat[i:j])
+            out.append([flat[i:j], 0])
             i = j
             continue
         if ch in "*_~":
             j = i
-            while j < n and not protected[j] and flat[j] == ch:
+            while j < n and not seg_ids[j] and flat[j] == ch:
                 j += 1
             run = j - i
             if ch == "~" and run != 2:
-                out.append(flat[i:j])
+                out.append([flat[i:j], 0])
                 i = j
                 continue
             before = flat[i - 1] if i > 0 else " "
@@ -2561,7 +2579,7 @@ def _strip_inline_emphasis_segments(segments):
                         break
                     op_ch, op_cnt, op_out = stack[match_idx]
                     take = min(rem, op_cnt)
-                    out[op_out] = op_ch * (op_cnt - take)
+                    out[op_out][0] = op_ch * (op_cnt - take)
                     if op_cnt == take:
                         del stack[match_idx:]
                     else:
@@ -2571,12 +2589,24 @@ def _strip_inline_emphasis_segments(segments):
             if rem > 0:
                 if can_open and (ch != "~" or rem == 2):
                     stack.append([ch, rem, len(out)])
-                out.append(ch * rem)
+                out.append([ch * rem, 0])
             i = j
             continue
-        out.append(ch)
+        out.append([ch, 0])
         i += 1
-    return "".join(out)
+    pieces, prev_text, prev_sid = [], "", None
+    for text, sid in out:
+        if not text:
+            continue
+        if prev_sid is not None and sid != prev_sid and (prev_sid or sid):
+            left_ch, right_ch = prev_text[-1], text[0]
+            left_ok = left_ch == "`" or left_ch.isalnum()
+            right_ok = right_ch == "`" or right_ch.isalnum()
+            if left_ok and right_ok:
+                pieces.append(" ")
+        pieces.append(text)
+        prev_text, prev_sid = text, sid
+    return "".join(pieces)
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
@@ -2592,18 +2622,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
         if m:
             segments = _unwrap_markdown_segments(m.group(1).strip(), ref_defs)
             visible = _strip_inline_emphasis_segments(segments)
-            raw_parts = _split_revspec_tokens(visible)
-            if any(_is_spaceless_script(ch) for tok in raw_parts for ch in tok) and not _all_commit_refs(raw_parts, seen):
-                expanded = []
-                for tok in raw_parts:
-                    if (_is_url_token(tok) or "{" in tok or "}" in tok or tok.startswith(":/")
-                            or _is_commit_ref_token(tok, seen)):
-                        expanded.append(tok)
-                    else:
-                        expanded.extend(_split_spaceless_script(tok))
-                parts = _expand_commit_sep_tokens(expanded, seen)
-            else:
-                parts = _expand_commit_sep_tokens(raw_parts, seen)
+            parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible), seen)
             commit_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or _is_url_token(raw):
