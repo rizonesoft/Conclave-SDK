@@ -1927,19 +1927,22 @@ def _find_close_bracket(text, start, allow_code_spans=True):
     return -1
 
 
-def _unwrap_markdown_pass(text, ref_defs, images_only):
-    """Single CommonMark pass replacing either images (`images_only=True`, replaced with a space) or links
-    (`images_only=False`, replaced with visible `label`), skipping matched backtick code spans and CommonMark §2.4
-    backslash-escaped punctuation (`\\!`, `\\[`, `\\\\`). Returns `(result, changed)`."""
+def _unwrap_markdown_links(text, ref_defs=()):
+    """Single-pass CommonMark §6.3/§6.4 bracket-stack unwrapper for inline/reference links (replaced with visible
+    `label`) and images (replaced with a space). Skips backslash-escaped punctuation, backtick code spans, and
+    inline HTML tags; preserves balanced literal brackets (`[Windows]`, `[linux]`) inside link/image text; enforces
+    that links cannot contain links while allowing images inside links; and parses destinations before scanning inside
+    them."""
     out = []
-    changed = False
+    openers = []  # each [is_image, out_index, active]
     i, n = 0, len(text)
     while i < n:
-        if text[i] == "\\" and i + 1 < n and text[i + 1] in ASCII_PUNCT:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n and text[i + 1] in ASCII_PUNCT:
             out.append(text[i : i + 2])
             i += 2
             continue
-        if text[i] == "`":
+        if ch == "`":
             j = i
             while j < n and text[j] == "`":
                 j += 1
@@ -1952,23 +1955,38 @@ def _unwrap_markdown_pass(text, ref_defs, images_only):
             out.append(text[i:j])
             i = j
             continue
-        is_image = text[i] == "!" and i + 1 < n and text[i + 1] == "["
-        if (images_only and is_image) or (not images_only and not is_image and text[i] == "["):
-            br_start = i + 1 if is_image else i
-            close_br = _find_close_bracket(text, br_start + 1, allow_code_spans=True)
-            if close_br != -1:
-                label = text[br_start + 1 : close_br]
-                nxt = close_br + 1
-                replacement = " " if is_image else label
-                if nxt < n and text[nxt] == "(":
-                    j = nxt + 1
-                    while j < n and text[j].isspace():
-                        j += 1
-                    if j < n and text[j] == ")":
-                        out.append(replacement)
-                        changed = True
-                        i = j + 1
-                        continue
+        if ch == "<":
+            hm = HTML_INLINE_TAG.match(text, i)
+            if hm:
+                out.append(text[i : hm.end()])
+                i = hm.end()
+                continue
+        if ch == "!" and i + 1 < n and text[i + 1] == "[":
+            openers.append([True, len(out), True])
+            out.append("![")
+            i += 2
+            continue
+        if ch == "[":
+            openers.append([False, len(out), True])
+            out.append("[")
+            i += 1
+            continue
+        if ch == "]" and openers:
+            is_image, start_idx, active = openers.pop()
+            if not active:
+                out.append("]")
+                i += 1
+                continue
+            label = "".join(out[start_idx + 1 :])
+            nxt = i + 1
+            end_pos = None
+            if nxt < n and text[nxt] == "(":
+                j = nxt + 1
+                while j < n and text[j].isspace():
+                    j += 1
+                if j < n and text[j] == ")":
+                    end_pos = j + 1
+                else:
                     dest_end = _parse_link_dest(text, j)
                     if dest_end is not None:
                         j = dest_end
@@ -1985,41 +2003,29 @@ def _unwrap_markdown_pass(text, ref_defs, images_only):
                                 while j < n and text[j].isspace():
                                     j += 1
                         if title_ok and j < n and text[j] == ")":
-                            out.append(replacement)
-                            changed = True
-                            i = j + 1
-                            continue
-                elif nxt < n and text[nxt] == "[":
-                    close_ref = _find_close_bracket(text, nxt + 1, allow_code_spans=False)
-                    if close_ref != -1:
-                        ref_id = text[nxt + 1 : close_ref]
-                        lookup = _norm_ref_label(ref_id or label)
-                        if lookup and lookup in ref_defs:
-                            out.append(replacement)
-                            changed = True
-                            i = close_ref + 1
-                            continue
+                            end_pos = j + 1
+            elif nxt < n and text[nxt] == "[":
+                close_ref = _find_close_bracket(text, nxt + 1, allow_code_spans=False)
+                if close_ref != -1:
+                    ref_id = text[nxt + 1 : close_ref]
+                    lookup = _norm_ref_label(ref_id or label)
+                    if lookup and lookup in ref_defs:
+                        end_pos = close_ref + 1
                 elif label.strip(" \t") and _norm_ref_label(label) in ref_defs:
-                    out.append(replacement)
-                    changed = True
-                    i = nxt
-                    continue
-        out.append(text[i])
+                    end_pos = nxt
+            elif label.strip(" \t") and _norm_ref_label(label) in ref_defs:
+                end_pos = nxt
+            if end_pos is not None:
+                out[start_idx:] = [" " if is_image else label]
+                if not is_image:
+                    for op in openers:
+                        if not op[0]:
+                            op[2] = False
+                i = end_pos
+                continue
+        out.append(ch)
         i += 1
-    return "".join(out), changed
-
-
-def _unwrap_markdown_links(text, ref_defs=()):
-    """Replace CommonMark images first (to convergence, so linked badges `[![](badge.svg)](url)` unwrap cleanly)
-    and then inline/reference links with their visible `label` text, respecting escaped punctuation (`\\!`, `\\]`)
-    and skipping matched backtick code spans."""
-    cur = text
-    while True:
-        cur, changed = _unwrap_markdown_pass(cur, ref_defs, images_only=True)
-        if not changed:
-            break
-    cur, _ = _unwrap_markdown_pass(cur, ref_defs, images_only=False)
-    return cur
+    return "".join(out)
 
 
 def _strip_paired_md(raw):
