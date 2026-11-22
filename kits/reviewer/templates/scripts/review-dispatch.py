@@ -691,7 +691,7 @@ DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
-REF_DEF_LINE = re.compile(r"^[ ]{0,3}\[((?:[^\[\]\\]|\\.)+)\]:[ \t]*(.*)$")
+REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
 LIST_ITEM_ONE = re.compile(r"^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])")
@@ -1714,6 +1714,50 @@ def _html_block_start(content, in_para):
     return False, None
 
 
+def _scan_ref_label(raw_lines, start_line, content, containers):
+    """Scan a CommonMark §4.7 link reference label `[label]:` starting at `(start_line, content)` across one or more
+    continuation lines inside `containers` (up to 999 label characters, allowing `\\`-escaped brackets and rejecting
+    unescaped `[` or blank/block interrupts). Returns `(label, end_line, rest)` or None."""
+    m = REF_LABEL_START.match(content)
+    if not m:
+        return None
+    line_idx = start_line
+    text = content
+    pos = m.end()
+    parts = []
+    total = 0
+    n = len(raw_lines)
+    while True:
+        seg_start = pos
+        while pos < len(text):
+            ch = text[pos]
+            if ch == "\\" and pos + 1 < len(text):
+                pos += 2
+                continue
+            if ch == "[":
+                return None
+            if ch == "]":
+                parts.append(text[seg_start:pos])
+                label = "".join(parts)
+                if len(label) > 999 or not label.strip(" \t\n") or text[pos + 1 : pos + 2] != ":":
+                    return None
+                return label, line_idx, text[pos + 2 :].lstrip(" \t")
+            pos += 1
+        chunk = text[seg_start:]
+        total += len(chunk) + 1
+        if total > 999:
+            return None
+        parts.append(chunk)
+        parts.append("\n")
+        line_idx += 1
+        if line_idx >= n:
+            return None
+        next_exp = _read_ref_continuation(raw_lines[line_idx], containers)
+        if next_exp is None:
+            return None
+        text, pos = next_exp, 0
+
+
 def _collect_ref_defs(raw_lines):
     """Collect valid CommonMark link reference definitions from `raw_lines` in linear time, skipping fenced code
     blocks, all seven CommonMark §4.6 HTML block types, and open paragraphs per CommonMark §4.7 (tracking the exact
@@ -1809,24 +1853,24 @@ def _collect_ref_defs(raw_lines):
         if in_para:
             i += 1
             continue
-        m = REF_DEF_LINE.match(content)
-        if not m or not m.group(1).strip(" \t"):
+        scanned = _scan_ref_label(raw_lines, i, content, containers)
+        if scanned is None:
             in_para = True
             i += 1
             continue
-        rest = m.group(2)
-        start = i
+        label, label_end, rest = scanned
+        start = label_end
         if not rest:
-            if i + 1 >= n:
+            if label_end + 1 >= n:
                 in_para = True
                 i += 1
                 continue
-            next_exp = _read_ref_continuation(raw_lines[i + 1], containers)
+            next_exp = _read_ref_continuation(raw_lines[label_end + 1], containers)
             if next_exp is None:
                 in_para = True
                 i += 1
                 continue
-            start = i + 1
+            start = label_end + 1
             rest = next_exp.lstrip(" \t")
         dest_end = _parse_link_dest(rest, 0)
         if dest_end is None:
@@ -1834,7 +1878,7 @@ def _collect_ref_defs(raw_lines):
             i += 1
             continue
         if rest[dest_end:].strip(" \t") == "":
-            defs.add(_norm_ref_label(m.group(1)))
+            defs.add(_norm_ref_label(label))
             in_para = False
             i = start + 1
             continue
@@ -1847,7 +1891,7 @@ def _collect_ref_defs(raw_lines):
             continue
         end_line = _scan_multiline_title(raw_lines, start, rest, j, containers)
         if end_line is not None:
-            defs.add(_norm_ref_label(m.group(1)))
+            defs.add(_norm_ref_label(label))
             in_para = False
             i = end_line + 1
             continue
@@ -1883,14 +1927,18 @@ def _find_close_bracket(text, start, allow_code_spans=True):
     return -1
 
 
-def _unwrap_markdown_links(text, ref_defs=()):
-    """Replace CommonMark inline links `[label](destination [title])` and defined reference-style links
-    (`[label][id]`, `[label][]`, `[label]`) with their visible `label` text, and replace CommonMark inline or
-    reference-style images (`![alt](...)`, `![alt][id]`, `![alt][]`, `![alt]`) with a space, respecting escaped
-    brackets (`\\]`) and skipping matched backtick code spans."""
+def _unwrap_markdown_pass(text, ref_defs, images_only):
+    """Single CommonMark pass replacing either images (`images_only=True`, replaced with a space) or links
+    (`images_only=False`, replaced with visible `label`), skipping matched backtick code spans and CommonMark §2.4
+    backslash-escaped punctuation (`\\!`, `\\[`, `\\\\`). Returns `(result, changed)`."""
     out = []
+    changed = False
     i, n = 0, len(text)
     while i < n:
+        if text[i] == "\\" and i + 1 < n and text[i + 1] in ASCII_PUNCT:
+            out.append(text[i : i + 2])
+            i += 2
+            continue
         if text[i] == "`":
             j = i
             while j < n and text[j] == "`":
@@ -1905,7 +1953,7 @@ def _unwrap_markdown_links(text, ref_defs=()):
             i = j
             continue
         is_image = text[i] == "!" and i + 1 < n and text[i + 1] == "["
-        if is_image or text[i] == "[":
+        if (images_only and is_image) or (not images_only and not is_image and text[i] == "["):
             br_start = i + 1 if is_image else i
             close_br = _find_close_bracket(text, br_start + 1, allow_code_spans=True)
             if close_br != -1:
@@ -1918,6 +1966,7 @@ def _unwrap_markdown_links(text, ref_defs=()):
                         j += 1
                     if j < n and text[j] == ")":
                         out.append(replacement)
+                        changed = True
                         i = j + 1
                         continue
                     dest_end = _parse_link_dest(text, j)
@@ -1937,6 +1986,7 @@ def _unwrap_markdown_links(text, ref_defs=()):
                                     j += 1
                         if title_ok and j < n and text[j] == ")":
                             out.append(replacement)
+                            changed = True
                             i = j + 1
                             continue
                 elif nxt < n and text[nxt] == "[":
@@ -1946,15 +1996,30 @@ def _unwrap_markdown_links(text, ref_defs=()):
                         lookup = _norm_ref_label(ref_id or label)
                         if lookup and lookup in ref_defs:
                             out.append(replacement)
+                            changed = True
                             i = close_ref + 1
                             continue
                 elif label.strip(" \t") and _norm_ref_label(label) in ref_defs:
                     out.append(replacement)
+                    changed = True
                     i = nxt
                     continue
         out.append(text[i])
         i += 1
-    return "".join(out)
+    return "".join(out), changed
+
+
+def _unwrap_markdown_links(text, ref_defs=()):
+    """Replace CommonMark images first (to convergence, so linked badges `[![](badge.svg)](url)` unwrap cleanly)
+    and then inline/reference links with their visible `label` text, respecting escaped punctuation (`\\!`, `\\]`)
+    and skipping matched backtick code spans."""
+    cur = text
+    while True:
+        cur, changed = _unwrap_markdown_pass(cur, ref_defs, images_only=True)
+        if not changed:
+            break
+    cur, _ = _unwrap_markdown_pass(cur, ref_defs, images_only=False)
+    return cur
 
 
 def _strip_paired_md(raw):

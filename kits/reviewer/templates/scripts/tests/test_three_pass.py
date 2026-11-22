@@ -1073,6 +1073,8 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {built[:8]} &nbsp; {repaired[:8]}"),
             ("two SHAs separated by empty-alt Markdown image with no description",
              f"- Implemented: {built[:8]} ![](icon.png) {repaired[:8]}"),
+            ("two SHAs separated by linked status badge with no description",
+             f'- Implemented: {built[:8]} [![](badge.svg)](build "Build status") {repaired[:8]}'),
             ("SHA plus slash-separated backticked SHAs with no description",
              f"- Implemented: {repaired[:8]} `{built[:8]}`/`{repaired[:8]}`"),
             ("SHA plus arrow-separated commit pair with no description",
@@ -1217,6 +1219,11 @@ class ResolutionGuard(ThreePass):
             ("reference-linked SHA with escaped closing bracket in label",
              f"- Implemented: fixed [{repaired[:8]}][ticket\\]]\n\n"
              f"[ticket\\]]: https://example.com/commit/{repaired[:8]}"),
+            ("reference-linked SHA with wrapped multiline label definition",
+             f"- Implemented: fixed [{repaired[:8]}][release notes]\n\n"
+             f"[release\n notes]: https://example.com/commit/{repaired[:8]}"),
+            ("escaped exclamation mark before linked repair prose",
+             f"- Implemented: {repaired[:8]} \\![repaired guard](diff)"),
             ("blockquoted reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n> [repair]: https://example.com/commit/{repaired[:8]}"),
             ("list-item reference-linked SHA",
