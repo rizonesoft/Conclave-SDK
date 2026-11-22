@@ -81,17 +81,20 @@ POWERSHELL_OPEN = (
     "$d = Join-Path $env:LOCALAPPDATA 'conclave-dashboard'; "
     "New-Item -ItemType Directory -Force -Path $d | Out-Null; "
     "$cut = [DateTime]::UtcNow.AddSeconds(-%(lifetime)d); "
-    "Get-ChildItem -LiteralPath $d -Filter 'open-*.html' -File -ErrorAction Ignore "
-    "| Where-Object { $_.LastWriteTimeUtc -lt $cut } | Remove-Item -Force -ErrorAction Ignore; "
+    "Get-ChildItem -LiteralPath $d -File -ErrorAction Ignore "
+    "| Where-Object { ($_.Name -like 'open-*.html' -or $_.Name -like '.open-*.tmp') -and $_.LastWriteTimeUtc -lt $cut } "
+    "| Remove-Item -Force -ErrorAction Ignore; "
     "$id = [Guid]::NewGuid().ToString('N'); "
     "$tmp = Join-Path $d ('.open-' + $id + '.tmp'); "
     "$p = Join-Path $d ('open-' + $id + '.html'); "
     "try { [IO.File]::WriteAllText($tmp, $h, [Text.UTF8Encoding]::new($false)); [IO.File]::Move($tmp, $p) } "
     "catch { Remove-Item -LiteralPath $tmp -Force -ErrorAction Ignore; exit 1 }; "
     "try { "
-    "$prog = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId; "
-    "if (-not $prog) { throw 'no progid' }; "
-    "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)'; "
+    "function _RegVal($rp, $rn) { (Get-ItemProperty -LiteralPath $rp -ErrorAction Ignore).$rn }; "
+    "$prog = _RegVal 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' 'ProgId'; "
+    "if ($prog) { $prog = \"$prog\".Trim() }; "
+    "$cmd = if ($prog) { if ($prog -match '[\\\\/]') { $null } else { _RegVal ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') '(default)' } } "
+    "else { _RegVal 'Registry::HKEY_CLASSES_ROOT\\https\\shell\\open\\command' '(default)' }; "
     "if (-not $cmd) { throw 'no command' }; "
     "$cmd = $cmd.Trim(); "
     "if ($cmd.StartsWith('\"')) { $q = $cmd.IndexOf('\"', 1); if ($q -lt 2) { throw 'bad command' }; "
@@ -207,12 +210,13 @@ def _page(url):
     try:
         PAGES.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(PAGES, 0o700)
-        for old in PAGES.glob("open-*.html"):
-            try:
-                if time.time() - old.stat().st_mtime > LIFETIME:
-                    old.unlink()
-            except OSError:
-                pass   # a stale page that cannot go holds a dead ticket only; the next launch tries again
+        for pattern in ("open-*.html", ".open-*.tmp"):
+            for old in PAGES.glob(pattern):
+                try:
+                    if time.time() - old.stat().st_mtime > LIFETIME:
+                        old.unlink()
+                except OSError:
+                    pass   # a stale file that cannot go holds a dead ticket only; the next launch tries again
         text = _redirect_html(url)
         fd, temporary = tempfile.mkstemp(prefix=".open-", suffix=".tmp", dir=PAGES)   # mode 0600
         try:
@@ -330,7 +334,7 @@ def _find_desktop_entry(folders, entry):
                 if found is not None:
                     return found
     except OSError:
-        raise Refusal(f"the browser's desktop entry {entry} could not be read") from None
+        raise Refusal("the browser's desktop entry could not be read") from None
     return None
 
 
@@ -378,7 +382,11 @@ def _localized(values):
 def _parse_desktop_entry(found):
     """Read `Exec`, localized `Name` and localized `Icon` from `[Desktop Entry]`, normalizing locale keys."""
     command, names, icons, group = None, {}, {}, None
-    for line in found.read_text(encoding="utf-8", errors="replace").splitlines():
+    try:
+        raw_lines = found.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        raise Refusal("the browser's desktop entry could not be read") from None
+    for line in raw_lines:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -427,14 +435,14 @@ def _https_browser(page):
     folders = [home, *(raw_dirs or ["/usr/local/share", "/usr/share"])]
     found = _find_desktop_entry(folders, entry)
     if found is None:
-        raise Refusal(f"the browser's desktop entry {entry} is in no applications folder")
+        raise Refusal("the browser's desktop entry is in no applications folder")
     command, name, icon = _parse_desktop_entry(found)
     try:
         words = _split_desktop_exec(command or "")
     except ValueError:
         words = []
     if not words:
-        raise Refusal(f"the browser's desktop entry {entry} has no command to run")
+        raise Refusal("the browser's desktop entry has no command to run")
     argv, given = [], False
 
     def _expand(match):
@@ -444,12 +452,12 @@ def _https_browser(page):
             return "%"
         if code == "u":
             if given:
-                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
+                raise Refusal("the browser's desktop entry has more than one target field code")
             given = True
             return page.as_uri()
         if code == "f":
             if given:
-                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
+                raise Refusal("the browser's desktop entry has more than one target field code")
             given = True
             return str(page)
         if code == "c":
@@ -458,7 +466,7 @@ def _https_browser(page):
             return str(found)
         if code in ("d", "D", "n", "N", "v", "m"):
             return ""   # deprecated field codes are removed per Desktop Entry Spec
-        raise Refusal(f"the browser's desktop entry {entry} has an unsupported field code")
+        raise Refusal("the browser's desktop entry has an unsupported field code")
 
     for word in words:
         if word == "%i":
@@ -466,12 +474,12 @@ def _https_browser(page):
                 argv.extend(["--icon", icon])
         elif word == "%U":
             if given:
-                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
+                raise Refusal("the browser's desktop entry has more than one target field code")
             argv.append(page.as_uri())
             given = True
         elif word == "%F":
             if given:
-                raise Refusal(f"the browser's desktop entry {entry} has more than one target field code")
+                raise Refusal("the browser's desktop entry has more than one target field code")
             argv.append(str(page))
             given = True
         elif word in ("%d", "%D", "%n", "%N", "%v", "%m"):

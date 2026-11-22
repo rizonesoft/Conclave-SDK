@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -562,6 +563,22 @@ class BrowserTest(unittest.TestCase):
                 self.assertEqual(kwargs["cwd"], "/mnt/c")
                 self.assertNotIn("conclave_ticket", " ".join(argv))
 
+    _REGVAL_HELPER = "function _RegVal($rp, $rn) { (Get-ItemProperty -LiteralPath $rp -ErrorAction Ignore).$rn };"
+
+    def _patch_ps_reg(self, script, mapping, escape_percent=False):
+        self.assertIn(self._REGVAL_HELPER, script)
+        pairs = []
+        for (reg_path, name), value in mapping.items():
+            k = f"{reg_path}|{name}".replace("'", "''")
+            v = value.replace("'", "''")
+            if escape_percent:
+                k = k.replace("%", "%%")
+                v = v.replace("%", "%%")
+            pairs.append(f"'{k}' = '{v}'")
+        table = "@{ " + "; ".join(pairs) + " }"
+        replacement = f'function _RegVal($rp, $rn) {{ $m = {table}; $m["$rp|$rn"] }};'
+        return script.replace(self._REGVAL_HELPER, replacement, 1)
+
     def test_powershell_atomic_write_failure_and_immediate_exit_clean_up(self):
         pwsh = shutil.which("pwsh") or shutil.which("pwsh.exe") or shutil.which("powershell.exe")
         if not pwsh or os.name != "nt":
@@ -596,20 +613,17 @@ class BrowserTest(unittest.TestCase):
             f"import json, pathlib, sys\n"
             f"pathlib.Path({str(marker)!r}).write_text(json.dumps(sys.argv), encoding='utf-8')\n"
             f"sys.exit(1)\n", encoding="utf-8")
-        reg_block = (
-            "$prog = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId; "
-            "if (-not $prog) { throw 'no progid' }; "
-            "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)';"
-        )
-        self.assertIn(reg_block, script)
+        uc_key = r"HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"
         for label, tpl in (
                 ("Chrome unquoted %1", f'"{sys.executable}" "{helper}" --single-argument %1'),
                 ("Firefox quoted %1", f'"{sys.executable}" "{helper}" -url "%1"')):
             with self.subTest(label):
                 if marker.exists():
                     marker.unlink()
-                ps_lit = tpl.replace("'", "''")
-                test_script = script.replace(reg_block, f"$cmd = '{ps_lit}';", 1)
+                test_script = self._patch_ps_reg(script, {
+                    (uc_key, "ProgId"): "TestBrowserProg",
+                    (r"Registry::HKEY_CLASSES_ROOT\TestBrowserProg\shell\open\command", "(default)"): tpl,
+                })
                 done2 = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", test_script],
                                        input=od._redirect_html(self.URL), capture_output=True, text=True,
                                        env={**os.environ, "LOCALAPPDATA": str(local_app)},
@@ -621,6 +635,100 @@ class BrowserTest(unittest.TestCase):
                 self.assertFalse(received[-1].startswith('"'), received)
                 self.assertEqual(list((local_app / "conclave-dashboard").glob("*.tmp")), [])
                 self.assertEqual(list((local_app / "conclave-dashboard").glob("open-*.html")), [])
+
+    def test_powershell_https_browser_selection_and_tmp_pruning(self):
+        pwsh = shutil.which("pwsh") or shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+        if not pwsh or os.name != "nt":
+            self.skipTest("real PowerShell execution requires Windows PowerShell/pwsh on Windows")
+        script = od.POWERSHELL_OPEN % {"lifetime": od.LIFETIME}
+        uc_key = r"HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"
+        user_cmd_key = r"Registry::HKEY_CLASSES_ROOT\UserBrowserProg\shell\open\command"
+        machine_cmd_key = r"Registry::HKEY_CLASSES_ROOT\https\shell\open\command"
+        html_cmd_key = r"Registry::HKEY_CLASSES_ROOT\htmlfile\shell\open\command"
+
+        def make_recorder(name):
+            out = Path(self._tmp.name) / f"{name}.json"
+            rec = Path(self._tmp.name) / f"{name}.py"
+            rec.write_text(
+                f"import json, pathlib, sys\n"
+                f"pathlib.Path({str(out)!r}).write_text(json.dumps(sys.argv), encoding='utf-8')\n",
+                encoding="utf-8")
+            return out, f'"{sys.executable}" "{rec}" %1'
+
+        user_out, user_cmd = make_recorder("user_rec")
+        machine_out, machine_cmd = make_recorder("machine_rec")
+        html_out, html_cmd = make_recorder("html_rec")
+
+        def run_case(local_app, reg_map):
+            for p in (user_out, machine_out, html_out):
+                if p.exists():
+                    p.unlink()
+            patched = self._patch_ps_reg(script, reg_map)
+            return subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", patched],
+                                  input=od._redirect_html(self.URL), capture_output=True, text=True,
+                                  env={**os.environ, "LOCALAPPDATA": str(local_app)},
+                                  timeout=30, creationflags=NO_WINDOW)
+
+        # 1. UserChoice wins over machine default, and expired .open-*.tmp is pruned while fresh/unrelated stay.
+        app1 = Path(self._tmp.name) / "sel_user"
+        dash1 = app1 / "conclave-dashboard"
+        dash1.mkdir(parents=True, exist_ok=True)
+        expired_tmp = dash1 / ".open-expired.tmp"
+        fresh_tmp = dash1 / ".open-fresh.tmp"
+        unrelated = dash1 / "keep-me.txt"
+        for f in (expired_tmp, fresh_tmp, unrelated):
+            f.write_text("x", encoding="utf-8")
+        old_time = time.time() - od.LIFETIME - 120
+        os.utime(expired_tmp, (old_time, old_time))
+        os.utime(unrelated, (old_time, old_time))
+        done = run_case(app1, {
+            (uc_key, "ProgId"): "UserBrowserProg",
+            (user_cmd_key, "(default)"): user_cmd,
+            (machine_cmd_key, "(default)"): machine_cmd,
+            (html_cmd_key, "(default)"): html_cmd,
+        })
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue(user_out.exists(), "user HTTPS browser should win over machine default")
+        self.assertFalse(machine_out.exists(), "machine browser must not run when UserChoice is set")
+        self.assertFalse(html_out.exists(), ".html handler must never run")
+        self.assertFalse(expired_tmp.exists(), "expired .open-*.tmp must be pruned")
+        self.assertTrue(fresh_tmp.exists(), "fresh .open-*.tmp must be preserved")
+        self.assertTrue(unrelated.exists(), "unrelated file must be preserved")
+        self.assertEqual(len(list(dash1.glob("open-*.html"))), 1)
+
+        # 2. Machine-default HTTPS handler runs when UserChoice is absent.
+        app2 = Path(self._tmp.name) / "sel_machine"
+        app2.mkdir(parents=True, exist_ok=True)
+        done2 = run_case(app2, {
+            (machine_cmd_key, "(default)"): machine_cmd,
+            (html_cmd_key, "(default)"): html_cmd,
+        })
+        self.assertEqual(done2.returncode, 0, done2.stderr)
+        self.assertTrue(machine_out.exists(), "machine HTTPS handler should run when UserChoice is absent")
+        self.assertFalse(user_out.exists())
+        self.assertFalse(html_out.exists(), ".html handler must never run")
+        self.assertEqual(len(list((app2 / "conclave-dashboard").glob("open-*.html"))), 1)
+
+        # 3. Unusable UserChoice (no command) refuses, removes redirect page, and starts no machine/.html handler.
+        app3 = Path(self._tmp.name) / "sel_broken_user"
+        app3.mkdir(parents=True, exist_ok=True)
+        done3 = run_case(app3, {
+            (uc_key, "ProgId"): "BrokenProg",
+            (machine_cmd_key, "(default)"): machine_cmd,
+            (html_cmd_key, "(default)"): html_cmd,
+        })
+        self.assertNotEqual(done3.returncode, 0)
+        self.assertFalse(machine_out.exists())
+        self.assertFalse(html_out.exists())
+        self.assertEqual(list((app3 / "conclave-dashboard").glob("open-*.html")), [])
+
+        # 4. Neither UserChoice nor machine HTTPS handler refuses, removes page, and starts no .html handler.
+        app4 = Path(self._tmp.name) / "sel_none"
+        app4.mkdir(parents=True, exist_ok=True)
+        done4 = run_case(app4, {(html_cmd_key, "(default)"): html_cmd})
+        self.assertNotEqual(done4.returncode, 0)
+        self.assertFalse(html_out.exists())
+        self.assertEqual(list((app4 / "conclave-dashboard").glob("open-*.html")), [])
 
     @staticmethod
     def _is_native_posix_executable(path):
@@ -654,13 +762,15 @@ class BrowserTest(unittest.TestCase):
             ]
         return next((c for c in candidates if c and Path(c).is_file()), None)
 
-    def _start_loopback(self):
+    def _start_loopback_server(self, socket_timeout=1.0):
         import http.server
         import threading
         hits = []
         done_event = threading.Event()
 
         class Handler(http.server.BaseHTTPRequestHandler):
+            timeout = socket_timeout
+
             def do_GET(self):
                 if self.path != "/favicon.ico":
                     hits.append(self.path)
@@ -672,28 +782,81 @@ class BrowserTest(unittest.TestCase):
             def log_message(self, *args):
                 pass
 
-        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        class ThreadedLoopback(http.server.ThreadingHTTPServer):
+            daemon_threads = True
+            allow_reuse_address = True
+
+        server = ThreadedLoopback(("127.0.0.1", 0), Handler)
         port = server.server_address[1]
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(server.server_close)
         self.addCleanup(server.shutdown)
+        return server, port, hits, done_event
+
+    def _start_loopback(self):
+        _, port, hits, done_event = self._start_loopback_server()
         return port, hits, done_event
 
-    def _kill_windows_profile(self, pwsh, win_profile, cim_class="Win32_Process"):
+    def test_loopback_server_serves_second_request_and_shuts_down_with_idle_socket(self):
+        import threading
+        import urllib.request
+        server, port, hits, done_event = self._start_loopback_server(socket_timeout=0.5)
+        idle = socket.create_connection(("127.0.0.1", port), timeout=3)
+        self.addCleanup(idle.close)
+        # While the first connection sits completely idle, a second connection must still be served.
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/?conclave_ticket=concurrent", timeout=3) as resp:
+            self.assertEqual(resp.status, 200)
+            self.assertEqual(resp.read(), b"ok")
+        self.assertTrue(done_event.wait(timeout=2))
+        self.assertEqual(hits, ["/?conclave_ticket=concurrent"])
+        # The idle socket must time out and close cleanly without hanging server.shutdown().
+        idle.settimeout(3.0)
+        self.assertEqual(idle.recv(1), b"")
+        stop_thread = threading.Thread(target=server.shutdown, daemon=True)
+        stop_thread.start()
+        stop_thread.join(timeout=3.0)
+        self.assertFalse(stop_thread.is_alive(), "server.shutdown() hung on idle loopback connection")
+
+    def _kill_windows_profile(self, pwsh, win_profile, cim_class="Win32_Process",
+                              kill_action="taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null"):
         """Terminate any surviving Windows browser tree for `win_profile` without killing the cleanup PowerShell."""
         lit = win_profile.replace("'", "''")
+        pred = (f"$_.ProcessId -ne $PID -and $_.CommandLine -and "
+                f"$_.CommandLine.IndexOf('{lit}', [StringComparison]::OrdinalIgnoreCase) -ge 0")
         kill_cmd = (f"$ErrorActionPreference = 'Stop'; "
                     f"Get-CimInstance {cim_class} -ErrorAction Stop | "
-                    f"Where-Object {{ $_.ProcessId -ne $PID -and $_.CommandLine -like '*{lit}*' }} | "
-                    f"ForEach-Object {{ taskkill.exe /F /T /PID $_.ProcessId 2>$null | Out-Null }}; "
+                    f"Where-Object {{ {pred} }} | "
+                    f"ForEach-Object {{ {kill_action} }}; "
                     f"$left = @(Get-CimInstance {cim_class} -ErrorAction Stop | "
-                    f"Where-Object {{ $_.ProcessId -ne $PID -and $_.CommandLine -like '*{lit}*' }}); "
+                    f"Where-Object {{ {pred} }}); "
                     f"if ($left.Count -gt 0) {{ exit 2 }}")
         done = subprocess.run([pwsh, "-NoProfile", "-NonInteractive", "-Command", kill_cmd],
                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
                               timeout=20, creationflags=NO_WINDOW)
         self.assertEqual(done.returncode, 0, f"Windows browser cleanup failed or left survivors: {done.stderr.strip()}")
+
+    def test_kill_windows_profile_literal_brackets_and_survivor_failure(self):
+        pwsh = shutil.which("pwsh") or shutil.which("pwsh.exe") or shutil.which("powershell.exe")
+        if not pwsh or os.name != "nt":
+            self.skipTest("Windows process cleanup check requires PowerShell on Windows")
+        token = f"conclave_prof_{os.getpid()}_{int(time.time() * 1000)}"
+        exact_profile = str(Path(self._tmp.name) / f"{token}[work]")
+        lookalike_profile = str(Path(self._tmp.name) / f"{token}w")
+        exact = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", f"--user-data-dir={exact_profile}"],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        lookalike = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", f"--user-data-dir={lookalike_profile}"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
+        self.addCleanup(lambda: (exact.kill(), exact.wait()) if exact.poll() is None else None)
+        self.addCleanup(lambda: (lookalike.kill(), lookalike.wait()) if lookalike.poll() is None else None)
+        # Survivor check: when kill_action is a no-op, the live exact-match process must fail cleanup.
+        with self.assertRaises(AssertionError):
+            self._kill_windows_profile(pwsh, exact_profile, kill_action="Out-Null")
+        # Real cleanup kills the literal [work] process and spares the wildcard lookalike (w).
+        self._kill_windows_profile(pwsh, exact_profile)
+        exact.wait(timeout=5)
+        self.assertIsNotNone(exact.poll(), "exact [work] profile process must be terminated")
+        self.assertIsNone(lookalike.poll(), "wildcard lookalike process must be spared")
 
     def test_kill_windows_profile_fails_when_enumeration_fails(self):
         with mock.patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", "cim denied")):
@@ -718,22 +881,63 @@ class BrowserTest(unittest.TestCase):
             with mock.patch.object(shutil, "which", side_effect=lambda name: str(pe) if name == "google-chrome" else (str(elf) if name == "chromium" else None)):
                 self.assertEqual(self._find_linux_browser(), str(elf))
         fake_proc = mock.Mock()
+        fake_proc.pid = 999999
         fake_proc.poll.return_value = 0
         with mock.patch.object(self, "_kill_windows_profile", side_effect=AssertionError("must not call Windows cleanup")):
-            self._kill_browser_tree(fake_proc)
+            if os.name == "posix":
+                with mock.patch.object(os, "killpg") as killpg:
+                    self._kill_browser_tree(fake_proc)
+                killpg.assert_called_once()
+            else:
+                self._kill_browser_tree(fake_proc)
 
     def _kill_browser_tree(self, proc):
-        if proc.poll() is None:
-            if os.name == "nt":
+        if os.name == "nt":
+            if proc.poll() is None:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=NO_WINDOW)
-            else:
-                import signal
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            proc.wait()
+                proc.wait()
+        else:
+            import signal
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass   # process group already exited cleanly
+            if proc.poll() is None:
+                proc.wait()
+
+    def test_kill_browser_tree_kills_orphaned_posix_child_after_leader_exits(self):
+        if os.name != "posix":
+            self.skipTest("POSIX process-group orphan cleanup requires POSIX")
+        import signal
+        pid_file = Path(self._tmp.name) / "orphan.pid"
+        # Leader spawns a sleeping child in the same process group and exits immediately.
+        proc = subprocess.Popen(
+            ["sh", "-c", f'sleep 60 </dev/null >/dev/null 2>&1 & echo $! > "{pid_file}"'],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+        proc.wait(timeout=5)
+        self.assertIsNotNone(proc.poll(), "leader must have exited before teardown")
+        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+
+        def _ensure_dead():
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass   # already terminated by _kill_browser_tree
+        self.addCleanup(_ensure_dead)
+        os.kill(child_pid, 0)   # child is independently observed alive after leader exit
+        self._kill_browser_tree(proc)
+        deadline = time.monotonic() + 3.0
+        alive = True
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                alive = False
+                break
+            time.sleep(0.05)
+        self.assertFalse(alive, f"orphaned child {child_pid} survived _kill_browser_tree")
 
     def _windows_temp_profile(self, prefix):
         if os.name == "nt":
@@ -820,23 +1024,20 @@ class BrowserTest(unittest.TestCase):
             win_local_app = subprocess.run(["wslpath", "-w", str(local_app)], capture_output=True, text=True, check=True).stdout.strip()
             win_argv_log = subprocess.run(["wslpath", "-w", str(argv_log)], capture_output=True, text=True, check=True).stdout.strip()
 
-        reg_block = (
-            "$prog = (Get-ItemProperty -Path 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId; "
-            "if (-not $prog) { throw 'no progid' }; "
-            "$cmd = (Get-ItemProperty -Path ('Registry::HKEY_CLASSES_ROOT\\' + $prog + '\\shell\\open\\command') -ErrorAction Stop).'(default)';"
-        )
         # Register the real Windows browser directly (no wrapper) with Chrome's unquoted --single-argument %1 template.
         chrome_cmd = (f'"{win_browser}" --headless=new --disable-gpu --no-first-run '
                       f'"--user-data-dir={win_profile}" --virtual-time-budget=2000 --dump-dom --single-argument %1')
-        ps_lit = chrome_cmd.replace("'", "''").replace("%", "%%")
+        uc_key = r"HKCU:\Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"
         start_stmt = "$proc = [Diagnostics.Process]::Start($psi);"
         log_lit = win_argv_log.replace("'", "''").replace("%", "%%")
         log_tap = (f"[IO.File]::WriteAllText('{log_lit}', "
                    f"(@{{exe=$psi.FileName; args=$psi.Arguments}} | ConvertTo-Json -Compress), "
                    f"[Text.UTF8Encoding]::new($false)); ")
-        self.assertIn(reg_block, od.POWERSHELL_OPEN)
         self.assertIn(start_stmt, od.POWERSHELL_OPEN)
-        patched_ps = od.POWERSHELL_OPEN.replace(reg_block, f"$cmd = '{ps_lit}';", 1)
+        patched_ps = self._patch_ps_reg(od.POWERSHELL_OPEN, {
+            (uc_key, "ProgId"): "SmokeBrowserProg",
+            (r"Registry::HKEY_CLASSES_ROOT\SmokeBrowserProg\shell\open\command", "(default)"): chrome_cmd,
+        }, escape_percent=True)
         patched_ps = patched_ps.replace(start_stmt, log_tap + start_stmt, 1)
 
         real_run = subprocess.run
@@ -937,7 +1138,7 @@ class BrowserTest(unittest.TestCase):
                 if expected is None:   # an Exec outside [Desktop Entry] is not the entry's command
                     with self.assertRaises(od.Refusal) as caught:
                         self.open(wsl=False, which=self.LINUX, entry=entry)
-                    self.assertEqual(str(caught.exception), "the browser's desktop entry firefox.desktop has no command to run")
+                    self.assertEqual(str(caught.exception), "the browser's desktop entry has no command to run")
                     continue
                 before = set(self.pages.glob("open-*.html"))
                 self.open(wsl=False, which=self.LINUX, entry=entry)
@@ -1123,10 +1324,61 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual({argv[1] for argv, _ in self.started}, {p.as_uri() for p in pages})
         dead = time.time() - od.LIFETIME - 5
         os.utime(pages[0], (dead, dead))
+        expired_tmp = self.pages / ".open-expired.tmp"
+        fresh_tmp = self.pages / ".open-fresh.tmp"
+        unrelated = self.pages / "keep-me.txt"
+        for f in (expired_tmp, fresh_tmp, unrelated):
+            f.write_text("x", encoding="utf-8")
+        os.utime(expired_tmp, (dead, dead))
+        os.utime(unrelated, (dead, dead))
         self.open(wsl=False, which=self.LINUX)
         self.assertFalse(pages[0].exists(), "a page older than the ticket's lifetime was kept")
         self.assertTrue(pages[1].exists(), "a page the browser may still need was removed")
-        self.assertEqual(list(self.pages.glob("*.tmp")), [])
+        self.assertFalse(expired_tmp.exists(), "expired .open-*.tmp must be pruned on Linux")
+        self.assertTrue(fresh_tmp.exists(), "fresh .open-*.tmp must be preserved on Linux")
+        self.assertTrue(unrelated.exists(), "unrelated file must be preserved on Linux")
+
+    def test_desktop_entry_refusals_never_echo_child_desktop_id(self):
+        sentinel = "sentinel-child-id.desktop"
+        data = Path(self._tmp.name) / "sentinel_data"
+        apps = data / "applications"
+        apps.mkdir(parents=True, exist_ok=True)
+        seen_messages = set()
+
+        def run_case(entry_text=None, read_error=False):
+            desktop_file = apps / sentinel
+            if desktop_file.exists():
+                desktop_file.unlink()
+            if entry_text is not None:
+                desktop_file.write_text("[Desktop Entry]\nName=Sentinel\n" + entry_text, encoding="utf-8")
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(od, "native_windows", return_value=False), \
+                    mock.patch.object(od, "_pin", return_value=(pin(), 7)), \
+                    mock.patch.object(od, "store", return_value=None), \
+                    mock.patch.object(od, "drop", return_value="dropped"), \
+                    mock.patch.object(od, "PAGES", self.pages), \
+                    mock.patch.object(od.shutil, "which", return_value="/usr/bin/xdg-mime"), \
+                    mock.patch.object(od.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, sentinel + "\n", "")), \
+                    mock.patch.dict(od.os.environ, {"XDG_DATA_HOME": str(data), "XDG_DATA_DIRS": "/nowhere"}, clear=True):
+                if read_error:
+                    with mock.patch.object(Path, "read_text", side_effect=PermissionError(sentinel)):
+                        code = od.main([], out=out, err=err)
+                else:
+                    code = od.main([], out=out, err=err)
+            self.assertNotEqual(code, 0)
+            stderr = err.getvalue()
+            self.assertTrue(stderr.strip())
+            self.assertNotIn(sentinel, stderr)
+            first_line = stderr.splitlines()[0]
+            seen_messages.add(first_line)
+            return first_line
+
+        self.assertIn("is in no applications folder", run_case(entry_text=None))
+        self.assertIn("could not be read", run_case(entry_text="Exec=browser %u\n", read_error=True))
+        self.assertIn("has no command to run", run_case(entry_text="Name=Only\n"))
+        self.assertIn("has an unsupported field code", run_case(entry_text="Exec=browser %x\n"))
+        self.assertIn("has more than one target field code", run_case(entry_text="Exec=browser %u %F\n"))
+        self.assertEqual(len(seen_messages), 5)
 
     def test_on_linux_each_missing_piece_is_refused_before_a_browser_starts(self):
         def fails(argv):
@@ -1141,11 +1393,11 @@ class BrowserTest(unittest.TestCase):
                 ("xdg-mime failed", {"which": self.LINUX, "code": 3},
                  "no browser is set to open https links (xdg-mime query default x-scheme-handler/https)"),
                 ("no entry file", {"which": self.LINUX, "handler": "chromium.desktop"},
-                 "the browser's desktop entry chromium.desktop is in no applications folder"),
+                 "the browser's desktop entry is in no applications folder"),
                 ("no command", {"which": self.LINUX, "entry": "Name=only\n"},
-                 "the browser's desktop entry firefox.desktop has no command to run"),
+                 "the browser's desktop entry has no command to run"),
                 ("an unclosed quote", {"which": self.LINUX, "entry": 'Exec="browser %u\n'},
-                 "the browser's desktop entry firefox.desktop has no command to run"),
+                 "the browser's desktop entry has no command to run"),
                 ("the browser cannot start", {"which": self.LINUX, "starts": fails},
                  "the browser that opens https links could not be started")):
             with self.subTest(label):
@@ -1176,6 +1428,36 @@ class CommandLineTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("usage: open-dashboard.py [-h] [--check]", done.stdout)
         self.assertIn("Run it from WSL or Linux.", done.stdout)
+
+
+class OverflowUserIdTest(unittest.TestCase):
+    OVERFLOW = 9223372036854775808   # 2**63, coerced to float on 64-bit PHP
+
+    def _pin_dict(self):
+        value = pin()
+        value["mcp"]["site"]["wordpress_user_id"] = self.OVERFLOW
+        return value
+
+    def test_cli_refuses_64bit_overflow_user_id_before_ssh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pin_path = Path(tmp) / "wordpress-site.json"
+            pin_path.write_text(json.dumps(self._pin_dict()), encoding="utf-8")
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch.object(od, "native_windows", return_value=False), \
+                    mock.patch.object(od.wp_site, "PIN", pin_path), \
+                    mock.patch.object(od.site_ssh, "wp", side_effect=AssertionError("must not call SSH")):
+                code = od.main(["--check"], out=out, err=err)
+            self.assertEqual(code, 2)
+            self.assertIn("is not valid", err.getvalue())
+
+    def test_wp_site_pinned_user_refuses_64bit_overflow(self):
+        with self.assertRaises(ValueError):
+            od.wp_site.pinned_user(self._pin_dict())
+
+    def test_opener_fallback_pinned_user_refuses_64bit_overflow(self):
+        with mock.patch.object(od.wp_site, "pinned_user", None):
+            with self.assertRaises(od.Refusal):
+                od.pinned_user(self._pin_dict())
 
 
 if __name__ == "__main__":
