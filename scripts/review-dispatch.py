@@ -692,7 +692,8 @@ COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^][0-9]*)+$")
 REF_DEF_LINE = re.compile(r"^\s{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
 FENCE_OPEN = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
-BLOCKQUOTE_PREFIX = re.compile(r"^(?:[ ]{0,3}>[ ]?)+")
+BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>[ ]?")
+LIST_ITEM_ONE = re.compile(r"^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+")
 HTML_COMMENT_OPEN = re.compile(r"^[ ]{0,3}<!--")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
@@ -1465,9 +1466,34 @@ def _parse_link_title(text, pos):
     return j + 1 if j < n and text[j] == closer else None
 
 
-def _strip_blockquote(line):
-    m = BLOCKQUOTE_PREFIX.match(line)
-    return (m.group(0).count(">"), line[m.end():]) if m else (0, line)
+def _strip_bq_at_most(line, limit):
+    """Strip at most `limit` leading CommonMark blockquote markers `>` from `line`. Returns `(count, rest)`."""
+    count, rest = 0, line
+    while count < limit:
+        m = BLOCKQUOTE_ONE.match(rest)
+        if not m:
+            break
+        rest = rest[m.end():]
+        count += 1
+    return count, rest
+
+
+def _strip_containers(line):
+    """Strip leading CommonMark blockquote (`>`) and list-item (`- `, `* `, `+ `, `1. `) container markers from
+    `line`. Returns `(blockquote_depth, rest)`."""
+    bq, rest = 0, line
+    while True:
+        m = BLOCKQUOTE_ONE.match(rest)
+        if m:
+            bq += 1
+            rest = rest[m.end():]
+            continue
+        lm = LIST_ITEM_ONE.match(rest)
+        if lm:
+            rest = rest[lm.end():]
+            continue
+        break
+    return bq, rest
 
 
 def _fence_step(line, fence):
@@ -1504,8 +1530,8 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
         line_idx += 1
         if line_idx >= n:
             return None
-        next_bq, next_content = _strip_blockquote(raw_lines[line_idx])
-        if next_bq != bq or not next_content.strip():
+        next_bq, next_content = _strip_bq_at_most(raw_lines[line_idx], bq)
+        if next_bq != bq or BLOCKQUOTE_ONE.match(next_content) or not next_content.strip():
             return None
         if _fence_step(next_content, None)[1]:
             return None
@@ -1514,30 +1540,33 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
 
 def _collect_ref_defs(raw_lines):
     """Collect valid CommonMark link reference definitions from `raw_lines` in linear time, skipping fenced code
-    blocks and HTML comment blocks, unwrapping block quotes, and supporting next-line destinations and multiline
-    link titles."""
+    blocks and HTML comment blocks (without stripping deeper blockquote markers inside an open outer block),
+    unwrapping blockquote and list-item container markers outside them, and supporting next-line destinations and
+    multiline link titles."""
     defs = set()
     fence, fence_bq = None, 0
     in_comment, comment_bq = False, 0
     i, n = 0, len(raw_lines)
     while i < n:
-        bq, content = _strip_blockquote(raw_lines[i])
         if fence is not None:
-            if bq < fence_bq:
+            bq_here, inner = _strip_bq_at_most(raw_lines[i], fence_bq)
+            if bq_here < fence_bq:
                 fence = None
             else:
-                fence, inside = _fence_step(content, fence)
+                fence, inside = _fence_step(inner, fence)
                 if inside:
                     i += 1
                     continue
         if in_comment:
-            if bq < comment_bq:
+            bq_here, inner = _strip_bq_at_most(raw_lines[i], comment_bq)
+            if bq_here < comment_bq:
                 in_comment = False
             else:
-                if "-->" in content:
+                if "-->" in inner:
                     in_comment = False
                 i += 1
                 continue
+        bq, content = _strip_containers(raw_lines[i])
         new_fence, inside = _fence_step(content, None)
         if inside:
             fence, fence_bq = new_fence, bq
@@ -1559,9 +1588,9 @@ def _collect_ref_defs(raw_lines):
             if i + 1 >= n:
                 i += 1
                 continue
-            next_bq, next_content = _strip_blockquote(raw_lines[i + 1])
-            if next_bq != bq or not next_content.strip() or _fence_step(next_content, None)[1] \
-                    or HTML_COMMENT_OPEN.match(next_content):
+            next_bq, next_content = _strip_bq_at_most(raw_lines[i + 1], bq)
+            if next_bq != bq or BLOCKQUOTE_ONE.match(next_content) or not next_content.strip() \
+                    or _fence_step(next_content, None)[1] or HTML_COMMENT_OPEN.match(next_content):
                 i += 1
                 continue
             start = i + 1
@@ -1734,6 +1763,30 @@ def _is_multiword_revspec(expr, seen):
     return True
 
 
+def _split_revspec_tokens(text):
+    """Split `text` on whitespace while keeping closed Git brace selectors (`@{...}` and `^{...}`) intact inside
+    their token so literal `{` in prose never consumes later tokens."""
+    tokens, buf = [], []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] in "@^" and i + 1 < n and text[i + 1] == "{":
+            close = text.find("}", i + 2)
+            if close != -1:
+                buf.append(text[i : close + 1])
+                i = close + 1
+                continue
+        if text[i].isspace():
+            if buf:
+                tokens.append("".join(buf))
+                buf = []
+        else:
+            buf.append(text[i])
+        i += 1
+    if buf:
+        tokens.append("".join(buf))
+    return tokens
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
     entry with non-empty description text (distinct from commit references, ranges, refs, reflog/search selectors,
@@ -1746,7 +1799,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
         m = IMPLEMENTED_LINE.match(line)
         if m:
             visible = _unwrap_markdown_links(m.group(1).strip(), ref_defs)
-            parts = visible.split()
+            parts = _split_revspec_tokens(visible)
             commit_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or "://" in raw:
