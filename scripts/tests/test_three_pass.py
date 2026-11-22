@@ -1087,12 +1087,15 @@ class ResolutionGuard(ThreePass):
             ("SHA plus bare commit URL with no description",
              f"- Implemented: {repaired[:8]} https://example.com/commit/{built[:8]}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
+            ("backticked SHA with trailing tilde parent selector", f"- Implemented: fixed `{repaired[:8]}`~"),
             ("linked SHA with no description",
              f"- Implemented: [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
             ("bold linked SHA with no description",
              f"- Implemented: [**{repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
             ("reference-linked SHA with no description",
              f"- Implemented: [{repaired[:8]}][repair]\n\n[repair]: https://example.com/commit/{repaired[:8]}"),
+            ("undefined backticked reference-linked SHA with no description",
+             f"- Implemented: [`{repaired[:8]}`][repair]"),
             ("undefined full reference-linked SHA", f"- Implemented: fixed [{repaired[:8]}][missing]"),
             ("undefined collapsed reference-linked SHA", f"- Implemented: fixed [{repaired[:8]}][]"),
             ("undefined shortcut reference-linked SHA", f"- Implemented: fixed [{repaired[:8]}]"),
@@ -1107,6 +1110,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition inside second list-item fence after space-plus-tab close",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n  example\n  \t```\n\n  ```\n"
              f"  [repair]: https://example.com/commit/{repaired[:8]}\n  ```"),
+            ("reference definition inside outer fence after tab-marked list item",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n-\t~~~\n  ~~~\n\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition indented as code inside list item",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n-     [repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition inside multiline HTML comment",
@@ -1163,6 +1169,9 @@ class ResolutionGuard(ThreePass):
              f"[repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition in list item after space-plus-tab closing fence",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- ```\n  example\n  \t```\n\n"
+             f"  [repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition outside tab-marked list-item fence",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n-\t~~~\n"
              f"  [repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
