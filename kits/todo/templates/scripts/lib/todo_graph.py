@@ -2267,22 +2267,44 @@ _HELD_OS_LOCKS_GUARD = threading.Lock()
 _HELD_OS_LOCKS: dict[tuple[Path, str], object] = {}
 
 
+def _open_os_lock(oslock_path):
+    """Open the persistent `.oslock` file without requiring write permission on POSIX (`flock` works on `O_RDONLY`),
+    so a second POSIX account sharing the checkout and temp directory never hits `PermissionError` under a `022` umask
+    or Linux sticky-tmp `fs.protected_regular`."""
+    oslock_path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        return open(oslock_path, "a+b")
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(oslock_path, os.O_RDONLY | nofollow)
+    except FileNotFoundError:
+        try:
+            fd = os.open(oslock_path, os.O_RDONLY | os.O_CREAT | os.O_EXCL | nofollow, 0o644)
+        except FileExistsError:
+            fd = os.open(oslock_path, os.O_RDONLY | nofollow)
+    return os.fdopen(fd, "rb")
+
+
+def _try_os_lock(handle):
+    """Non-blocking exclusive OS lock attempt (`msvcrt.locking` on Windows, `fcntl.flock` on POSIX)."""
+    if os.name == "nt":
+        import msvcrt
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 def _acquire_os_lock(oslock_path, todo_lock, rel, action, deadline):
     """Acquire a persistent OS-managed exclusive file lock (`msvcrt.locking` on Windows, `fcntl.flock` on POSIX).
     The `.oslock` file is never unlinked while in use, so suspending a process keeps the lock held indefinitely and
     process termination releases it immediately in the kernel without relying on wall-clock timeouts."""
-    oslock_path.parent.mkdir(parents=True, exist_ok=True)
-    handle = open(oslock_path, "a+b")
+    handle = _open_os_lock(oslock_path)
     try:
         while True:
             try:
-                if os.name == "nt":
-                    import msvcrt
-                    handle.seek(0)
-                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _try_os_lock(handle)
                 return handle
             except OSError as exc:
                 busy = isinstance(exc, (BlockingIOError, PermissionError)) or exc.errno in (

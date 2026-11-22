@@ -3233,13 +3233,16 @@ class ThreePassStamp(Stamp):
         # 1. Suspended recovery worker past TAKEOVER_SECONDS with a second live contender on the same TODO file.
         self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
         c1_in_recovery = threading.Event()
+        c2_observed_busy = threading.Event()
         resume_c1 = threading.Event()
         real_free = tg._lock_owner_free
-        real_atomic = tg.atomic
+        real_try_os = tg._try_os_lock
+        real_acquire = tg._acquire_todo_lock
+        real_release = tg._release_todo_lock
         lock_state = threading.Lock()
-        active_writers = [0]
-        max_writers = [0]
-        writers_entered = [0]
+        active_holders = [0]
+        max_holders = [0]
+        holders_entered = [0]
         c1_paused = [False]
         free_calls = [0]
         c1_err, c2_err = [], []
@@ -3258,19 +3261,28 @@ class ThreePassStamp(Stamp):
                     resume_c1.wait(timeout=15.0)
             return out
 
-        def counted_atomic(path, data):
+        def track_try_os(handle):
+            try:
+                return real_try_os(handle)
+            except OSError:
+                if c1_in_recovery.is_set():
+                    c2_observed_busy.set()
+                raise
+
+        def counted_acquire(disp, path, rel, *args, **kwargs):
+            res = real_acquire(disp, path, rel, *args, **kwargs)
             if pathlib.Path(path) == todo:
                 with lock_state:
-                    active_writers[0] += 1
-                    writers_entered[0] += 1
-                    max_writers[0] = max(max_writers[0], active_writers[0])
-                try:
-                    time.sleep(0.05)
-                    return real_atomic(path, data)
-                finally:
-                    with lock_state:
-                        active_writers[0] -= 1
-            return real_atomic(path, data)
+                    active_holders[0] += 1
+                    holders_entered[0] += 1
+                    max_holders[0] = max(max_holders[0], active_holders[0])
+            return res
+
+        def counted_release(disp, lp, owned):
+            if lp == todo_lock:
+                with lock_state:
+                    active_holders[0] -= 1
+            return real_release(disp, lp, owned)
 
         def run_c1():
             try:
@@ -3287,16 +3299,20 @@ class ThreePassStamp(Stamp):
         with unittest.mock.patch.object(tg, "CACHE_RUNS", False), \
                 unittest.mock.patch.object(dispatch, "TAKEOVER_SECONDS", 0.05), \
                 unittest.mock.patch.object(tg, "_lock_owner_free", side_effect=pause_c1_before_unlink), \
-                unittest.mock.patch.object(tg, "atomic", side_effect=counted_atomic):
+                unittest.mock.patch.object(tg, "_try_os_lock", side_effect=track_try_os), \
+                unittest.mock.patch.object(tg, "_acquire_todo_lock", side_effect=counted_acquire), \
+                unittest.mock.patch.object(tg, "_release_todo_lock", side_effect=counted_release):
             t1 = threading.Thread(target=run_c1)
             t1.start()
             self.assertTrue(c1_in_recovery.wait(timeout=15.0), "contender 1 must enter stale-lock recovery")
             t2 = threading.Thread(target=run_c2)
             t2.start()
             try:
-                # Hold contender 1 suspended for 6x TAKEOVER_SECONDS while contender 2 actively competes.
-                time.sleep(0.30)
-                self.assertEqual(writers_entered[0], 0, "contender 2 must not enter write path while contender 1 is suspended")
+                # Wait until contender 2 is actually observed colliding with the held OS lock, then hold past TAKEOVER_SECONDS.
+                self.assertTrue(c2_observed_busy.wait(timeout=15.0),
+                                "contender 2 must actively contend on the held OS lock before contender 1 resumes")
+                time.sleep(0.15)
+                self.assertEqual(holders_entered[0], 0, "neither contender may enter critical section while c1 is paused in recovery")
                 self.assertTrue(takeover.is_file(), "suspended contender 1's takeover file must not be removed by age")
             finally:
                 resume_c1.set()
@@ -3306,11 +3322,30 @@ class ThreePassStamp(Stamp):
         self.assertFalse(t2.is_alive())
         self.assertEqual(c1_err, [], c1_err)
         self.assertEqual(c2_err, [], c2_err)
-        self.assertEqual(max_writers[0], 1, "at most one writer may enter the critical section")
-        self.assertEqual(writers_entered[0], 2, "both contenders must complete their writes")
+        self.assertEqual(max_holders[0], 1, "at most one lock holder may own the critical section from acquire to release")
+        self.assertEqual(holders_entered[0], 2, "both contenders must acquire and complete their critical sections")
+        self.assertEqual(active_holders[0], 0, "both contenders must release ownership cleanly")
         rows = tg.graph(self.root)
         self.assertIn("D00-T01-s1-chain1.md", rows["D00 T01 §1"].body)
         self.assertIn("D00-T01-s2-chain1.md", rows["D00 T01 §2"].body)
+
+        # 1b. On POSIX, a read-only (0o444) persistent .oslock file (simulating another account's 022-umask file)
+        #     must remain acquirable and exclusive via O_RDONLY + flock without PermissionError.
+        if os.name != "nt":
+            oslock_path = todo_lock.with_name(todo_lock.name + ".oslock")
+            self.assertTrue(oslock_path.is_file())
+            os.chmod(oslock_path, 0o444)
+            try:
+                lp_ro, ow_ro = tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                                     action="replan", wait_seconds=1.0)
+                try:
+                    with self.assertRaises(tg.Refused):
+                        tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                              action="replan", wait_seconds=0.15)
+                finally:
+                    tg._release_todo_lock(dispatch, lp_ro, ow_ro)
+            finally:
+                os.chmod(oslock_path, 0o644)
 
         # 2. Defense-in-depth: a live PID's backdated takeover file is never removed by age even if .oslock is free.
         self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
