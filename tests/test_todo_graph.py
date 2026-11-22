@@ -3824,6 +3824,154 @@ class ThreePassStamp(Stamp):
         self.assertTrue(kept.is_file())
         self.assertFalse(own.exists())
 
+    def test_replan_async_interrupt_unreadable_destination_keeps_archive_on_both_sides(self):
+        # D00 T01 §9 (filed P3 item 29 + chain 3 plan review findings 2 and 3): an async BaseException
+        # (KeyboardInterrupt) with an unreadable or status-unavailable destination keeps moved_rel archived on both
+        # sides of os.replace so retry recovers cleanly ("already" after publish, "noted" before publish).
+        import errno
+        real_os_replace = os.replace
+        real_read_bytes = pathlib.Path.read_bytes
+        real_is_file = pathlib.Path.is_file
+
+        # 1. Post-publish interrupt at the os.replace-to-flag boundary with denied read_bytes() -> retry "already".
+        self.chain(completion=("P2", True))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        own = self.root / self.FILE
+        before_own = own.read_bytes()
+        todo_resolved = todo.resolve()
+        deny_todo = [False]
+
+        def interrupt_after_replace(src, dst, *args, **kwargs):
+            res = real_os_replace(src, dst, *args, **kwargs)
+            if not args and not kwargs and pathlib.Path(dst).resolve() == todo_resolved:
+                deny_todo[0] = True
+                raise KeyboardInterrupt("interrupt between os.replace and _ATOMIC_STATE.replaced")
+            return res
+
+        def deny_read(p):
+            if deny_todo[0] and p.resolve() == todo_resolved:
+                raise PermissionError(errno.EACCES, "simulated exclusive handle on read")
+            return real_read_bytes(p)
+
+        with unittest.mock.patch.object(os, "replace", side_effect=interrupt_after_replace), \
+                unittest.mock.patch.object(pathlib.Path, "read_bytes", deny_read):
+            with self.assertRaises(KeyboardInterrupt):
+                tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+        deny_todo[0] = False
+        kept1 = own.with_name(f"{own.stem}-chain1.md")
+        self.assertFalse(own.exists(), "post-publish interrupt with denied read must keep moved_rel archived")
+        self.assertTrue(kept1.is_file())
+        self.assertEqual(kept1.read_bytes(), before_own)
+        self.assertIn("D00-T01-s1-chain1.md", todo.read_text(encoding="utf-8"))
+        retry1 = tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:05Z")
+        self.assertEqual(retry1["done"], "already")
+        self.assertEqual(retry1["kept"], kept1.relative_to(self.root).as_posix())
+        self.assertEqual(kept1.read_bytes(), before_own)
+
+        # 2. Post-publish interrupt with status-unavailable (is_file() returns False) and denied read -> retry "already".
+        own.write_bytes(before_own)
+        deny_todo[0] = False
+
+        def status_unavailable(p):
+            if deny_todo[0] and p.resolve() == todo_resolved:
+                return False
+            return real_is_file(p)
+
+        with unittest.mock.patch.object(os, "replace", side_effect=interrupt_after_replace), \
+                unittest.mock.patch.object(pathlib.Path, "is_file", status_unavailable), \
+                unittest.mock.patch.object(pathlib.Path, "read_bytes", deny_read):
+            with self.assertRaises(KeyboardInterrupt):
+                tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:10Z")
+        deny_todo[0] = False
+        kept2 = own.with_name(f"{own.stem}-chain2.md")
+        self.assertFalse(own.exists(), "status-unavailable destination must not bypass read_bytes() to roll back")
+        self.assertTrue(kept2.is_file())
+        self.assertEqual(kept2.read_bytes(), before_own)
+        self.assertIn("D00-T01-s1-chain2.md", todo.read_text(encoding="utf-8"))
+        retry2 = tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:15Z")
+        self.assertEqual(retry2["done"], "already")
+        self.assertEqual(retry2["kept"], kept2.relative_to(self.root).as_posix())
+
+        # 3. Pre-publish interrupt before os.replace with unreadable destination -> keep archive, retry "noted".
+        own.write_bytes(before_own)
+        before_todo3 = todo.read_bytes()
+        deny_todo[0] = False
+
+        def interrupt_before_replace(src, dst, *args, **kwargs):
+            if not args and not kwargs and pathlib.Path(dst).resolve() == todo_resolved:
+                deny_todo[0] = True
+                raise KeyboardInterrupt("interrupt before os.replace with unreadable destination")
+            return real_os_replace(src, dst, *args, **kwargs)
+
+        with unittest.mock.patch.object(os, "replace", side_effect=interrupt_before_replace), \
+                unittest.mock.patch.object(pathlib.Path, "read_bytes", deny_read):
+            with self.assertRaises(KeyboardInterrupt):
+                tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:20Z")
+        deny_todo[0] = False
+        kept3 = own.with_name(f"{own.stem}-chain3.md")
+        self.assertFalse(own.exists(), "pre-publish interrupt with unreadable destination keeps archive conservatively")
+        self.assertTrue(kept3.is_file())
+        self.assertEqual(kept3.read_bytes(), before_own)
+        self.assertEqual(todo.read_bytes(), before_todo3)
+        retry3 = tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:25Z")
+        self.assertEqual(retry3["done"], "noted")
+        self.assertEqual(retry3["kept"], kept3.relative_to(self.root).as_posix())
+        self.assertEqual(kept3.read_bytes(), before_own)
+        self.assertIn("D00-T01-s1-chain3.md", todo.read_text(encoding="utf-8"))
+        self.assertIn("> **Started:** 2026-10-20T12:25Z", todo.read_text(encoding="utf-8"))
+
+    def test_query_rounds_refuses_symlinked_kept_chain(self):
+        # D00 T01 §9 (chain 3 plan review finding 1): kept_chains() / query rounds must refuse any symlinked
+        # or junction-reached -chain<k>.md archive instead of reading another section's pass count.
+        self.chain(completion=("P2", True))
+        own = self.root / self.FILE
+        domain_dir = own.parent
+        saved_own = own.read_bytes()
+
+        def _make_dir_link(link_path, target_path):
+            if os.name == "nt":
+                subprocess.run(["cmd", "/c", "mklink", "/J", str(link_path), str(target_path)],
+                               check=True, capture_output=True, text=True,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            else:
+                os.symlink(target_path, link_path, target_is_directory=True)
+
+        with tempfile.TemporaryDirectory() as ext_tmp:
+            ext = pathlib.Path(ext_tmp)
+            # 1. Linked domain directory (Windows junction / POSIX symlink) holding a -chain1.md file.
+            ext_domain = ext / "outside-domain"
+            ext_domain.mkdir()
+            (ext_domain / f"{own.stem}-chain1.md").write_bytes(saved_own)
+            shutil.rmtree(domain_dir)
+            _make_dir_link(domain_dir, ext_domain)
+            try:
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.review_rounds(self.root)
+                self.assertIn("symlink or junction", str(ctx.exception))
+            finally:
+                if os.name == "nt":
+                    os.rmdir(domain_dir)
+                else:
+                    domain_dir.unlink()
+                domain_dir.mkdir(parents=True)
+
+            # 2. Direct -chain1.md file symlink pointing to another valid findings file.
+            other_findings = ext / "other-section.md"
+            other_findings.write_bytes(saved_own)
+            chain1 = own.with_name(f"{own.stem}-chain1.md")
+            try:
+                os.symlink(other_findings, chain1)
+                symlink_supported = True
+            except OSError:
+                symlink_supported = False
+            if symlink_supported:
+                try:
+                    with self.assertRaises(tg.Refused) as ctx:
+                        tg.review_rounds(self.root)
+                    self.assertIn("symlink or junction", str(ctx.exception))
+                finally:
+                    chain1.unlink()
+
     def test_fallback_lock_backend_matches_review_dispatch(self):
         # D00 T01 §13 Round 1 finding 5: standalone todo-kit fallback must stay aligned with review-dispatch.py.
         dispatch = tg.review_dispatch()

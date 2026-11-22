@@ -2181,8 +2181,12 @@ def kept_chains(root, ref):
     root = Path(root)
     # Bytes, not read_text: universal newlines would turn a stored lone "\r" into a line break and break the digest
     # the dispatcher sealed the review under.
-    return [{"file": p.relative_to(root).as_posix(),
-             "passes_returned": returned_passes(p.read_bytes().decode("utf-8"))} for p in kept_chain_files(root, ref)]
+    results = []
+    for p in kept_chain_files(root, ref):
+        rel = p.relative_to(root).as_posix()
+        contained = _contained_path(root, rel, "kept chain")
+        results.append({"file": rel, "passes_returned": returned_passes(contained.read_bytes().decode("utf-8"))})
+    return results
 
 
 def _contained_path(root, relative, label):
@@ -2691,9 +2695,12 @@ def replan(root, ref, date, now):
                 already_published = getattr(_ATOMIC_STATE, "replaced", False)
                 if not already_published and not isinstance(exc, Exception):
                     try:
-                        already_published = path.is_file() and path.read_bytes() != original_bytes
+                        already_published = path.read_bytes() != original_bytes
                     except OSError:
-                        already_published = False
+                        # An unreadable destination during async BaseException (sharing violation or status error)
+                        # cannot prove the old TODO is still on disk; keep moved_rel archived conservatively so a
+                        # retry either returns "already" (if published) or "noted" (if unpublished).
+                        already_published = True
                 if not already_published and moved is not None and moved.exists() and not own.exists():
                     _replace_contained(root, moved_rel, findings_rel)
                 raise
