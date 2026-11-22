@@ -2171,8 +2171,13 @@ def returned_passes(text):
 def kept_chain_files(root, ref):
     """The section's kept earlier chains, beside its findings file, in chain order."""
     own = Path(root) / section_findings(root, ref)
-    found = [(int(m[1]), p) for p in own.parent.glob(f"{own.stem}-chain*.md")
-             if (m := KEPT_CHAIN.search(p.name)) and p.name == f"{own.stem}-chain{m[1]}.md"]
+    try:
+        with os.scandir(own.parent) as entries:
+            names = [entry.name for entry in entries]
+    except FileNotFoundError:
+        return []
+    found = [(int(m[1]), own.parent / name) for name in names
+             if (m := KEPT_CHAIN.search(name)) and name == f"{own.stem}-chain{m[1]}.md"]
     return [p for _, p in sorted(found)]
 
 
@@ -2180,12 +2185,13 @@ def kept_chains(root, ref):
     """Each kept chain of the section with its returned passes, for `query rounds`."""
     root = Path(root)
     # Bytes, not read_text: universal newlines would turn a stored lone "\r" into a line break and break the digest
-    # the dispatcher sealed the review under.
+    # the dispatcher sealed the review under. Read through a verified handle so a concurrent swap to a symlink cannot
+    # be followed after validation.
     results = []
     for p in kept_chain_files(root, ref):
         rel = p.relative_to(root).as_posix()
-        contained = _contained_path(root, rel, "kept chain")
-        results.append({"file": rel, "passes_returned": returned_passes(contained.read_bytes().decode("utf-8"))})
+        raw = _read_contained_bytes(root, rel, "kept chain")
+        results.append({"file": rel, "passes_returned": returned_passes(raw.decode("utf-8"))})
     return results
 
 
@@ -2270,6 +2276,123 @@ TODO_LOCK_WAIT_SECONDS = 60.0
 _SUPPORTS_DIR_FD_REPLACE = (
     os.rename in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
 )
+_SUPPORTS_DIR_FD_OPEN = (
+    os.open in os.supports_dir_fd and hasattr(os, "O_NOFOLLOW") and hasattr(os, "O_DIRECTORY")
+)
+
+
+def _read_contained_bytes(root, rel, label):
+    """Read `root / rel` through a containment-verified handle, closing the TOCTOU window between symlink/junction
+    checks and open: POSIX walks ancestors with `O_NOFOLLOW | O_DIRECTORY` and opens the leaf with `O_NOFOLLOW`;
+    Windows pins every ancestor directory without `FILE_SHARE_DELETE`, verifies no reparse point on each handle and on
+    the leaf handle opened with `FILE_FLAG_OPEN_REPARSE_POINT`, and reads directly from that handle."""
+    root = Path(root)
+    parts = [p for p in rel.replace("\\", "/").split("/") if p]
+    require(bool(parts) and all(p not in (".", "..") for p in parts),
+            f"{label} {rel} resolves outside the repository: refusing to touch it")
+    if _SUPPORTS_DIR_FD_OPEN:
+        dir_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            for part in parts[:-1]:
+                try:
+                    nxt = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+                except OSError as exc:
+                    if exc.errno in (errno.ELOOP, errno.ENOTDIR):
+                        raise Refused(
+                            f"{label} {rel} is reached through a symlink or junction: refusing to touch it"
+                        ) from None
+                    raise
+                os.close(dir_fd)
+                dir_fd = nxt
+            try:
+                file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=dir_fd)
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise Refused(
+                        f"{label} {rel} is reached through a symlink or junction: refusing to touch it"
+                    ) from None
+                raise
+            try:
+                st = os.fstat(file_fd)
+                require(stat.S_ISREG(st.st_mode),
+                        f"{label} {rel} is not a regular file: refusing to touch it")
+                with os.fdopen(file_fd, "rb") as handle:
+                    file_fd = None
+                    return handle.read()
+            finally:
+                if file_fd is not None:
+                    os.close(file_fd)
+        finally:
+            os.close(dir_fd)
+    if os.name == "nt":
+        import ctypes
+        import msvcrt
+        from ctypes import wintypes
+
+        class _ByHandleFileInfo(ctypes.Structure):
+            _fields_ = [
+                ("dwFileAttributes", wintypes.DWORD),
+                ("ftCreationTime", wintypes.FILETIME),
+                ("ftLastAccessTime", wintypes.FILETIME),
+                ("ftLastWriteTime", wintypes.FILETIME),
+                ("dwVolumeSerialNumber", wintypes.DWORD),
+                ("nFileSizeHigh", wintypes.DWORD),
+                ("nFileSizeLow", wintypes.DWORD),
+                ("nNumberOfLinks", wintypes.DWORD),
+                ("nFileIndexHigh", wintypes.DWORD),
+                ("nFileIndexLow", wintypes.DWORD),
+            ]
+
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateFileW.restype = wintypes.HANDLE
+        k32.CreateFileW.argtypes = (
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        )
+        k32.GetFileInformationByHandle.restype = wintypes.BOOL
+        k32.GetFileInformationByHandle.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ByHandleFileInfo))
+        k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        invalid = wintypes.HANDLE(-1).value
+        reparse_flag = 0x0400
+        dir_flag = 0x0010
+        handles = []
+        file_handle = None
+        try:
+            cur = root
+            for part in parts[:-1]:
+                cur = cur / part
+                h = k32.CreateFileW(str(cur), 0x0001, 0x1 | 0x2, None, 3, 0x02000000 | 0x00200000, None)
+                if h in (0, invalid):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                handles.append(h)
+                info = _ByHandleFileInfo()
+                if not k32.GetFileInformationByHandle(h, ctypes.byref(info)):
+                    raise ctypes.WinError(ctypes.get_last_error())
+                require(not (info.dwFileAttributes & reparse_flag),
+                        f"{label} {rel} is reached through a symlink or junction: refusing to touch it")
+            target = cur / parts[-1]
+            # Open with FILE_FLAG_OPEN_REPARSE_POINT (0x00200000) so a symlink is opened as itself rather than followed.
+            h = k32.CreateFileW(str(target), 0x80000000, 0x1 | 0x2, None, 3, 0x00200000, None)
+            if h in (0, invalid):
+                raise ctypes.WinError(ctypes.get_last_error())
+            file_handle = h
+            info = _ByHandleFileInfo()
+            if not k32.GetFileInformationByHandle(file_handle, ctypes.byref(info)):
+                raise ctypes.WinError(ctypes.get_last_error())
+            require(not (info.dwFileAttributes & reparse_flag),
+                    f"{label} {rel} is reached through a symlink or junction: refusing to touch it")
+            require(not (info.dwFileAttributes & dir_flag),
+                    f"{label} {rel} is not a regular file: refusing to touch it")
+            fd = msvcrt.open_osfhandle(file_handle, os.O_RDONLY)
+            file_handle = None  # ownership transferred to CRT fd
+            with os.fdopen(fd, "rb") as stream:
+                return stream.read()
+        finally:
+            if file_handle is not None:
+                k32.CloseHandle(file_handle)
+            for h in reversed(handles):
+                k32.CloseHandle(h)
+    return _contained_path(root, rel, label).read_bytes()
 
 
 def _replace_contained(root, src_rel, dst_rel):

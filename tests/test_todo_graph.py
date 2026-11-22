@@ -3955,22 +3955,47 @@ class ThreePassStamp(Stamp):
                     domain_dir.unlink()
                 domain_dir.mkdir(parents=True)
 
-            # 2. Direct -chain1.md file symlink pointing to another valid findings file.
-            other_findings = ext / "other-section.md"
+    def test_query_rounds_refuses_direct_file_symlink_kept_chain(self):
+        # D00 T01 §9 (Round 1 finding 3): test the direct -chain1.md file symlink in its own test, skipping only
+        # the known missing-privilege condition on Windows and letting unexpected OSErrors fail.
+        import errno
+        self.chain(completion=("P2", True))
+        own = self.root / self.FILE
+        saved_own = own.read_bytes()
+        with tempfile.TemporaryDirectory() as ext_tmp:
+            other_findings = pathlib.Path(ext_tmp) / "other-section.md"
             other_findings.write_bytes(saved_own)
             chain1 = own.with_name(f"{own.stem}-chain1.md")
             try:
                 os.symlink(other_findings, chain1)
-                symlink_supported = True
-            except OSError:
-                symlink_supported = False
-            if symlink_supported:
-                try:
-                    with self.assertRaises(tg.Refused) as ctx:
-                        tg.review_rounds(self.root)
-                    self.assertIn("symlink or junction", str(ctx.exception))
-                finally:
-                    chain1.unlink()
+            except OSError as exc:
+                if os.name == "nt" and (getattr(exc, "winerror", None) == 1314 or exc.errno == errno.EPERM):
+                    self.skipTest(f"file symlinks require elevated privilege on this Windows host: {exc}")
+                raise
+            try:
+                with self.assertRaises(tg.Refused) as ctx:
+                    tg.review_rounds(self.root)
+                self.assertIn("symlink or junction", str(ctx.exception))
+            finally:
+                chain1.unlink()
+
+    def test_query_rounds_surfaces_unreadable_review_directory(self):
+        # D00 T01 §9 (Round 1 finding 2): kept_chain_files() must surface directory permission errors instead of
+        # silently returning an empty history via Path.glob().
+        import errno
+        self.chain(completion=("P2", True))
+        own = self.root / self.FILE
+        review_dir = own.parent.resolve()
+        real_scandir = os.scandir
+
+        def deny_scandir(path="."):
+            if pathlib.Path(path).resolve() == review_dir:
+                raise PermissionError(errno.EACCES, "simulated unreadable review directory", str(path))
+            return real_scandir(path)
+
+        with unittest.mock.patch.object(os, "scandir", side_effect=deny_scandir):
+            with self.assertRaises(PermissionError):
+                tg.review_rounds(self.root)
 
     def test_fallback_lock_backend_matches_review_dispatch(self):
         # D00 T01 §13 Round 1 finding 5: standalone todo-kit fallback must stay aligned with review-dispatch.py.
