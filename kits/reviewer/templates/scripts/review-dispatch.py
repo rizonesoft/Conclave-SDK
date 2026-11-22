@@ -693,7 +693,7 @@ REVSPEC_SUFFIX = re.compile(r"(?:[~^][0-9]*)+$")
 REF_DEF_LINE = re.compile(r"^\s{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
 FENCE_OPEN = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>[ ]?")
-LIST_ITEM_ONE = re.compile(r"^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])[ \t]+")
+LIST_ITEM_ONE = re.compile(r"^([ ]{0,3})(?:[-*+]|\d{1,9}[.)])([ ]+|\t)")
 HTML_COMMENT_OPEN = re.compile(r"^[ ]{0,3}<!--")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
@@ -1480,20 +1480,35 @@ def _strip_bq_at_most(line, limit):
 
 def _strip_containers(line):
     """Strip leading CommonMark blockquote (`>`) and list-item (`- `, `* `, `+ `, `1. `) container markers from
-    `line`. Returns `(blockquote_depth, rest)`."""
-    bq, rest = 0, line
+    `line`, following CommonMark §5.2 (5+ spaces after a list marker consume only 1 space so the remaining 4+
+    spaces stay an indented code block). Returns `(blockquote_depth, list_indent, rest)`."""
+    bq, list_indent, rest = 0, 0, line
     while True:
         m = BLOCKQUOTE_ONE.match(rest)
         if m:
             bq += 1
+            list_indent = 0
             rest = rest[m.end():]
             continue
         lm = LIST_ITEM_ONE.match(rest)
         if lm:
-            rest = rest[lm.end():]
-            continue
+            lead = len(lm.group(1))
+            sp = lm.group(2)
+            marker_end = lm.end() - len(sp)
+            if sp == "\t":
+                list_indent += marker_end + (4 - (marker_end % 4))
+                rest = rest[lm.end():]
+                continue
+            if len(sp) <= 4:
+                list_indent += lm.end()
+                rest = rest[lm.end():]
+                continue
+            # CommonMark §5.2: 5+ spaces after list marker means 1 space + indented code (4+ spaces).
+            list_indent += marker_end + 1
+            rest = rest[marker_end + 1 :]
+            break
         break
-    return bq, rest
+    return bq, list_indent, rest
 
 
 def _fence_step(line, fence):
@@ -1509,6 +1524,16 @@ def _fence_step(line, fence):
     if leading <= 3 and stripped.startswith(char * length) and stripped.lstrip(char).strip(" \t") == "":
         return None, True
     return fence, True
+
+
+def _strip_indent(line, indent):
+    """Return `(still_inside, content)` for a line inside a container indented by `indent` spaces."""
+    if indent <= 0 or not line.strip():
+        return True, line[indent:] if indent > 0 and len(line) >= indent else line
+    lead = len(line) - len(line.lstrip(" "))
+    if lead < indent:
+        return False, line
+    return True, line[indent:]
 
 
 def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
@@ -1540,17 +1565,18 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, bq):
 
 def _collect_ref_defs(raw_lines):
     """Collect valid CommonMark link reference definitions from `raw_lines` in linear time, skipping fenced code
-    blocks and HTML comment blocks (without stripping deeper blockquote markers inside an open outer block),
-    unwrapping blockquote and list-item container markers outside them, and supporting next-line destinations and
-    multiline link titles."""
+    blocks and HTML comment blocks (tracking both blockquote depth and list-item indent so exiting either container
+    closes inner blocks while deeper markers inside an outer block cannot close it), unwrapping blockquote and
+    list-item container markers outside them, and supporting next-line destinations and multiline link titles."""
     defs = set()
-    fence, fence_bq = None, 0
-    in_comment, comment_bq = False, 0
+    fence, fence_bq, fence_indent = None, 0, 0
+    in_comment, comment_bq, comment_indent = False, 0, 0
     i, n = 0, len(raw_lines)
     while i < n:
         if fence is not None:
             bq_here, inner = _strip_bq_at_most(raw_lines[i], fence_bq)
-            if bq_here < fence_bq:
+            still_in, inner = _strip_indent(inner, fence_indent) if bq_here == fence_bq else (False, inner)
+            if not still_in:
                 fence = None
             else:
                 fence, inside = _fence_step(inner, fence)
@@ -1559,23 +1585,24 @@ def _collect_ref_defs(raw_lines):
                     continue
         if in_comment:
             bq_here, inner = _strip_bq_at_most(raw_lines[i], comment_bq)
-            if bq_here < comment_bq:
+            still_in, inner = _strip_indent(inner, comment_indent) if bq_here == comment_bq else (False, inner)
+            if not still_in:
                 in_comment = False
             else:
                 if "-->" in inner:
                     in_comment = False
                 i += 1
                 continue
-        bq, content = _strip_containers(raw_lines[i])
+        bq, list_indent, content = _strip_containers(raw_lines[i])
         new_fence, inside = _fence_step(content, None)
         if inside:
-            fence, fence_bq = new_fence, bq
+            fence, fence_bq, fence_indent = new_fence, bq, list_indent
             i += 1
             continue
         if HTML_COMMENT_OPEN.match(content):
             open_end = content.find("<!--") + 4
             if "-->" not in content[open_end:]:
-                in_comment, comment_bq = True, bq
+                in_comment, comment_bq, comment_indent = True, bq, list_indent
             i += 1
             continue
         m = REF_DEF_LINE.match(content)
@@ -1764,14 +1791,27 @@ def _is_multiword_revspec(expr, seen):
 
 
 def _split_revspec_tokens(text):
-    """Split `text` on whitespace while keeping closed Git brace selectors (`@{...}` and `^{...}`) intact inside
-    their token so literal `{` in prose never consumes later tokens."""
+    """Split `text` on whitespace while keeping Markdown inline code spans (`` `...` ``) intact and keeping closed
+    Git brace selectors (`@{...}` and `^{...}`) intact only outside code spans (never crossing a backtick)."""
     tokens, buf = [], []
     i, n = 0, len(text)
     while i < n:
+        if text[i] == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            ticks = text[i:j]
+            close = text.find(ticks, j)
+            if close != -1:
+                buf.append(text[i : close + len(ticks)])
+                i = close + len(ticks)
+                continue
+            buf.append(ticks)
+            i = j
+            continue
         if text[i] in "@^" and i + 1 < n and text[i + 1] == "{":
             close = text.find("}", i + 2)
-            if close != -1:
+            if close != -1 and "`" not in text[i + 2 : close]:
                 buf.append(text[i : close + 1])
                 i = close + 1
                 continue
@@ -1785,6 +1825,21 @@ def _split_revspec_tokens(text):
     if buf:
         tokens.append("".join(buf))
     return tokens
+
+
+def _all_search_selectors(tokens, seen):
+    """True when `tokens` is a non-empty sequence of one or more `:/...` Git commit-message search selectors (each
+    starting with a token prefixed `:/`, optionally spanning words up to the next `:/` token) that all resolve as
+    commits in git."""
+    if not tokens or not _strip_paired_md(tokens[0]).startswith(":/"):
+        return False
+    groups = []
+    for tok in tokens:
+        if _strip_paired_md(tok).startswith(":/"):
+            groups.append([tok])
+        else:
+            groups[-1].append(tok)
+    return all(_is_revspec_in_git(_strip_paired_md(" ".join(group)), seen) for group in groups)
 
 
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
@@ -1810,11 +1865,13 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
             if commit_pos:
                 non_commit = [other for other_pos, other in enumerate(parts)
                               if other_pos not in commit_pos and "://" not in other]
-                if not non_commit or _is_multiword_revspec(_strip_paired_md(" ".join(non_commit)), seen):
+                if not non_commit or _is_multiword_revspec(_strip_paired_md(" ".join(non_commit)), seen) \
+                        or _all_search_selectors(non_commit, seen):
                     continue
                 remaining = [other for other in non_commit
                              if any(ch.isalnum() for ch in other) and not _is_commit_ref_token(other, seen)]
-                if remaining and not _is_multiword_revspec(_strip_paired_md(" ".join(remaining)), seen):
+                if remaining and not _is_multiword_revspec(_strip_paired_md(" ".join(remaining)), seen) \
+                        and not _all_search_selectors(remaining, seen):
                     return True
         if FILED_LINE.match(line):
             return True
