@@ -45,7 +45,7 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Ticket login plugin in the WordPress kit | -- | [x] |
-| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1, §9 | [ ] |
+| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1, §9 | [x] |
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [x] |
 | 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [x] |
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [x] |
@@ -122,13 +122,16 @@ The opener is the half that runs on the operator's machine. The first build open
 - [x] Run both paths of `main` end to end with `site_ssh.wp` replaced by the stand-ins: the default stores a ticket, launches the browser on `<pinned url>/?conclave_ticket=<the stored token>` (a pin under a subpath included), and reports that the browser was launched with a one-use login link (without claiming verified HTTP login before WordPress redeems it), and `--check` stores, confirms, drops, confirms the removal (`drop` must return `"dropped"`) and opens nothing. Done when: both tests pass and each prints its exact fixed success line, and a `--check` test where a newer ticket replaces this run's ticket before `drop` (`not ours`) leaves the newer ticket intact, exits 1 and prints a fixed refusal. **Planned 2026-11-21 (plan review, gap 4):** `--check` requires `dropped` to claim removal and refuses `not ours`/`absent`/`gone`. **Planned 2026-11-22 (chain 4 plan review, gap 4):** report browser launch (`launched the browser with a one-use dashboard login link (works once, within 60 seconds)`) instead of claiming verified login before redemption.
 - [x] Print only fixed messages: each refusal (including invalid CLI arguments and an unwritable local redirect directory) is a fixed sentence written in the opener without echoing caller arguments or local paths, any other exception prints `open-dashboard: <exception type>: unexpected failure` and nothing of its text, and nothing prints the token, the digest or the link; update `kits/wordpress/templates/docs/wordpress-agent-tooling.md:49` so the user-facing logging statement matches the HTTPS query protocol honestly. Done when: tests make each step raise an exception whose text holds the token, a link fragment and a child's output (also with cleanup failing), pass a sentinel bad CLI argument (`--invalid-review-marker`) and a sentinel unwritable `PAGES` directory path asserting the sentinels never appear on stdout or stderr, and `tests/test_forge.py` verifies the reconciled logging wording in `wordpress-agent-tooling.md`. **Planned 2026-11-22 (chain 4 plan review, gaps 1 and 5):** fixed `argparse` error handler, fixed unwritable-cache message without `{PAGES}`, sentinel tests on both streams, and reconciled `wordpress-agent-tooling.md:49`.
 - [x] Add to `kits/wordpress/templates/scripts/tests/test_ticket_login.py` (installed as `scripts/tests/test_ticket_login.py`) the agreement test: the plugin's two constants equal the opener's `OPTION` and `QUERY`. Done when: renaming either constant on one side makes it fail. **Planned 2026-11-22 (chain 4 plan review, gap 8):** name both the SDK template path and installed path.
-- [ ] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
+- [x] Commit: `wordpress: the dashboard opener, from WSL and Linux, refused on native Windows`
 
 **Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py -v`, `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"`, `python -m unittest tests.test_forge -k test_dashboard_login_page_and_skills`, and `python forge.py check-all --only kit-wordpress` pass, with named non-skipped execution of (a) the PHP stand-in tests and `test_headless_browser_follows_redirect_via_linux_open_browser` (Linux CI `kits-linux` verbose step in `.github/workflows/tests.yml`), and (b) `test_headless_browser_follows_redirect_via_wsl_open_browser` (Windows/WSL host); changing `QUERY` in the opener alone makes `test_ticket_login.py` fail. **Corrected 2026-11-20 (plan review gap 2):** a discovery run of the opener's tests could report `Ran 0 tests` and `OK`, so the file is run directly. **Planned 2026-11-22 (chain 4 plan review, gap 6):** require named, non-skipped evidence for PHP stand-in tests, native Linux headless browser redirect, and Windows-through-WSL headless browser redirect.
 
 > **Unstamped:** 2026-11-21: shadow audit found two P2 desktop-entry defects missed by repair-diff; repair -> XREF: D07 T02 §8 (revoked receipt `docs/reviews/d07-t02-s2.revoked-2026-11-21.json`)
 
 > **Unstamped:** 2026-11-22: shadow audit audit-d07-t02-s2-c3.md found 6 P2s and 1 P3 missed by repair-diff; repair -> XREF: D07 T02 §9 (revoked receipt `docs/reviews/d07-t02-s2.revoked-2026-11-22.json`)
+
+> **Verified:** 2026-11-22 | §2 | 4f08d355b3fd19f5d3d191a6df4902e3c96fcb08
+> **Review:** `docs/reviews/d07-t02-s2.json`
 
 ## 3. Plugin install, status and removal on the pinned site
 

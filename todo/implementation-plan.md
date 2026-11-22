@@ -172,14 +172,14 @@ Sections: 16 | Checklist items: 143
 | [x]    | D07 T02 §3 | Plugin install, status and removal on the pinned site              | none         | 7     |
 | [x]    | D07 T02 §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py` | none         | 5     |
 | [x]    | D07 T02 §9 | Shadow-audit repairs for `open-dashboard.py` and browser test      | none         | 5     |
-| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                       | none         | 13    |
+| [x]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                       | none         | 13    |
 | [x]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                 | none         | 5     |
 | [x]    | D07 T02 §5 | WordPress link in the launcher profile                             | none         | 4     |
 | [x]    | D07 T02 §6 | `wordpress-connect` step and tooling page                          | none         | 4     |
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 27 | Checklist items: 168
+Sections: 27 | Checklist items: 169
 
 | Status | Reference   | Deliverable                                                   | Needs        | Items |
 | ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
@@ -208,7 +208,7 @@ Sections: 27 | Checklist items: 168
 | [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops    | windows-host | 11    |
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
-| [ ]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 5     |
+| [ ]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 6     |
 | [ ]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 6     |
 
 ### Phase 10: Public release: private overlay and the Neon writer
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 115/155 verified sections, 10 ready to run now.
+Progress: 116/155 verified sections, 9 ready to run now.
 
-Checklist: 946/1166 items completed (includes Commit items).
+Checklist: 947/1167 items completed (includes Commit items).
