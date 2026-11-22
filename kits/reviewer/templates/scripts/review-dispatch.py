@@ -689,11 +689,13 @@ COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
 DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
-REVSPEC_SUFFIX = re.compile(r"(?:[~^][0-9]*)+$")
+REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
 REF_DEF_LINE = re.compile(r"^[ ]{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
 LIST_ITEM_ONE = re.compile(r"^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])")
+THEMATIC_BREAK = re.compile(r"^[ ]{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
+SETEXT_UNDERLINE = re.compile(r"^[ ]{0,3}(?:=+|-+)[ \t]*$")
 ATX_HEADING = re.compile(r"^[ ]{0,3}#{1,6}(?:[ \t]|$)")
 HTML_COMMENT_OPEN = re.compile(r"^[ ]{0,3}<!--")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
@@ -1519,6 +1521,9 @@ def _strip_containers(line, start_bq=0, start_indent=0, start_col=0):
             rest, col = next_rest, next_col
             continue
         expanded = next_rest
+        if THEMATIC_BREAK.match(expanded):
+            rest = expanded
+            break
         lm = LIST_ITEM_ONE.match(expanded)
         if lm:
             marker_end = lm.end()
@@ -1672,6 +1677,9 @@ def _collect_ref_defs(raw_lines):
                 blank_in_container = True
                 prev_bq = bq_here
                 break
+            if bq_here == cbq and THEMATIC_BREAK.match(_expand_leading_tabs(inner, bq_col)):
+                open_lists.pop()
+                continue
             still_in, stripped, stripped_col = _strip_indent(inner, cindent, bq_col) \
                 if bq_here == cbq else (False, inner, bq_col)
             if still_in:
@@ -1708,7 +1716,8 @@ def _collect_ref_defs(raw_lines):
             in_para = False
             i += 1
             continue
-        if ATX_HEADING.match(content):
+        if ATX_HEADING.match(content) or THEMATIC_BREAK.match(content) \
+                or (in_para and SETEXT_UNDERLINE.match(content)):
             in_para = False
             i += 1
             continue
@@ -1886,6 +1895,9 @@ def _is_commit_ref_token(raw, seen):
         if base and base in refs:
             return True
         if base and COMMIT_TOKEN.fullmatch(base) and (len(base) >= 7 or _is_commit_in_git(base, seen)):
+            return True
+        if base and any(ch in base for ch in "@^~:/{}") and base.count("{") == base.count("}") \
+                and _is_revspec_in_git(base, seen):
             return True
         if any(ch in piece for ch in "@^~:/{}") and piece.count("{") == piece.count("}") \
                 and _is_revspec_in_git(piece.lstrip("^"), seen):

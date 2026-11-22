@@ -1072,6 +1072,7 @@ class ResolutionGuard(ThreePass):
             ("SHA plus git range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..{repaired[:8]}"),
             ("SHA plus branch range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..main"),
             ("SHA plus reflog selector with no description", f"- Implemented: {repaired[:8]} HEAD@{{0}}"),
+            ("SHA plus parent-set selector HEAD^@ with no description", f"- Implemented: {repaired[:8]} HEAD^@"),
             ("SHA plus date reflog selector with spaces and no description",
              f"- Implemented: {repaired[:8]} HEAD@{{1 minute ago}}"),
             ("SHA plus backticked date reflog selector with no description",
@@ -1125,6 +1126,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition inside fenced block after blank line in list item",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- example\n\n    ~~~\n"
              f"  [repair]: https://example.com/commit/{repaired[:8]}\n  ~~~"),
+            ("reference definition indented as code after spaced thematic break",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n* * *\n\n"
+             f"    [repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference definition inside multiline HTML comment",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n<!--\n"
              f"[repair]: https://example.com/commit/{repaired[:8]}\n-->"),
@@ -1189,6 +1193,9 @@ class ResolutionGuard(ThreePass):
             ("reference definition indented in list item after blank line",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n- example\n\n"
              f"    [repair]: https://example.com/commit/{repaired[:8]}"),
+            ("reference definition immediately below thematic break",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n---\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
             ("multiline quoted title reference-linked SHA",
