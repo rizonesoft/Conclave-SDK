@@ -3204,7 +3204,165 @@ class ThreePassStamp(Stamp):
             self.assertEqual(lock_path, todo_lock)
             self.assertEqual(todo_lock.read_text(encoding="ascii"), owned)
         finally:
-            dispatch.release_section(lock_path, owned)
+            tg._release_todo_lock(dispatch, lock_path, owned)
+        self.assertFalse(todo_lock.exists())
+
+    def test_two_contenders_suspended_recovery_past_takeover_seconds_and_killed_owner(self):
+        # D00 T01 §13 Completion gaps 1-3: OS-managed lock + live-PID takeover guard keep a suspended recovery worker
+        # exclusive past TAKEOVER_SECONDS while releasing immediately on process kill.
+        import threading
+        self.chain(completion=("P2", True))
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        # Give §2 a Started line and canonical findings file so two contenders replan sibling sections in the same TODO.
+        text = todo.read_text(encoding="utf-8")
+        sec2 = tg.section_text(text, 2)
+        sec2_started = sec2.replace("**Phase:**", "> **Started:** 2026-10-23T00:00Z\n\n**Phase:**", 1)
+        todo.write_text(text.replace(sec2, sec2_started, 1), encoding="utf-8")
+        s2_file = self.root / "docs/reviews/00-workspace/D00-T01-s2.md"
+        s2_file.parent.mkdir(parents=True, exist_ok=True)
+        s2_file.write_text("# Review findings s2\n", encoding="utf-8")
+        self.commit("start §2 for two-contender recovery test")
+
+        dispatch = tg.review_dispatch()
+        todo_lock = dispatch.section_lock_path(todo)
+        takeover = todo_lock.with_name(todo_lock.name + ".takeover")
+        stale = "999999 1 stale000"
+        self.addCleanup(lambda: todo_lock.unlink(missing_ok=True))
+        self.addCleanup(lambda: takeover.unlink(missing_ok=True))
+
+        # 1. Suspended recovery worker past TAKEOVER_SECONDS with a second live contender on the same TODO file.
+        self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
+        c1_in_recovery = threading.Event()
+        resume_c1 = threading.Event()
+        real_free = tg._lock_owner_free
+        real_atomic = tg.atomic
+        lock_state = threading.Lock()
+        active_writers = [0]
+        max_writers = [0]
+        writers_entered = [0]
+        c1_paused = [False]
+        free_calls = [0]
+        c1_err, c2_err = [], []
+
+        def pause_c1_before_unlink(disp, lp, raw):
+            out = real_free(disp, lp, raw)
+            if lp == todo_lock and out and not c1_paused[0]:
+                free_calls[0] += 1
+                # Second call for todo_lock is inside the takeover block right before todo_lock.unlink().
+                if free_calls[0] == 2:
+                    c1_paused[0] = True
+                    old_ts = time.time() - 120.0
+                    if takeover.exists():
+                        os.utime(takeover, (old_ts, old_ts))
+                    c1_in_recovery.set()
+                    resume_c1.wait(timeout=15.0)
+            return out
+
+        def counted_atomic(path, data):
+            if pathlib.Path(path) == todo:
+                with lock_state:
+                    active_writers[0] += 1
+                    writers_entered[0] += 1
+                    max_writers[0] = max(max_writers[0], active_writers[0])
+                try:
+                    time.sleep(0.05)
+                    return real_atomic(path, data)
+                finally:
+                    with lock_state:
+                        active_writers[0] -= 1
+            return real_atomic(path, data)
+
+        def run_c1():
+            try:
+                tg.replan(self.root, "D00 T01 §1", "2026-10-25", "2026-10-25T00:00Z")
+            except BaseException as exc:
+                c1_err.append(exc)
+
+        def run_c2():
+            try:
+                tg.replan(self.root, "D00 T01 §2", "2026-10-25", "2026-10-25T00:00Z")
+            except BaseException as exc:
+                c2_err.append(exc)
+
+        with unittest.mock.patch.object(tg, "CACHE_RUNS", False), \
+                unittest.mock.patch.object(dispatch, "TAKEOVER_SECONDS", 0.05), \
+                unittest.mock.patch.object(tg, "_lock_owner_free", side_effect=pause_c1_before_unlink), \
+                unittest.mock.patch.object(tg, "atomic", side_effect=counted_atomic):
+            t1 = threading.Thread(target=run_c1)
+            t1.start()
+            self.assertTrue(c1_in_recovery.wait(timeout=15.0), "contender 1 must enter stale-lock recovery")
+            t2 = threading.Thread(target=run_c2)
+            t2.start()
+            try:
+                # Hold contender 1 suspended for 6x TAKEOVER_SECONDS while contender 2 actively competes.
+                time.sleep(0.30)
+                self.assertEqual(writers_entered[0], 0, "contender 2 must not enter write path while contender 1 is suspended")
+                self.assertTrue(takeover.is_file(), "suspended contender 1's takeover file must not be removed by age")
+            finally:
+                resume_c1.set()
+            t1.join(timeout=30.0)
+            t2.join(timeout=30.0)
+        self.assertFalse(t1.is_alive())
+        self.assertFalse(t2.is_alive())
+        self.assertEqual(c1_err, [], c1_err)
+        self.assertEqual(c2_err, [], c2_err)
+        self.assertEqual(max_writers[0], 1, "at most one writer may enter the critical section")
+        self.assertEqual(writers_entered[0], 2, "both contenders must complete their writes")
+        rows = tg.graph(self.root)
+        self.assertIn("D00-T01-s1-chain1.md", rows["D00 T01 §1"].body)
+        self.assertIn("D00-T01-s2-chain1.md", rows["D00 T01 §2"].body)
+
+        # 2. Defense-in-depth: a live PID's backdated takeover file is never removed by age even if .oslock is free.
+        self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
+        live_takeover = f"{os.getpid()} 1 livetak0"
+        self.assertTrue(dispatch._create_exclusive(takeover, live_takeover))
+        old_ts = time.time() - 120.0
+        os.utime(takeover, (old_ts, old_ts))
+        with unittest.mock.patch.object(dispatch, "TAKEOVER_SECONDS", 0.05):
+            with self.assertRaises(tg.Refused):
+                tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                      action="replan", wait_seconds=0.15)
+        self.assertEqual(takeover.read_text(encoding="ascii"), live_takeover)
+        takeover.unlink()
+        todo_lock.unlink()
+
+        # 3. Real cross-process abrupt kill releases the OS-managed lock immediately and lets recovery succeed.
+        holder_code = (
+            "import pathlib, sys, time; "
+            f"sys.path.insert(0, {str(pathlib.Path(tg.__file__).resolve().parent)!r}); "
+            "import todo_graph as tg; "
+            "d = tg._todo_lock_backend(); "
+            "tg._acquire_todo_lock(d, pathlib.Path(sys.argv[1]), 'todo/00-workspace/TODO-01-a.md', action='replan'); "
+            "print('LOCKED', flush=True); "
+            "time.sleep(60)"
+        )
+        kwargs = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)} if os.name == "nt" else {}
+        proc = subprocess.Popen([sys.executable, "-c", holder_code, str(todo)],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **kwargs)
+        try:
+            ready = proc.stdout.readline().strip()
+            if ready != "LOCKED":
+                self.fail(f"child failed to lock (got {ready!r}): {proc.stderr.read()}")
+            with self.assertRaises(tg.Refused):
+                tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                      action="replan", wait_seconds=0.15)
+            proc.kill()
+            proc.wait(timeout=10.0)
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=10.0)
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
+        self.assertTrue(todo_lock.is_file(), "killed process leaves its lockfile behind for stale-lock recovery")
+        lock_path, owned = tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
+                                                 action="replan", wait_seconds=2.0)
+        try:
+            self.assertEqual(todo_lock.read_text(encoding="ascii"), owned)
+        finally:
+            tg._release_todo_lock(dispatch, lock_path, owned)
         self.assertFalse(todo_lock.exists())
 
     def test_fallback_lock_backend_matches_review_dispatch(self):

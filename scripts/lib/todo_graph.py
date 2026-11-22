@@ -2263,58 +2263,140 @@ def _lock_owner_free(dispatch, lock_path, raw_bytes):
     return time.time() > expiry
 
 
+_HELD_OS_LOCKS_GUARD = threading.Lock()
+_HELD_OS_LOCKS: dict[tuple[Path, str], object] = {}
+
+
+def _acquire_os_lock(oslock_path, todo_lock, rel, action, deadline):
+    """Acquire a persistent OS-managed exclusive file lock (`msvcrt.locking` on Windows, `fcntl.flock` on POSIX).
+    The `.oslock` file is never unlinked while in use, so suspending a process keeps the lock held indefinitely and
+    process termination releases it immediately in the kernel without relying on wall-clock timeouts."""
+    oslock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(oslock_path, "a+b")
+    try:
+        while True:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    handle.seek(0)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return handle
+            except OSError as exc:
+                busy = isinstance(exc, (BlockingIOError, PermissionError)) or exc.errno in (
+                    errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK, getattr(errno, "EDEADLK", -1),
+                )
+                if not busy:
+                    raise
+                if time.monotonic() >= deadline:
+                    raise Refused(
+                        f"another {action} is updating {rel} (lock {todo_lock}): {action} waits for it"
+                    ) from None
+                time.sleep(0.05)
+    except BaseException:
+        handle.close()
+        raise
+
+
+def _release_os_lock(handle):
+    """Release an OS-managed exclusive file lock handle opened by `_acquire_os_lock`."""
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    finally:
+        handle.close()
+
+
+def _release_todo_lock(dispatch, todo_lock, todo_owned):
+    """Release `todo_lock` first, then release its companion OS-managed exclusive lock."""
+    with _HELD_OS_LOCKS_GUARD:
+        handle = _HELD_OS_LOCKS.pop((todo_lock, todo_owned), None)
+    try:
+        dispatch.release_section(todo_lock, todo_owned)
+    finally:
+        if handle is not None:
+            _release_os_lock(handle)
+
+
 def _acquire_todo_lock(dispatch, path, rel, action="update", timeout_seconds=REPLAN_LOCK_SECONDS, wait_seconds=None):
     """Take the exclusive lock for `path` (a TODO file or the repo-wide `todo` root used by stamp and unstamp).
 
-    An abandoned lock is cleared only under a separate exclusive takeover file after distinguishing an absent lock
-    (where `_create_exclusive` is retried without calling `unlink`) from an observed stale owner."""
+    An OS-managed exclusive lock (`msvcrt.locking` on Windows, `fcntl.flock` on POSIX) serializes all recovery and
+    write phases so a suspended worker keeps exclusive ownership indefinitely while a crashed worker's lock is
+    released immediately by the kernel. Beneath it, the companion `todo_lock` file interoperates with lockfile-only
+    callers and clears an abandoned stale lock only after re-verifying a dead owner under a live-PID-checked takeover
+    file (never unlinking on absence or elapsed takeover age)."""
     if wait_seconds is None:
         wait_seconds = TODO_LOCK_WAIT_SECONDS
     todo_lock = dispatch.section_lock_path(path)
     todo_owned = f"{os.getpid()} {time.time() + timeout_seconds + dispatch.LOCK_GRACE_SECONDS:.0f} {os.urandom(8).hex()}"
     takeover = todo_lock.with_name(todo_lock.name + ".takeover")
+    oslock_path = todo_lock.with_name(todo_lock.name + ".oslock")
     deadline = time.monotonic() + wait_seconds
-    while True:
-        if dispatch._create_exclusive(todo_lock, todo_owned):
-            return todo_lock, todo_owned
-        try:
-            observed = todo_lock.read_bytes()
-        except FileNotFoundError:
-            continue  # vanished between create and read: retry _create_exclusive, never unlink
-        except OSError:
-            observed = None
-        if observed is not None and _lock_owner_free(dispatch, todo_lock, observed):
-            if dispatch._create_exclusive(takeover, todo_owned):
-                try:
-                    if dispatch._create_exclusive(todo_lock, todo_owned):
-                        return todo_lock, todo_owned
+    os_handle = _acquire_os_lock(oslock_path, todo_lock, rel, action, deadline)
+
+    def _claimed():
+        with _HELD_OS_LOCKS_GUARD:
+            _HELD_OS_LOCKS[(todo_lock, todo_owned)] = os_handle
+        return todo_lock, todo_owned
+
+    try:
+        while True:
+            if dispatch._create_exclusive(todo_lock, todo_owned):
+                return _claimed()
+            try:
+                observed = todo_lock.read_bytes()
+            except FileNotFoundError:
+                continue  # vanished between create and read: retry _create_exclusive, never unlink
+            except OSError:
+                observed = None
+            if observed is not None and _lock_owner_free(dispatch, todo_lock, observed):
+                if dispatch._create_exclusive(takeover, todo_owned):
                     try:
-                        current = todo_lock.read_bytes()
-                    except FileNotFoundError:
                         if dispatch._create_exclusive(todo_lock, todo_owned):
-                            return todo_lock, todo_owned
-                        current = None
-                    except OSError:
-                        current = None
-                    if current is not None and _lock_owner_free(dispatch, todo_lock, current):
+                            return _claimed()
                         try:
-                            if todo_lock.read_bytes() == current:
-                                todo_lock.unlink()
+                            current = todo_lock.read_bytes()
+                        except FileNotFoundError:
+                            if dispatch._create_exclusive(todo_lock, todo_owned):
+                                return _claimed()
+                            current = None
+                        except OSError:
+                            current = None
+                        if current is not None and _lock_owner_free(dispatch, todo_lock, current):
+                            try:
+                                if todo_lock.read_bytes() == current:
+                                    todo_lock.unlink()
+                            except FileNotFoundError:
+                                pass
+                            if dispatch._create_exclusive(todo_lock, todo_owned):
+                                return _claimed()
+                    finally:
+                        dispatch.release_section(takeover, todo_owned)
+                else:
+                    try:
+                        t_raw = takeover.read_bytes()
+                    except (FileNotFoundError, OSError):
+                        t_raw = None
+                    if t_raw is not None and _lock_owner_free(dispatch, takeover, t_raw):
+                        try:
+                            if takeover.read_bytes() == t_raw:
+                                takeover.unlink()
                         except FileNotFoundError:
                             pass
-                        if dispatch._create_exclusive(todo_lock, todo_owned):
-                            return todo_lock, todo_owned
-                finally:
-                    dispatch.release_section(takeover, todo_owned)
-            else:
-                try:
-                    if time.time() - takeover.stat().st_mtime > dispatch.TAKEOVER_SECONDS:
-                        takeover.unlink(missing_ok=True)
-                except FileNotFoundError:
-                    pass
-        if time.monotonic() >= deadline:
-            raise Refused(f"another {action} is updating {rel} (lock {todo_lock}): {action} waits for it")
-        time.sleep(0.05)
+            if time.monotonic() >= deadline:
+                raise Refused(f"another {action} is updating {rel} (lock {todo_lock}): {action} waits for it")
+            time.sleep(0.05)
+    except BaseException:
+        _release_os_lock(os_handle)
+        raise
 
 
 def _acquire_repo_lock(dispatch, root, action="update", wait_seconds=None):
@@ -2387,7 +2469,7 @@ def replan(root, ref, date, now):
             atomic(path, text.replace(fresh_row.body, body))
             return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}
         finally:
-            dispatch.release_section(todo_lock, todo_owned)
+            _release_todo_lock(dispatch, todo_lock, todo_owned)
     finally:
         dispatch._release_held()
 
@@ -2568,9 +2650,9 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
                 raise
             return receipt
         finally:
-            dispatch.release_section(todo_lock, todo_owned)
+            _release_todo_lock(dispatch, todo_lock, todo_owned)
     finally:
-        dispatch.release_section(repo_lock, repo_owned)
+        _release_todo_lock(dispatch, repo_lock, repo_owned)
 
 
 def adopt_stamps(root=ROOT, phase_map=None, date=None):
@@ -2716,9 +2798,9 @@ def unstamp(root, ref, reason, date):
                 raise
             return revoked
         finally:
-            dispatch.release_section(todo_lock, todo_owned)
+            _release_todo_lock(dispatch, todo_lock, todo_owned)
     finally:
-        dispatch.release_section(repo_lock, repo_owned)
+        _release_todo_lock(dispatch, repo_lock, repo_owned)
 
 
 def _adopted_section(root, ref):
@@ -2836,9 +2918,9 @@ def _unstamp_adopted(root, ref, reason, date):
                 raise
             return revoked_path.relative_to(root).as_posix() if revoked_path else "none (no receipt was recorded)"
         finally:
-            dispatch.release_section(todo_lock, todo_owned)
+            _release_todo_lock(dispatch, todo_lock, todo_owned)
     finally:
-        dispatch.release_section(repo_lock, repo_owned)
+        _release_todo_lock(dispatch, repo_lock, repo_owned)
 
 
 def suspects(root, ref):
