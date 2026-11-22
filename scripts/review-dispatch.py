@@ -72,6 +72,7 @@ import atexit
 import ctypes
 from datetime import datetime, timezone
 import hashlib
+import html
 import importlib.util
 import json
 import os
@@ -694,9 +695,12 @@ REF_DEF_LINE = re.compile(r"^[ ]{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
 LIST_ITEM_ONE = re.compile(r"^[ ]{0,3}(?:[-*+]|\d{1,9}[.)])")
+LIST_PARA_INTERRUPT = re.compile(r"^[ ]{0,3}(?:[-*+]|1[.)])(?:[ \t]+[^ \t].*)$")
 THEMATIC_BREAK = re.compile(r"^[ ]{0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$")
 SETEXT_UNDERLINE = re.compile(r"^[ ]{0,3}(?:=+|-+)[ \t]*$")
 ATX_HEADING = re.compile(r"^[ ]{0,3}#{1,6}(?:[ \t]|$)")
+ASCII_PUNCT = frozenset("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~")
+CM_ENTITY = re.compile(r"&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});")
 HTML_TYPE1_OPEN = re.compile(r"^[ ]{0,3}<(?:pre|script|style|textarea)(?:[ \t>]|$)", re.IGNORECASE)
 HTML_TYPE1_CLOSE = re.compile(r"</(?:pre|script|style|textarea)>", re.IGNORECASE)
 HTML_TYPE2_OPEN = re.compile(r"^[ ]{0,3}<!--")
@@ -717,13 +721,13 @@ HTML_TYPE7_OPEN = re.compile(
     re.IGNORECASE,
 )
 HTML_INLINE_TAG = re.compile(
-    r"<(?:(?P<phrasing>/?(?:a|abbr|b|bdi|bdo|cite|code|data|del|dfn|em|i|ins|kbd|mark|q|s|samp|small|span|strong|"
+    r"<(?:(?P<transparent>/?(?:a|abbr|b|bdi|bdo|cite|code|data|del|dfn|em|i|ins|kbd|mark|q|s|samp|small|span|strong|"
     r"sub|sup|time|u|var)(?:(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
-    r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?)?)"
+    r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?)?"
+    r"|!-->|!--->|!--[\s\S]*?--)"
     r"|[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[A-Za-z_:][A-Za-z0-9_.:-]*"
     r"(?:[ \t]*=[ \t]*(?:[^\s\"'=<>`]+|'[^']*'|\"[^\"]*\"))?)*[ \t]*/?"
     r"|/[A-Za-z][A-Za-z0-9-]*[ \t]*"
-    r"|!-->|!--->|!--[\s\S]*?--"
     r"|\?[\s\S]*?\?"
     r"|![A-Za-z][^>]*"
     r"|!\[CDATA\[[\s\S]*?\]\])>",
@@ -1459,19 +1463,19 @@ def _norm_ref_label(label):
 
 
 def _parse_link_dest(text, pos):
-    """Parse a CommonMark link destination at `pos` (`<...>` or balanced-paren non-whitespace). Returns end index or
-    None when malformed."""
+    """Parse a CommonMark §6.3 link destination at `pos` (`<...>` or balanced-paren non-space/non-control) with
+    CommonMark §2.4 ASCII-punctuation-only backslash escapes. Returns end index or None when malformed."""
     n = len(text)
     if pos >= n:
         return None
     if text[pos] == "<":
         j = pos + 1
         while j < n and text[j] not in "<>\n":
-            j += 2 if text[j] == "\\" and j + 1 < n else 1
+            j += 2 if text[j] == "\\" and j + 1 < n and text[j + 1] in ASCII_PUNCT else 1
         return j + 1 if j < n and text[j] == ">" else None
     j, depth = pos, 0
-    while j < n and not text[j].isspace():
-        if text[j] == "\\" and j + 1 < n:
+    while j < n and ord(text[j]) > 0x20 and ord(text[j]) != 0x7F:
+        if text[j] == "\\" and j + 1 < n and text[j + 1] in ASCII_PUNCT:
             j += 2
             continue
         if text[j] == "(":
@@ -1485,8 +1489,8 @@ def _parse_link_dest(text, pos):
 
 
 def _parse_link_title(text, pos):
-    """Parse an optional CommonMark link title delimited by `"..."`, `'...'`, or `(...)` at `pos`. Returns end index
-    or None when malformed."""
+    """Parse an optional CommonMark link title delimited by `"..."`, `'...'`, or `(...)` at `pos` with CommonMark
+    §2.4 ASCII-punctuation-only backslash escapes. Returns end index or None when malformed."""
     n = len(text)
     if pos >= n or text[pos] not in "\"'(":
         return None
@@ -1496,7 +1500,7 @@ def _parse_link_title(text, pos):
     while j < n and text[j] != closer:
         if opener == "(" and text[j] == "(":
             return None
-        j += 2 if text[j] == "\\" and j + 1 < n else 1
+        j += 2 if text[j] == "\\" and j + 1 < n and text[j + 1] in ASCII_PUNCT else 1
     return j + 1 if j < n and text[j] == closer else None
 
 
@@ -1659,13 +1663,8 @@ def _read_ref_continuation(line, containers):
     exp = _expand_leading_tabs(rest, col)
     if not exp.strip(" \t") or BLOCKQUOTE_ONE.match(exp) or _fence_step(exp, None, col)[1] \
             or _html_block_start(exp, True)[0] or ATX_HEADING.match(exp) or THEMATIC_BREAK.match(exp) \
-            or SETEXT_UNDERLINE.match(exp):
+            or SETEXT_UNDERLINE.match(exp) or LIST_PARA_INTERRUPT.match(exp):
         return None
-    lm = LIST_ITEM_ONE.match(exp)
-    if lm:
-        after = _expand_leading_tabs(exp[lm.end():], col + lm.end())
-        if after == "" or after.startswith(" "):
-            return None
     return exp
 
 
@@ -1682,7 +1681,7 @@ def _scan_multiline_title(raw_lines, start_line, start_text, start_pos, containe
         while pos < len(text) and text[pos] != closer:
             if opener == "(" and text[pos] == "(":
                 return None
-            pos += 2 if text[pos] == "\\" and pos + 1 < len(text) else 1
+            pos += 2 if text[pos] == "\\" and pos + 1 < len(text) and text[pos + 1] in ASCII_PUNCT else 1
         if pos < len(text) and text[pos] == closer:
             return line_idx if text[pos + 1 :].strip(" \t") == "" else None
         line_idx += 1
@@ -2057,6 +2056,8 @@ def _split_revspec_tokens(text):
             return
         if is_code and len(seg) >= 2 and seg[0] == " " and seg[-1] == " " and seg.strip(" "):
             seg = seg[1:-1]
+        elif not is_code and "&" in seg:
+            seg = CM_ENTITY.sub(lambda m: html.unescape(m.group(0)), seg)
         parts = _split_plain_revspecs(seg)
         if not parts:
             glued = False
@@ -2148,8 +2149,8 @@ def _expand_commit_sep_tokens(tokens, seen):
 def _strip_inline_html(text):
     """Strip CommonMark §6.6 inline HTML tags and comments in leftmost-first order alongside CommonMark §6.1 backtick
     code spans (so backticks inside HTML comments stay hidden while tags inside code spans stay literal). Transparent
-    inline phrasing tags (`<a>`, `<code>`, `<em>`, etc.) become empty string; replaced, block, and comment HTML
-    constructs (`<img>`, `<br>`, `<!-- ... -->`, etc.) become a space."""
+    inline phrasing tags (`<a>`, `<code>`, `<em>`, etc.) and HTML comments (`<!-- ... -->`) become empty string;
+    replaced and block HTML elements (`<img>`, `<br>`, etc.) become a space."""
     out = []
     i, n = 0, len(text)
     while i < n:
@@ -2170,7 +2171,7 @@ def _strip_inline_html(text):
         if ch == "<":
             m = HTML_INLINE_TAG.match(text, i)
             if m:
-                out.append("" if m.group("phrasing") else " ")
+                out.append("" if m.group("transparent") else " ")
                 i = m.end()
                 continue
         out.append(ch)
