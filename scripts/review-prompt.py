@@ -146,8 +146,10 @@ def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, re
     if inside.returncode != 0:
         err = (inside.stderr or "").strip()
         explicit_git_dir = bool(os.environ.get("GIT_DIR"))
-        has_git_marker = any((p / ".git").exists() for p in (root.resolve(), *root.resolve().parents))
-        if not explicit_git_dir and not has_git_marker and "not a git repository (or any" in err.lower():
+        # Trust Git's own discovery boundary (including GIT_CEILING_DIRECTORIES): only the C-locale discovery-only
+        # diagnostic with no explicit GIT_DIR means standalone non-git; dubious ownership, corrupt .git, and stale
+        # GIT_DIR all refuse.
+        if not explicit_git_dir and "not a git repository (or any" in err.lower():
             return None
         raise Refused(
             f"--fidelity is needed: git repository check failed for {root} (exit {inside.returncode}: {err or 'no stderr'})"

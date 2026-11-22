@@ -649,6 +649,15 @@ class FidelityLookup(Filler):
                 mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF)
         self.assertIn("git repository check failed", str(ctx.exception))
 
+        # Reconciliation 2 finding 4: respect GIT_CEILING_DIRECTORIES when a standalone project sits under a repo.
+        outer = Path(self._tmp.name) / "outer-repo"
+        nested = outer / "standalone-sub"
+        nested.mkdir(parents=True)
+        subprocess.run(["git", "-C", str(outer), "init", "-q"], check=True, capture_output=True)
+        with unittest.mock.patch.dict(os.environ, {"GIT_CEILING_DIRECTORIES": str(outer)}, clear=False):
+            os.environ.pop("GIT_DIR", None)
+            self.assertIsNone(mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF))
+
 
 class NoGraph(Filler):
     def test_no_lookup_script_asks_for_todo(self):
