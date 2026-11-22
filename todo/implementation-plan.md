@@ -186,7 +186,7 @@ Sections: 23 | Checklist items: 145
 | ------ | ----------- | ---------------------------------------------------------- | ------------ | ----- |
 | [ ]    | D00 T01 §10 | Verify-only reconciliation trial in the SDK's own pin      | none         | 8     |
 | [x]    | D00 T01 §11 | One severity rubric weighted by likelihood                 | none         | 8     |
-| [ ]    | D00 T01 §12 | Check resolution entries before reconciliation dispatch    | none         | 3     |
+| [x]    | D00 T01 §12 | Check resolution entries before reconciliation dispatch    | none         | 3     |
 | [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt           | none         | 10    |
 | [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin | none         | 6     |
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                        | windows-host | 7     |
@@ -242,6 +242,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 115/152 verified sections, 9 ready to run now.
+Progress: 116/152 verified sections, 8 ready to run now.
 
-Checklist: 939/1150 items completed (includes Commit items).
+Checklist: 940/1150 items completed (includes Commit items).
