@@ -101,6 +101,11 @@ class Tree(unittest.TestCase):
         (self.root / "todo/00-workspace").mkdir(parents=True)
 
     def tearDown(self):
+        fb = tg._fallback_lock_backend()
+        for rel in ("todo", "todo/00-workspace/TODO-01-a.md", "todo/00-workspace/TODO-02-b.md",
+                    "todo/00-workspace/TODO-03-c.md"):
+            lp = fb.section_lock_path(self.root / rel)
+            lp.with_name(lp.name + ".oslock").unlink(missing_ok=True)
         self.tmp.cleanup()
 
     def write(self, text, name="TODO-01-a.md", domain="00-workspace", index=True):
@@ -3229,6 +3234,7 @@ class ThreePassStamp(Stamp):
         stale = "999999 1 stale000"
         self.addCleanup(lambda: todo_lock.unlink(missing_ok=True))
         self.addCleanup(lambda: takeover.unlink(missing_ok=True))
+        self.addCleanup(lambda: todo_lock.with_name(todo_lock.name + ".oslock").unlink(missing_ok=True))
 
         # 1. Suspended recovery worker past TAKEOVER_SECONDS with a second live contender on the same TODO file.
         self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
@@ -3329,9 +3335,29 @@ class ThreePassStamp(Stamp):
         self.assertIn("D00-T01-s1-chain1.md", rows["D00 T01 §1"].body)
         self.assertIn("D00-T01-s2-chain1.md", rows["D00 T01 §2"].body)
 
-        # 1b. On POSIX, a read-only (0o444) persistent .oslock file (simulating another account's 022-umask file)
-        #     must remain acquirable and exclusive via O_RDONLY + flock without PermissionError.
+        # 1b. On POSIX: (a) creating a fresh .oslock under restrictive umask 077 still yields mode 0o644 via fchmod,
+        #     (b) a read-only (0o444) persistent .oslock remains acquirable and exclusive via O_RDONLY + flock, and
+        #     (c) a pre-planted FIFO at the .oslock path is refused immediately via O_NONBLOCK + fstat without hanging.
         if os.name != "nt":
+            import stat as _stat
+            # (a) Restrictive creator umask 077 must still produce a 0o644 lock file.
+            umask_target = self.root / "todo/00-workspace/TODO-umask.md"
+            umask_target.write_text("x\n", encoding="utf-8")
+            umask_lock = dispatch.section_lock_path(umask_target)
+            umask_oslock = umask_lock.with_name(umask_lock.name + ".oslock")
+            self.addCleanup(lambda: umask_oslock.unlink(missing_ok=True))
+            self.addCleanup(lambda: umask_lock.unlink(missing_ok=True))
+            old_mask = os.umask(0o077)
+            try:
+                lp_u, ow_u = tg._acquire_todo_lock(dispatch, umask_target, "todo/00-workspace/TODO-umask.md",
+                                                  action="replan", wait_seconds=1.0)
+                tg._release_todo_lock(dispatch, lp_u, ow_u)
+            finally:
+                os.umask(old_mask)
+            self.assertEqual(_stat.S_IMODE(umask_oslock.stat().st_mode), 0o644,
+                             "fresh POSIX .oslock must be 0o644 even under creator umask 077")
+
+            # (b) Read-only (0o444) .oslock remains acquirable and exclusive without PermissionError.
             oslock_path = todo_lock.with_name(todo_lock.name + ".oslock")
             self.assertTrue(oslock_path.is_file())
             os.chmod(oslock_path, 0o444)
@@ -3346,6 +3372,21 @@ class ThreePassStamp(Stamp):
                     tg._release_todo_lock(dispatch, lp_ro, ow_ro)
             finally:
                 os.chmod(oslock_path, 0o644)
+
+            # (c) Pre-planted FIFO at .oslock path must refuse immediately without blocking for a writer.
+            fifo_target = self.root / "todo/00-workspace/TODO-fifo.md"
+            fifo_target.write_text("x\n", encoding="utf-8")
+            fifo_lock = dispatch.section_lock_path(fifo_target)
+            fifo_oslock = fifo_lock.with_name(fifo_lock.name + ".oslock")
+            fifo_oslock.unlink(missing_ok=True)
+            os.mkfifo(fifo_oslock)
+            self.addCleanup(lambda: fifo_oslock.unlink(missing_ok=True))
+            t_fifo = time.monotonic()
+            with self.assertRaises(tg.Refused) as ctx:
+                tg._acquire_todo_lock(dispatch, fifo_target, "todo/00-workspace/TODO-fifo.md",
+                                      action="replan", wait_seconds=0.5)
+            self.assertIn("not a regular file", str(ctx.exception))
+            self.assertLess(time.monotonic() - t_fifo, 0.5, "FIFO refusal must not block waiting for a writer")
 
         # 2. Defense-in-depth: a live PID's backdated takeover file is never removed by age even if .oslock is free.
         self.assertTrue(dispatch._create_exclusive(todo_lock, stale))

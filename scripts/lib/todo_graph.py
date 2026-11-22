@@ -2269,19 +2269,36 @@ _HELD_OS_LOCKS: dict[tuple[Path, str], object] = {}
 
 def _open_os_lock(oslock_path):
     """Open the persistent `.oslock` file without requiring write permission on POSIX (`flock` works on `O_RDONLY`),
-    so a second POSIX account sharing the checkout and temp directory never hits `PermissionError` under a `022` umask
-    or Linux sticky-tmp `fs.protected_regular`."""
+    ensuring `0o644` mode even under a `077` creator umask (`fchmod`), avoiding blocking on FIFOs (`O_NONBLOCK`), and
+    refusing non-regular entries (`O_NOFOLLOW` + `fstat` `S_ISREG`)."""
     oslock_path.parent.mkdir(parents=True, exist_ok=True)
     if os.name == "nt":
         return open(oslock_path, "a+b")
     nofollow = getattr(os, "O_NOFOLLOW", 0)
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    open_flags = os.O_RDONLY | nofollow | nonblock
+    created = False
     try:
-        fd = os.open(oslock_path, os.O_RDONLY | nofollow)
-    except FileNotFoundError:
         try:
-            fd = os.open(oslock_path, os.O_RDONLY | os.O_CREAT | os.O_EXCL | nofollow, 0o644)
-        except FileExistsError:
-            fd = os.open(oslock_path, os.O_RDONLY | nofollow)
+            fd = os.open(oslock_path, open_flags)
+        except FileNotFoundError:
+            try:
+                fd = os.open(oslock_path, open_flags | os.O_CREAT | os.O_EXCL, 0o644)
+                created = True
+            except FileExistsError:
+                fd = os.open(oslock_path, open_flags)
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise Refused(f"lock entry {oslock_path} is a symlink: refusing to use it") from None
+        raise
+    try:
+        st = os.fstat(fd)
+        require(stat.S_ISREG(st.st_mode), f"lock entry {oslock_path} is not a regular file: refusing to use it")
+        if created:
+            os.fchmod(fd, 0o644)
+    except BaseException:
+        os.close(fd)
+        raise
     return os.fdopen(fd, "rb")
 
 
