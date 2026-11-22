@@ -1157,6 +1157,10 @@ class ResolutionGuard(ThreePass):
              "## Writer note: <!-- draft only --> ##"),
             ("Writer note with adjacent closed and multiline HTML comments refused",
              "## Writer note:\n<!-- obsolete --> <!--\ndraft only\n-->"),
+            ("Writer note with superseded heading inside second adjacent HTML comment refused",
+             "## Writer note:\n<!-- obsolete --> <!--\n## Writer note: superseded\n-->"),
+            ("Writer note body with only empty HTML span around comment refused",
+             "## Writer note:\n<span><!-- draft only --></span>"),
             ("paired link-only description refused when prose sits only inside link label",
              f"- Implemented: [Corrected parser](diff) {repaired[:8]}"),
             ("Git rev:path expression with linked hash filename refused",
@@ -1483,6 +1487,8 @@ class ResolutionGuard(ThreePass):
              "## Writer note:\n\n<!-- internal --> The pending stamp accounts for this gap."),
             ("writer note body with visible HTML img evidence",
              '## Writer note:\n\n<img src="proof.png" alt="Screenshot of the repaired dialog">'),
+            ("writer note title with literal hashes directly after colon",
+             "## Writer note:###"),
         )
         for label, note in cases:
             with self.subTest(case=label):

@@ -736,6 +736,10 @@ HTML_INLINE_TAG = re.compile(
     r"|!\[CDATA\[[\s\S]*?\]\])>",
     re.IGNORECASE,
 )
+HTML_MEDIA_TAG = re.compile(
+    r"^<(?:img|svg|video|audio|canvas|iframe|object|embed|picture|input)(?:\s|/?>)",
+    re.IGNORECASE,
+)
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -2747,6 +2751,39 @@ def _strip_comments_line(line, in_comment=False, allow_multiline=True):
     return "".join(out), False
 
 
+def _visible_note_text(text):
+    """Return visible text from a comment-stripped writer-note title or body line, preserving backtick code spans and
+    visible media HTML elements (such as `<img>`) while dropping empty HTML container/formatting tags (`<span></span>`,
+    `<div></div>`, `<br>`)."""
+    out = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "`":
+            j = i
+            while j < n and text[j] == "`":
+                j += 1
+            close = _find_closing_ticks(text, j, j - i)
+            if close != -1:
+                end = close + (j - i)
+                out.append(text[i:end])
+                i = end
+                continue
+            out.append(text[i:j])
+            i = j
+            continue
+        if text[i] == "<":
+            hm = HTML_INLINE_TAG.match(text, i)
+            if hm:
+                tag = text[i : hm.end()]
+                if HTML_MEDIA_TAG.match(tag):
+                    out.append(tag)
+                i = hm.end()
+                continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
     """True when one pass's writer-authored lines hold at least one valid resolution outside fenced code blocks and
     HTML comment blocks: a populated `- Implemented:` list item (including continuation lines) with at least one
@@ -2765,8 +2802,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
     while idx < total:
         line = lines[idx]
         if in_comment:
-            if "-->" in line:
-                in_comment = False
+            _, in_comment = _strip_comments_line(line, in_comment=True, allow_multiline=True)
             idx += 1
             continue
         if fence is not None:
@@ -2778,8 +2814,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             continue
         expanded = _expand_leading_tabs(line, 0)
         if HTML_TYPE2_OPEN.match(expanded):
-            if "-->" not in expanded:
-                in_comment = True
+            _, in_comment = _strip_comments_line(expanded, in_comment=False, allow_multiline=True)
             idx += 1
             continue
         fm = FENCE_OPEN.match(expanded)
@@ -2826,10 +2861,10 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             return True
         wn = WRITER_NOTE.match(line)
         if wn:
-            # Strip optional CommonMark §4.2 ATX closing `#` sequence before checking for visible title text.
-            title = re.sub(r"(?:^|[ \t]+)#+[ \t]*$", "", wn.group(1))
+            # Strip optional CommonMark §4.2 ATX closing `#` sequence (must follow whitespace in the full heading).
+            title = re.sub(r"[ \t]+#+[ \t]*$", "", wn.group(1))
             visible_title, _ = _strip_comments_line(title, in_comment=False, allow_multiline=False)
-            if visible_title.strip():
+            if _visible_note_text(visible_title).strip():
                 return True
             k = idx + 1
             body_comment = False
@@ -2844,9 +2879,12 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
                     if _expand_leading_tabs(body_line, 0).startswith("    "):
                         return True
                 visible_body, body_comment = _strip_comments_line(body_line, in_comment=body_comment, allow_multiline=True)
-                if visible_body.strip():
+                if _visible_note_text(visible_body).strip():
                     return True
                 k += 1
+            idx = k
+            in_comment = body_comment
+            continue
         idx += 1
     return False
 
