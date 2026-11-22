@@ -3347,58 +3347,58 @@ class ThreePassStamp(Stamp):
         finally:
             tg._release_todo_lock(dispatch, lp_a, ow_a)
 
-        # 1b. On POSIX: OS locking places per-file .oslock entries inside .git/conclave-locks/ (never /tmp),
-        #     so (a) umask 077 publishes both directory and lock file with .git's sharing permissions and ignores any
-        #     unreadable /tmp/*.oslock without chmodding it, (b) a read-only 0o444 lock file remains acquirable and
-        #     exclusive, and (c) a pre-planted FIFO refuses in <0.5s inside a timeout=5.0 bounded child process.
+        # 1b. On POSIX: OS locking flocks target_path's live inode directly (with lock handoff across atomic()
+        #     replacement), creating zero lock files in /tmp or .git/, so (a) an unreadable 0o000 /tmp/*.oslock for
+        #     the SAME target, a read-only 0o555 .git directory, and umask 077 all succeed cleanly while preserving
+        #     the TODO file's mode and locking across atomic() replacement, and (b) a FIFO target refuses in <0.5s
+        #     inside a timeout=5.0 bounded child process.
         if os.name != "nt":
             import stat as _stat
+            # (a) Plant an unreadable 0o000 /tmp/*.oslock for THIS exact target (`todo`), make .git read-only (0o555),
+            #     and set umask 077: acquiring, atomic()-replacing, and contending on `todo` must all succeed without
+            #     creating any /tmp/*.oslock or .git/conclave-locks entry or chmodding the legacy /tmp file.
             tmp_oslock = todo_lock.with_name(todo_lock.name + ".oslock")
-            self.assertFalse(tmp_oslock.exists(), "POSIX git checkout must store .oslock in .git/conclave-locks, not /tmp")
-            git_lock_dir = self.root / ".git/conclave-locks"
-            self.assertTrue(git_lock_dir.is_dir())
-            git_oslock = git_lock_dir / tmp_oslock.name
-            self.assertTrue(git_oslock.is_file())
-            # (a) Restrictive 077 umask still publishes a 0o644 lock file matching .git's mode, and ignores /tmp/*.oslock.
-            umask_target = self.root / "todo/00-workspace/TODO-umask.md"
-            umask_target.write_text("x\n", encoding="utf-8")
-            umask_lock = dispatch.section_lock_path(umask_target)
-            umask_oslock = git_lock_dir / (umask_lock.name + ".oslock")
-            os.chmod(self.root / ".git", 0o755)
+            self.assertFalse(tmp_oslock.exists(), "POSIX inode flock must not create any /tmp/*.oslock file")
+            self.assertFalse((self.root / ".git/conclave-locks").exists(), "POSIX inode flock must not touch .git")
             tmp_oslock.write_bytes(b"")
             os.chmod(tmp_oslock, 0o000)
+            os.chmod(todo, 0o644)
+            git_dir = self.root / ".git"
+            orig_git_mode = _stat.S_IMODE(git_dir.stat().st_mode)
+            os.chmod(git_dir, 0o555)
             old_mask = os.umask(0o077)
-            try:
-                lp_u, ow_u = tg._acquire_todo_lock(dispatch, umask_target, "todo/00-workspace/TODO-umask.md",
-                                                  action="replan", wait_seconds=1.0)
-                tg._release_todo_lock(dispatch, lp_u, ow_u)
-                self.assertEqual(_stat.S_IMODE(umask_oslock.stat().st_mode), 0o644)
-                self.assertEqual(_stat.S_IMODE(tmp_oslock.stat().st_mode), 0o000,
-                                 "POSIX locking must never chmod any /tmp/*.oslock file")
-            finally:
-                os.umask(old_mask)
-                os.chmod(tmp_oslock, 0o644)
-                tmp_oslock.unlink(missing_ok=True)
-            # (b) Read-only (0o444) .git/conclave-locks/*.oslock remains acquirable and exclusive.
-            os.chmod(git_oslock, 0o444)
             try:
                 lp_ro, ow_ro = tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
                                                      action="replan", wait_seconds=1.0)
                 try:
+                    # Replace `todo` via atomic() while holding lock: lock handoff must keep the NEW inode OS-locked
+                    # until _release_todo_lock runs, AND preserve 0o644 mode even under umask 077!
+                    before_bytes = todo.read_bytes()
+                    tg.atomic(todo, before_bytes)
+                    self.assertEqual(_stat.S_IMODE(todo.stat().st_mode), 0o644,
+                                     "atomic() must preserve TODO readability under umask 077")
+                    with self.assertRaises(tg.Refused):
+                        leaked = tg._acquire_os_lock(todo, tmp_oslock, todo_lock, "todo/00-workspace/TODO-01-a.md",
+                                                     "replan", time.monotonic() + 0.15)
+                        tg._release_os_lock(leaked)
                     with self.assertRaises(tg.Refused):
                         tg._acquire_todo_lock(dispatch, todo, "todo/00-workspace/TODO-01-a.md",
                                               action="replan", wait_seconds=0.15)
                 finally:
                     tg._release_todo_lock(dispatch, lp_ro, ow_ro)
+                self.assertEqual(_stat.S_IMODE(tmp_oslock.stat().st_mode), 0o000,
+                                 "POSIX locking must never chmod any /tmp/*.oslock file")
+                self.assertFalse((git_dir / "conclave-locks").exists())
             finally:
-                os.chmod(git_oslock, 0o644)
-            # (c) Pre-planted FIFO at .git/conclave-locks/<name> refuses in <0.5s inside a timeout=5.0 bounded child.
+                os.umask(old_mask)
+                os.chmod(git_dir, orig_git_mode)
+                os.chmod(tmp_oslock, 0o644)
+                tmp_oslock.unlink(missing_ok=True)
+            # (b) Pre-planted FIFO at the lock target refuses in <0.5s inside a timeout=5.0 bounded child.
             fifo_target = self.root / "todo/00-workspace/TODO-fifo.md"
-            fifo_target.write_text("x\n", encoding="utf-8")
-            fifo_lock = dispatch.section_lock_path(fifo_target)
-            fifo_oslock = git_lock_dir / (fifo_lock.name + ".oslock")
-            fifo_oslock.unlink(missing_ok=True)
-            os.mkfifo(fifo_oslock)
+            fifo_target.unlink(missing_ok=True)
+            os.mkfifo(fifo_target)
+            self.addCleanup(lambda: fifo_target.unlink(missing_ok=True))
             fifo_probe = (
                 "import pathlib, sys, time\n"
                 f"sys.path.insert(0, {str(pathlib.Path(tg.__file__).resolve().parent)!r})\n"
@@ -3417,7 +3417,7 @@ class ThreePassStamp(Stamp):
             self.assertEqual(probe.returncode, 0, f"FIFO probe failed: {probe.stdout} {probe.stderr}")
             elapsed_str, _, msg = probe.stdout.strip().partition(" ")
             self.assertLess(float(elapsed_str), 0.5, f"FIFO refusal exceeded 0.5s: {probe.stdout}")
-            self.assertIn("not a regular file", msg)
+            self.assertIn("not a regular file or directory", msg)
 
         # 2. Defense-in-depth: a live PID's backdated takeover file is never removed by age even if .oslock is free.
         self.assertTrue(dispatch._create_exclusive(todo_lock, stale))
