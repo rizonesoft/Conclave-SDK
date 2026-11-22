@@ -2699,6 +2699,54 @@ def _strip_inline_emphasis_segments(segments, seen=None):
     return "".join(pieces), "".join(outer_pieces)
 
 
+def _strip_comments_line(line, in_comment=False, allow_multiline=True):
+    """Strip HTML comments (`<!-- ... -->`) from `line`, preserving backtick code spans and visible HTML elements
+    (such as `<img>`). When `allow_multiline` is True, an unclosed `<!--` carries `in_comment=True` across lines;
+    when False (single-line ATX heading titles), an unclosed `<!--` stays literal per CommonMark §6.6."""
+    out = []
+    i, n = 0, len(line)
+    while i < n:
+        if in_comment:
+            close = line.find("-->", i)
+            if close == -1:
+                return "".join(out), True
+            in_comment = False
+            i = close + 3
+            continue
+        if line[i] == "`":
+            j = i
+            while j < n and line[j] == "`":
+                j += 1
+            close = _find_closing_ticks(line, j, j - i)
+            if close != -1:
+                end = close + (j - i)
+                out.append(line[i:end])
+                i = end
+                continue
+            out.append(line[i:j])
+            i = j
+            continue
+        if line.startswith("<!--", i):
+            close = line.find("-->", i + 4)
+            if close == -1:
+                if line.startswith("<!-->", i):
+                    i += 5
+                    continue
+                if line.startswith("<!--->", i):
+                    i += 6
+                    continue
+                if allow_multiline:
+                    return "".join(out), True
+                out.append(line[i : i + 4])
+                i += 4
+                continue
+            i = close + 3
+            continue
+        out.append(line[i])
+        i += 1
+    return "".join(out), False
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None):
     """True when one pass's writer-authored lines hold at least one valid resolution outside fenced code blocks and
     HTML comment blocks: a populated `- Implemented:` list item (including continuation lines) with at least one
@@ -2778,43 +2826,25 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None, ref_defs=None
             return True
         wn = WRITER_NOTE.match(line)
         if wn:
-            if _strip_inline_html(wn.group(1)).strip():
+            # Strip optional CommonMark §4.2 ATX closing `#` sequence before checking for visible title text.
+            title = re.sub(r"(?:^|[ \t]+)#+[ \t]*$", "", wn.group(1))
+            visible_title, _ = _strip_comments_line(title, in_comment=False, allow_multiline=False)
+            if visible_title.strip():
                 return True
             k = idx + 1
             body_comment = False
             while k < total:
                 body_line = lines[k]
-                if body_comment:
-                    close = body_line.find("-->")
-                    if close == -1:
+                if not body_comment:
+                    if not body_line.strip():
                         k += 1
                         continue
-                    body_comment = False
-                    rem = body_line[close + 3 :]
-                    if _strip_inline_html(rem).strip():
+                    if body_line.startswith("## "):
+                        break
+                    if _expand_leading_tabs(body_line, 0).startswith("    "):
                         return True
-                    k += 1
-                    continue
-                if not body_line.strip():
-                    k += 1
-                    continue
-                if body_line.startswith("## "):
-                    break
-                body_exp = _expand_leading_tabs(body_line, 0)
-                if body_exp.startswith("    "):
-                    return True
-                if HTML_TYPE2_OPEN.match(body_exp):
-                    close = body_exp.find("-->")
-                    if close == -1:
-                        body_comment = True
-                        k += 1
-                        continue
-                    rem = body_exp[close + 3 :]
-                    if _strip_inline_html(rem).strip():
-                        return True
-                    k += 1
-                    continue
-                if _strip_inline_html(body_line).strip():
+                visible_body, body_comment = _strip_comments_line(body_line, in_comment=body_comment, allow_multiline=True)
+                if visible_body.strip():
                     return True
                 k += 1
         idx += 1
