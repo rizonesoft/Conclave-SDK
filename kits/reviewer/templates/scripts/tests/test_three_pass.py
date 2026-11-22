@@ -1106,7 +1106,11 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} https://example.com/commit/{built[:8]}"),
             ("SHA plus repo-qualified commit ref with no description",
              f"- Implemented: {repaired[:8]} owner/repo@{built[:8]}"),
+            ("SHA plus www.github.com commit permalink with no description",
+             f"- Implemented: {repaired[:8]} www.github.com/owner/repo/commit/{built}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
+            ("emphasis must not pair across link label boundary",
+             f"- Implemented: fixed src/*.py in [{repaired[:8]}*](diff)"),
             ("backticked SHA with trailing tilde parent selector", f"- Implemented: fixed `{repaired[:8]}`~"),
             ("linked SHA with no description",
              f"- Implemented: [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
@@ -1220,6 +1224,8 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: fixed [**{repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
             ("bold multi-word linked repair description ending in SHA",
              f"- Implemented: [**fixed in {repaired[:8]}**](https://example.com/commit/{repaired[:8]})"),
+            ("linked SHA followed by sentence-ending exclamation mark",
+             f"- Implemented: Fixed the crash in [{repaired[:8]}](diff)!"),
             ("full reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: https://example.com/commit/{repaired[:8]}"),
             ("reference-linked SHA with escaped closing bracket in label",
@@ -1345,6 +1351,8 @@ class ResolutionGuard(ThreePass):
         with unittest.mock.patch.object(module, "ROOT", self.repo):
             long_refs = f"- Implemented: {repaired[:8]} " + " ".join(["HEAD"] * 1050)
             self.assertFalse(module._has_resolution_entry([long_refs]))
+            nested_qual = f"- Implemented: {repaired[:8]} " + ("a/b@" * 600) + "HEAD"
+            self.assertIsInstance(module._has_resolution_entry([nested_qual]), bool)
         # Linear-time bracket scanning on deeply nested literal brackets.
         nested_brackets = "[" * 8000 + "x" + "]" * 8000
         t0 = time.monotonic()

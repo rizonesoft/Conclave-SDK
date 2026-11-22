@@ -692,6 +692,7 @@ IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
 REPO_QUALIFIED_REF = re.compile(r"^(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@(.+)$")
+WWW_URL = re.compile(r"^www\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?:/\S*)?$", re.IGNORECASE)
 REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
@@ -1928,19 +1929,17 @@ def _find_close_bracket(text, start, allow_code_spans=True):
     return -1
 
 
-def _unwrap_markdown_links(text, ref_defs=()):
-    """Single-pass CommonMark §6.3/§6.4 bracket-stack unwrapper for inline/reference links (replaced with visible
-    `label`) and images (replaced with a space). Skips backslash-escaped punctuation, backtick code spans, and
-    inline HTML tags; preserves balanced literal brackets (`[Windows]`, `[linux]`) inside link/image text; enforces
-    that links cannot contain links while allowing images inside links; and parses destinations before scanning inside
-    them."""
-    out = []
-    openers = []  # each [is_image, out_index, active]
+def _unwrap_markdown_segments(text, ref_defs=()):
+    """Single-pass CommonMark §6.3/§6.4 bracket-stack unwrapper returning `[(chunk, is_link_label), ...]` so
+    matched link labels resolve their own inline HTML and emphasis scope without letting unmatched `*`/`_`/`~`
+    cross link boundaries, while outer emphasis around links (`**[sha](diff)**`) still pairs cleanly."""
+    out = []  # each (chunk_str, is_link_label)
+    openers = []  # each [is_image, out_index, active, text_index]
     i, n = 0, len(text)
     while i < n:
         ch = text[i]
         if ch == "\\" and i + 1 < n and text[i + 1] in ASCII_PUNCT:
-            out.append(text[i : i + 2])
+            out.append((text[i : i + 2], False))
             i += 2
             continue
         if ch == "`":
@@ -1950,32 +1949,32 @@ def _unwrap_markdown_links(text, ref_defs=()):
             close = _find_closing_ticks(text, j, j - i)
             if close != -1:
                 end = close + (j - i)
-                out.append(text[i:end])
+                out.append((text[i:end], False))
                 i = end
                 continue
-            out.append(text[i:j])
+            out.append((text[i:j], False))
             i = j
             continue
         if ch == "<":
             hm = HTML_INLINE_TAG.match(text, i)
             if hm:
-                out.append(text[i : hm.end()])
+                out.append((text[i : hm.end()], False))
                 i = hm.end()
                 continue
         if ch == "!" and i + 1 < n and text[i + 1] == "[":
             openers.append([True, len(out), True, i + 1])
-            out.append("![")
+            out.append(("![", False))
             i += 2
             continue
         if ch == "[":
             openers.append([False, len(out), True, i])
-            out.append("[")
+            out.append(("[", False))
             i += 1
             continue
         if ch == "]" and openers:
             is_image, start_idx, active, br_pos = openers.pop()
             if not active:
-                out.append("]")
+                out.append(("]", False))
                 i += 1
                 continue
             nxt = i + 1
@@ -1985,7 +1984,7 @@ def _unwrap_markdown_links(text, ref_defs=()):
             def get_label():
                 nonlocal cached_label
                 if cached_label is None:
-                    cached_label = "".join(out[start_idx + 1 :])
+                    cached_label = "".join(piece for piece, _ in out[start_idx + 1 :])
                 return cached_label
 
             if nxt < n and text[nxt] == "(":
@@ -2033,22 +2032,45 @@ def _unwrap_markdown_links(text, ref_defs=()):
                 if lbl.strip(" \t") and _norm_ref_label(lbl) in ref_defs:
                     end_pos = nxt
             if end_pos is not None:
-                out[start_idx:] = [" " if is_image else get_label()]
-                if not is_image:
+                if is_image:
+                    out[start_idx:] = [(" ", False)]
+                else:
+                    out[start_idx:] = [(get_label(), True)]
                     for op in openers:
                         if not op[0]:
                             op[2] = False
                 i = end_pos
                 continue
-        out.append(ch)
+        out.append((ch, False))
         i += 1
-    return "".join(out)
+    merged = []
+    for chunk, is_lbl in out:
+        if merged and not is_lbl and not merged[-1][1]:
+            merged[-1] = (merged[-1][0] + chunk, False)
+        else:
+            merged.append((chunk, is_lbl))
+    return merged
+
+
+def _unwrap_markdown_links(text, ref_defs=()):
+    """Replace CommonMark inline/reference links with visible label text and images with a space."""
+    return "".join(chunk for chunk, _ in _unwrap_markdown_segments(text, ref_defs))
+
+
+def _is_url_token(raw):
+    """True when `raw` is an explicit scheme URL (`://`) or GFM extended autolink (`www.<host>...`)."""
+    if "://" in raw:
+        return True
+    trimmed = raw.strip(".,:;()<>\"'!?")
+    return bool(trimmed and WWW_URL.fullmatch(trimmed))
 
 
 def _strip_paired_md(raw):
-    """Strip outer sentence punctuation (never brackets, git revspec operators `~`/`^`, or a leading `:/` search
-    prefix) and matched/paired Markdown emphasis or inline-code wrappers (`**`, `__`, `~~`, `*`, `_`, `` ` ``)."""
-    tok = raw.rstrip(".,:;()<>\"'").lstrip(".,;()<>\"'")
+    """Strip outer sentence punctuation (never brackets, git revspec operators `~`/`^`/`^!`, or a leading `:/`
+    search prefix) and matched/paired Markdown emphasis or inline-code wrappers (`**`, `__`, `~~`, `*`, `_`, `` ` ``)."""
+    tok = raw.lstrip(".,;()<>\"'")
+    while tok and (tok[-1] in ".,:;()<>\"'?" or (tok.endswith("!") and not tok.endswith("^!"))):
+        tok = tok[:-1]
     if tok.startswith(":") and not tok.startswith(":/"):
         tok = tok.lstrip(":")
     changed = True
@@ -2094,13 +2116,19 @@ def _repo_refs(seen):
 
 
 def _is_commit_ref_token(raw, seen):
-    """True when `raw` is purely a URL or git commit reference / branch / tag / reflog selector / range / list
-    (including pairs joined by arrows, punctuation, slashes, colons, or hyphens with zero prose words)."""
-    if "://" in raw:
+    """True when `raw` is purely a URL (`://` or `www.`) or git commit reference / branch / tag / reflog selector /
+    range / repo-qualified ref / list (including pairs joined by arrows, punctuation, slashes, colons, or hyphens
+    with zero prose words). Iterative (no recursion on nested qualifiers)."""
+    if _is_url_token(raw):
         return True
     stripped = _strip_paired_md(raw)
     if not stripped:
         return False
+    rm = REPO_QUALIFIED_REF.fullmatch(stripped)
+    if rm:
+        stripped = rm.group(1)
+        if not stripped:
+            return False
     refs = _repo_refs(seen)
     if stripped in refs:
         return True
@@ -2108,9 +2136,9 @@ def _is_commit_ref_token(raw, seen):
         return _is_revspec_in_git(stripped, seen)
 
     def piece_is_ref(piece):
-        rm = REPO_QUALIFIED_REF.fullmatch(piece)
-        if rm and _is_commit_ref_token(rm.group(1), seen):
-            return True
+        pm = REPO_QUALIFIED_REF.fullmatch(piece)
+        if pm:
+            piece = pm.group(1)
         base = REVSPEC_SUFFIX.sub("", piece.lstrip("^"))
         if base and base in refs:
             return True
@@ -2271,7 +2299,7 @@ def _expand_commit_sep_tokens(tokens, seen):
     and `:/` search selectors untouched."""
     out = []
     for raw in tokens:
-        if "://" in raw or "{" in raw or "}" in raw or raw.startswith(":/"):
+        if _is_url_token(raw) or "{" in raw or "}" in raw or raw.startswith(":/"):
             out.append(raw)
             continue
         if "," in raw or ";" in raw:
@@ -2399,6 +2427,90 @@ def _strip_inline_emphasis(text):
     return "".join(out)
 
 
+def _strip_inline_emphasis_segments(segments):
+    """Strip matched span-level CommonMark/GFM emphasis wrappers (`***`, `**`, `*`, `___`, `__`, `_`, `~~`) across
+    outer `(chunk, False)` segments while treating link-label `(chunk, True)` segments as their own already-resolved
+    scope so unmatched `*`/`_`/`~` never pair across link boundaries."""
+    resolved = [(chunk if not is_lbl else _strip_inline_emphasis(_strip_inline_html(chunk)), is_lbl)
+                for chunk, is_lbl in segments]
+    # Flatten with per-character protection flags so outer flanking checks see exact neighbor characters.
+    chars = []
+    protected = []
+    for chunk, is_lbl in resolved:
+        text = chunk if is_lbl else _strip_inline_html(chunk)
+        for ch in text:
+            chars.append(ch)
+            protected.append(is_lbl)
+    flat = "".join(chars)
+    out = []
+    stack = []  # each [char, count, out_index]
+    i, n = 0, len(flat)
+    while i < n:
+        if protected[i]:
+            out.append(flat[i])
+            i += 1
+            continue
+        ch = flat[i]
+        if ch == "\\" and i + 1 < n and not protected[i + 1] and flat[i + 1] in ASCII_PUNCT:
+            out.append(flat[i : i + 2])
+            i += 2
+            continue
+        if ch == "`":
+            j = i
+            while j < n and not protected[j] and flat[j] == "`":
+                j += 1
+            close = _find_closing_ticks(flat, j, j - i)
+            if close != -1 and not any(protected[j : close + (j - i)]):
+                end = close + (j - i)
+                out.append(flat[i:end])
+                i = end
+                continue
+            out.append(flat[i:j])
+            i = j
+            continue
+        if ch in "*_~":
+            j = i
+            while j < n and not protected[j] and flat[j] == ch:
+                j += 1
+            run = j - i
+            if ch == "~" and run != 2:
+                out.append(flat[i:j])
+                i = j
+                continue
+            before = flat[i - 1] if i > 0 else " "
+            after = flat[j] if j < n else " "
+            can_open = not after.isspace() and (ch != "_" or not before.isalnum())
+            can_close = not before.isspace() and (ch != "_" or not after.isalnum())
+            rem = run
+            if can_close and stack:
+                while rem > 0:
+                    match_idx = None
+                    for k in range(len(stack) - 1, -1, -1):
+                        if stack[k][0] == ch and (ch != "~" or stack[k][1] == rem):
+                            match_idx = k
+                            break
+                    if match_idx is None:
+                        break
+                    op_ch, op_cnt, op_out = stack[match_idx]
+                    take = min(rem, op_cnt)
+                    out[op_out] = op_ch * (op_cnt - take)
+                    if op_cnt == take:
+                        del stack[match_idx:]
+                    else:
+                        stack[match_idx][1] -= take
+                        del stack[match_idx + 1 :]
+                    rem -= take
+            if rem > 0:
+                if can_open and (ch != "~" or rem == 2):
+                    stack.append([ch, rem, len(out)])
+                out.append(ch * rem)
+            i = j
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
     entry with non-empty description text (distinct from commit references, ranges, refs, reflog/search selectors,
@@ -2410,18 +2522,19 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            visible = _strip_inline_emphasis(_strip_inline_html(_unwrap_markdown_links(m.group(1).strip(), ref_defs)))
+            segments = _unwrap_markdown_segments(m.group(1).strip(), ref_defs)
+            visible = _strip_inline_emphasis_segments(segments)
             parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible), seen)
             commit_pos = set()
             for pos, raw in enumerate(parts):
-                if "/" in raw or "://" in raw:
+                if "/" in raw or _is_url_token(raw):
                     continue
                 tok = _strip_paired_md(raw)
                 if COMMIT_TOKEN.fullmatch(tok) and _is_commit_in_git(tok, seen):
                     commit_pos.add(pos)
             if commit_pos:
                 non_commit = [other for other_pos, other in enumerate(parts)
-                              if other_pos not in commit_pos and "://" not in other]
+                              if other_pos not in commit_pos and not _is_url_token(other)]
                 if non_commit and not _all_commit_refs(non_commit, seen):
                     return True
         if FILED_LINE.match(line):
