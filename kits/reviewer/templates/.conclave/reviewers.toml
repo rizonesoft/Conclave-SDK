@@ -53,8 +53,8 @@ agy = ["astra"]
 [schedule]
 policy = "three-pass"
 pass_cap = 33
-# P1 and P2 hold the stamp (owner, 2026-11-19: P1 alone would ship real P2 defects); D00 T01 §10 bounds how long
-# a P2 may hold it.
+# P1 and P2 hold the stamp (owner, 2026-11-19: P1 alone would ship real P2 defects); likelihood-weighted
+# SEVERITY_RUBRIC (D00 T01 §11) keeps synthetic edge cases at P3 without dropping reconciliation lenses.
 blocking = ["P1", "P2"]
 
 [schedule.plan]
