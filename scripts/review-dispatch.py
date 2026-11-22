@@ -693,7 +693,10 @@ IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^](?:[0-9]+|[@!]|-[0-9]*)?)+$")
 REPO_QUALIFIED_REF = re.compile(r"^(?:[A-Za-z0-9_.-]+/)+[A-Za-z0-9_.-]+@(.+)$")
-WWW_URL = re.compile(r"^www\.[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::\d{1,5})?(?:[/?#]\S*)?$", re.IGNORECASE)
+WWW_URL = re.compile(
+    r"^www\.[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*\.[A-Za-z0-9-]+(?::\d{1,5})?(?:[/?#]\S*)?$",
+    re.IGNORECASE,
+)
 REF_LABEL_START = re.compile(r"^[ ]{0,3}\[")
 FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})(.*)$")
 BLOCKQUOTE_ONE = re.compile(r"^[ ]{0,3}>")
@@ -2067,6 +2070,37 @@ def _is_outer_unicode_punct(ch):
     return ord(ch) > 127 and unicodedata.category(ch).startswith("P")
 
 
+def _is_spaceless_script(ch):
+    """True for non-ASCII spaceless-script letters and combining marks (CJK, Kana, Hangul, Thai, etc.)."""
+    return ord(ch) > 127 and unicodedata.category(ch) in ("Lo", "Lm", "Mn", "Mc")
+
+
+def _split_spaceless_script(raw):
+    """Split a non-URL, non-ref token on boundaries between spaceless-script letters and other characters so entries
+    like CJK prose directly adjacent to a linked SHA expose both the commit SHA and surrounding prose."""
+    has_sp = False
+    has_other = False
+    for ch in raw:
+        if _is_spaceless_script(ch):
+            has_sp = True
+        else:
+            has_other = True
+        if has_sp and has_other:
+            break
+    if not (has_sp and has_other):
+        return [raw]
+    out, start = [], 0
+    prev_sp = _is_spaceless_script(raw[0])
+    for idx in range(1, len(raw)):
+        cur_sp = _is_spaceless_script(raw[idx])
+        if cur_sp != prev_sp:
+            out.append(raw[start:idx])
+            start = idx
+            prev_sp = cur_sp
+    out.append(raw[start:])
+    return out
+
+
 def _strip_outer_url_punct(raw):
     i, j = 0, len(raw)
     while i < j and (raw[i] in ".,:;()<>\"'!?" or _is_outer_unicode_punct(raw[i])):
@@ -2191,23 +2225,33 @@ def _is_commit_ref_token(raw, seen):
 
 
 def _split_plain_revspecs(text):
-    """Split a backtick-free segment on whitespace while keeping closed Git brace selectors (`@{...}`, `^{...}`)
-    inside one token."""
+    """Split a backtick-free segment on whitespace and outer Unicode punctuation while keeping closed Git brace
+    selectors (`@{...}`, `^{...}`), `:/...` commit-message search tokens, and URLs (`://` or `www.`) intact."""
     tokens, buf = [], []
+    in_url = False
     i, n = 0, len(text)
     while i < n:
-        if text[i] in "@^" and i + 1 < n and text[i + 1] == "{":
+        ch = text[i]
+        if ch in "@^" and i + 1 < n and text[i + 1] == "{":
             close = text.find("}", i + 2)
             if close != -1:
                 buf.append(text[i : close + 1])
                 i = close + 1
                 continue
-        if text[i].isspace() or (_is_outer_unicode_punct(text[i]) and not (buf and buf[0] == ":")):
+        is_search = len(buf) >= 2 and buf[0] == ":" and buf[1] == "/"
+        if ch.isspace() or (_is_outer_unicode_punct(ch) and not is_search and not in_url):
             if buf:
                 tokens.append("".join(buf))
                 buf = []
+            in_url = False
         else:
-            buf.append(text[i])
+            buf.append(ch)
+            if not in_url:
+                if ch == "/" and len(buf) >= 4 and buf[-3:] == [":", "/", "/"] and buf[-4].isascii() and buf[-4].isalnum():
+                    in_url = True
+                elif ch == "." and len(buf) >= 4 and "".join(buf[-4:-1]).lower() == "www":
+                    if all(c in "(\"'<" for c in buf[:-4]):
+                        in_url = True
         i += 1
     if buf:
         tokens.append("".join(buf))
@@ -2548,7 +2592,18 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
         if m:
             segments = _unwrap_markdown_segments(m.group(1).strip(), ref_defs)
             visible = _strip_inline_emphasis_segments(segments)
-            parts = _expand_commit_sep_tokens(_split_revspec_tokens(visible), seen)
+            raw_parts = _split_revspec_tokens(visible)
+            if any(_is_spaceless_script(ch) for tok in raw_parts for ch in tok) and not _all_commit_refs(raw_parts, seen):
+                expanded = []
+                for tok in raw_parts:
+                    if (_is_url_token(tok) or "{" in tok or "}" in tok or tok.startswith(":/")
+                            or _is_commit_ref_token(tok, seen)):
+                        expanded.append(tok)
+                    else:
+                        expanded.extend(_split_spaceless_script(tok))
+                parts = _expand_commit_sep_tokens(expanded, seen)
+            else:
+                parts = _expand_commit_sep_tokens(raw_parts, seen)
             commit_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or _is_url_token(raw):

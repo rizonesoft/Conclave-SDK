@@ -1110,11 +1110,17 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: {repaired[:8]} www.github.com/owner/repo/commit/{built}"),
             ("SHA plus ported www commit permalink with no description",
              f"- Implemented: {repaired[:8]} www.git.example.com:8443/project/commit/{built[:8]}"),
+            ("SHA plus URL with Unicode punctuation in path and no description",
+             f"- Implemented: {repaired[:8]} https://git.example.com/cgit/fix\u2013tools/commit/?id={built[:8]}"),
+            ("SHA plus www URL with Unicode punctuation in path and no description",
+             f"- Implemented: {repaired[:8]} www.git.example.com:8443/cgit/fix\u2013tools/commit/{built[:8]}"),
             ("unpaired tilde parent shorthand", f"- Implemented: fixed {repaired[:8]}~"),
             ("emphasis must not pair across link label boundary",
              f"- Implemented: fixed src/*.py in [{repaired[:8]}*](diff)"),
             ("token cleanup must not pair asterisk across link boundary",
              f"- Implemented: fixed *[{repaired[:8]}*](diff)"),
+            ("CJK prose with malformed asterisk across link boundary",
+             f"- Implemented: 修復於*[{repaired[:8]}*](diff)。"),
             ("backticked SHA with trailing tilde parent selector", f"- Implemented: fixed `{repaired[:8]}`~"),
             ("linked SHA with no description",
              f"- Implemented: [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
@@ -1309,6 +1315,8 @@ class ResolutionGuard(ThreePass):
             ("uppercase SHA", f"- Implemented: fixed in {repaired[:8].upper()}"),
             ("non-ASCII Unicode description", f"- Implemented: 修復 {repaired[:8]}"),
             ("linked SHA followed by CJK full stop", f"- Implemented: 修復 [{repaired[:8]}](diff)。"),
+            ("linked SHA directly adjacent to preceding CJK prose", f"- Implemented: 修復於[{repaired[:8]}](diff)。"),
+            ("linked SHA directly adjacent to following CJK prose", f"- Implemented: [{repaired[:8]}](diff)已修復。"),
         )
         for label, note in good_impl_cases:
             with self.subTest(good_impl=label):
@@ -1358,11 +1366,21 @@ class ResolutionGuard(ThreePass):
             self.assertFalse(module._has_resolution_entry([long_refs]))
             nested_qual = f"- Implemented: {repaired[:8]} " + ("a/b@" * 600) + "HEAD"
             self.assertIsInstance(module._has_resolution_entry([nested_qual]), bool)
-        # Linear-time bracket scanning on deeply nested literal brackets.
-        nested_brackets = "[" * 32000 + "x" + "]" * 32000
+        # Linear-time bracket scanning on deeply nested literal brackets (fails quadratic copy regression).
+        small_brackets = "[" * 16000 + "x" + "]" * 16000
+        t0 = time.monotonic()
+        self.assertEqual(module._unwrap_markdown_links(small_brackets, set()), small_brackets)
+        t_small = time.monotonic() - t0
+        nested_brackets = "[" * 128000 + "x" + "]" * 128000
         t0 = time.monotonic()
         self.assertEqual(module._unwrap_markdown_links(nested_brackets, set()), nested_brackets)
-        self.assertLess(time.monotonic() - t0, 0.15, "_unwrap_markdown_links must stay linear on nested brackets")
+        t_large = time.monotonic() - t0
+        self.assertLess(t_large, 0.45, f"_unwrap_markdown_links took {t_large:.3f}s on 128k nested brackets")
+        self.assertLess(
+            t_large,
+            max(t_small * 16, 0.25),
+            f"_unwrap_markdown_links scaled super-linearly: 16k={t_small:.4f}s, 128k={t_large:.4f}s",
+        )
 
     def test_reconciliation_accepts_filed_and_writer_note_including_stamp_exemption(self):
         cases = (
