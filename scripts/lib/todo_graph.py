@@ -2648,13 +2648,13 @@ def replan(root, ref, date, now):
             for chain_file in chains:
                 _contained_path(root, chain_file.relative_to(root).as_posix(), "kept chain")
             moved = None
+            moved_rel = None
             if own.exists():
                 number = max([int(KEPT_CHAIN.search(p.name)[1]) for p in chains], default=0) + 1
                 moved = own.with_name(f"{own.stem}-chain{number}.md")
                 moved_rel = moved.relative_to(root).as_posix()
                 _contained_path(root, moved_rel, "archive path")
                 require(not moved.exists(), f"{moved} exists: a kept chain is never written over")
-                _replace_contained(root, findings_rel, moved_rel)
                 kept = moved
             else:
                 require(bool(chains), f"{ref} has no findings file to keep: nothing to re-plan")
@@ -2670,7 +2670,15 @@ def replan(root, ref, date, now):
                 f"replan`; the build first began at {old}; its review chain is kept as `{kept_rel}`.", 1)
             text = read_text(path)
             require(text.count(fresh_row.body) == 1, f"section body is not unique in {fresh_row.path}")
-            atomic(path, text.replace(fresh_row.body, body))
+            updated = text.replace(fresh_row.body, body)
+            if moved is not None:
+                _replace_contained(root, findings_rel, moved_rel)
+            try:
+                atomic(path, updated)
+            except BaseException:
+                if moved is not None and moved.exists() and not own.exists():
+                    _replace_contained(root, moved_rel, findings_rel)
+                raise
             return {"kept": kept_rel, "started": f"> **Started:** {now}", "done": "moved" if moved else "noted"}
         finally:
             _release_todo_lock(dispatch, todo_lock, todo_owned)
@@ -2978,21 +2986,18 @@ def unstamp(root, ref, reason, date):
             require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
             text = line.sub(r"\1[ ]\2", text)
             text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)
-            receipt_bytes = receipt_path.read_bytes()
             plan_path = root / plan_file(root)
             original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
             try:
-                atomic(revoked_path, receipt_bytes)
                 atomic(path, text)
-                receipt_path.unlink()
+                os.replace(receipt_path, revoked_path)
                 graph(root)
                 if original_plan_bytes is not None:
                     projections(root, sync=True)
             except BaseException:  # an interrupt between writes must roll back as an error does
                 try:
-                    if not receipt_path.is_file():
-                        atomic(receipt_path, receipt_bytes)
-                    revoked_path.unlink(missing_ok=True)
+                    if not receipt_path.is_file() and revoked_path.is_file():
+                        os.replace(revoked_path, receipt_path)
                     if not path.is_file() or path.read_bytes() != original_bytes:
                         atomic(path, original_bytes)
                 finally:
@@ -3088,16 +3093,13 @@ def _unstamp_adopted(root, ref, reason, date):
             require(len(line.findall(text)) == 1, f"implementation row not found: {ref}")
             text = line.sub(r"\1[ ]\2", text)
             text = re.sub(r"\A(---\n(?:.*\n)*?)status: done\n", r"\1status: active\n", text, count=1)
-            receipt_bytes = receipt_path.read_bytes() if receipt_path is not None else None
             plan_path = root / plan_file(root)
             original_plan_bytes = plan_path.read_bytes() if plan_path.is_file() else None
             try:
-                if revoked_path is not None:
-                    atomic(revoked_path, receipt_bytes)
                 atomic(registry, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
                 atomic(path, text)
-                if receipt_path is not None:
-                    receipt_path.unlink()
+                if revoked_path is not None:
+                    os.replace(receipt_path, revoked_path)
                 others = _faults_elsewhere(root, ref, row.path)
                 require(not others, "unstamp rolled back: reopening " + ref + " leaves faults elsewhere:\n  " +
                         "\n  ".join(others))
@@ -3107,10 +3109,8 @@ def _unstamp_adopted(root, ref, reason, date):
                     projections(root, sync=True)  # the plan syncs then, and the pre-commit hook asks for both
             except BaseException:  # an interrupt between writes must roll back as an error does
                 try:
-                    if receipt_path is not None and not receipt_path.is_file():
-                        atomic(receipt_path, receipt_bytes)
-                    if revoked_path is not None:
-                        revoked_path.unlink(missing_ok=True)
+                    if revoked_path is not None and not receipt_path.is_file() and revoked_path.is_file():
+                        os.replace(revoked_path, receipt_path)
                     if registry.read_bytes() != registry_bytes:
                         atomic(registry, registry_bytes)
                     if not path.is_file() or path.read_bytes() != original_bytes:

@@ -2362,6 +2362,61 @@ class Stamp(Tree):
         self.assertEqual(self.snapshot(), before)
         tg.graph(self.root)
 
+    def test_failed_unstamp_preserves_receipt_inode_and_permissions(self):
+        # D00 T01 §13 Rec 11 finding 28: when plan sync refuses after unstamp revokes the receipt, rollback restores
+        # the original receipt inode (owner, mode, ACL and bytes) via rename instead of recreating it from bytes.
+        import errno
+        import stat
+        self.tick_work()
+        tg.projections(self.root, sync=True)
+        receipt_rel = self.stamp("D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-13", sync_plan=True)
+        receipt_path = self.root / receipt_rel
+        plan_path = self.root / "todo/implementation-plan.md"
+        todo_path = self.root / "todo/00-workspace/TODO-01-a.md"
+        if os.name != "nt":
+            os.chmod(receipt_path, 0o644)
+        before_stat = receipt_path.stat()
+        before_receipt = receipt_path.read_bytes()
+        before_todo = todo_path.read_bytes()
+        before_plan = plan_path.read_bytes()
+        if os.name != "nt":
+            real_lstat = os.lstat
+            plan_key = (plan_path.lstat().st_dev, plan_path.lstat().st_ino)
+            other_uid = os.getuid() + 1
+
+            def fake_lstat(p, *args, **kwargs):
+                st = real_lstat(p, *args, **kwargs)
+                if (st.st_dev, st.st_ino) == plan_key:
+                    return os.stat_result((
+                        st.st_mode, st.st_ino, st.st_dev, st.st_nlink,
+                        other_uid, st.st_gid, st.st_size, st.st_atime, st.st_mtime, st.st_ctime,
+                    ))
+                return st
+
+            old_umask = os.umask(0o077)
+            try:
+                with unittest.mock.patch.object(os, "lstat", side_effect=fake_lstat), \
+                        unittest.mock.patch.object(os, "fchown", side_effect=PermissionError(errno.EPERM, "denied")):
+                    with self.assertRaises(tg.Refused) as ctx:
+                        tg.unstamp(self.root, "D00 T01 §1", "regressed", "2026-10-21")
+            finally:
+                os.umask(old_umask)
+            self.assertIn("cannot preserve ownership", str(ctx.exception))
+        else:
+            with unittest.mock.patch.object(tg, "projections", side_effect=tg.Refused("plan sync refused")):
+                with self.assertRaises(tg.Refused):
+                    tg.unstamp(self.root, "D00 T01 §1", "regressed", "2026-10-21")
+        self.assertTrue(receipt_path.is_file())
+        self.assertEqual(receipt_path.read_bytes(), before_receipt)
+        self.assertEqual(list(receipt_path.parent.glob("*.revoked-*.json")), [])
+        self.assertEqual(todo_path.read_bytes(), before_todo)
+        self.assertEqual(plan_path.read_bytes(), before_plan)
+        after_stat = receipt_path.stat()
+        self.assertEqual(after_stat.st_ino, before_stat.st_ino)
+        self.assertEqual(stat.S_IMODE(after_stat.st_mode), stat.S_IMODE(before_stat.st_mode))
+        self.assertEqual((after_stat.st_uid, after_stat.st_gid), (before_stat.st_uid, before_stat.st_gid))
+        tg.graph(self.root)
+
     def test_stamping_the_last_section_marks_the_file_done(self):
         path = self.root / "todo/00-workspace/TODO-02-b.md"
         path.write_text(todo_file([(1, "Only", 0, "none", "--")], ident="bravo")
@@ -3613,6 +3668,66 @@ class ThreePassStamp(Stamp):
         finally:
             tg._release_todo_lock(dispatch, lock_path, owned)
         self.assertFalse(todo_lock.exists())
+
+    def test_replan_rolls_back_archive_when_todo_write_refuses(self):
+        # D00 T01 §13 Rec 11 finding 27: when replan's TODO write refuses (e.g. ownership preservation on another
+        # account's TODO), the canonical findings file stays in place with no leftover archive entry.
+        import errno
+        import stat
+        self.live()
+        self.passed("plan", self.sha)
+        self.commit("findings")
+        own = self.root / self.FILE
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        if os.name != "nt":
+            os.chmod(own, 0o644)
+        before_own = own.read_bytes()
+        before_own_stat = own.stat()
+        before_todo = todo.read_bytes()
+        real_atomic = tg.atomic
+
+        def refuse_todo(p, data):
+            if pathlib.Path(p).resolve() == todo.resolve():
+                raise tg.Refused("cannot preserve ownership of todo")
+            return real_atomic(p, data)
+
+        with unittest.mock.patch.object(tg, "atomic", side_effect=refuse_todo):
+            with self.assertRaises(tg.Refused) as ctx:
+                tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+        self.assertIn("cannot preserve ownership", str(ctx.exception))
+        self.assertTrue(own.is_file())
+        self.assertEqual(own.read_bytes(), before_own)
+        self.assertEqual(list(own.parent.glob("*-chain*.md")), [])
+        self.assertEqual(todo.read_bytes(), before_todo)
+        after_own_stat = own.stat()
+        self.assertEqual(after_own_stat.st_ino, before_own_stat.st_ino)
+        self.assertEqual(stat.S_IMODE(after_own_stat.st_mode), stat.S_IMODE(before_own_stat.st_mode))
+        if os.name != "nt":
+            # End-to-end POSIX ownership-preservation refusal through real atomic() without patching atomic.
+            real_lstat = os.lstat
+            todo_key = (todo.lstat().st_dev, todo.lstat().st_ino)
+            other_uid = os.getuid() + 1
+
+            def fake_lstat(p, *args, **kwargs):
+                st = real_lstat(p, *args, **kwargs)
+                if (st.st_dev, st.st_ino) == todo_key:
+                    return os.stat_result((
+                        st.st_mode, st.st_ino, st.st_dev, st.st_nlink,
+                        other_uid, st.st_gid, st.st_size, st.st_atime, st.st_mtime, st.st_ctime,
+                    ))
+                return st
+
+            with unittest.mock.patch.object(os, "lstat", side_effect=fake_lstat), \
+                    unittest.mock.patch.object(os, "fchown", side_effect=PermissionError(errno.EPERM, "denied")):
+                with self.assertRaises(tg.Refused) as ctx2:
+                    tg.replan(self.root, "D00 T01 §1", "2026-10-20", "2026-10-20T12:00Z")
+            self.assertIn("cannot preserve ownership", str(ctx2.exception))
+            self.assertTrue(own.is_file())
+            self.assertEqual(own.read_bytes(), before_own)
+            self.assertEqual(list(own.parent.glob("*-chain*.md")), [])
+            self.assertEqual(todo.read_bytes(), before_todo)
+            self.assertEqual(own.stat().st_ino, before_own_stat.st_ino)
+            self.assertEqual(stat.S_IMODE(own.stat().st_mode), 0o644)
 
     def test_fallback_lock_backend_matches_review_dispatch(self):
         # D00 T01 §13 Round 1 finding 5: standalone todo-kit fallback must stay aligned with review-dispatch.py.
@@ -5194,6 +5309,44 @@ class Adoption(Tree):
         rows = tg.graph(self.root)
         self.assertFalse(rows["D00 T01 §1"].done)
         self.assertFalse(rows["D00 T02 §1"].done)
+
+    def test_failed_adopted_unstamp_preserves_receipt_inode_and_permissions(self):
+        # D00 T01 §13 Rec 11 finding 28: adopted unstamp rollback preserves the original receipt inode and permissions.
+        import stat
+        self.build()
+        tg.adopt_stamps(self.root, {"todo/00-workspace/TODO-02-b.md": 0})
+        receipt_path = self.root / "docs/reviews/rf/d00-t01-s1.md"
+        if os.name != "nt":
+            os.chmod(receipt_path, 0o644)
+        before_stat = receipt_path.stat()
+        before_receipt = receipt_path.read_bytes()
+        before_registry = (self.root / self.REGISTRY).read_bytes()
+        before_todo = (self.root / "todo/00-workspace/TODO-01-a.md").read_bytes()
+        real = tg._faults_elsewhere
+        calls = []
+
+        def fail_after_move(*args):
+            calls.append(1)
+            return real(*args) if len(calls) == 1 else ["todo/00-workspace/TODO-02-b.md: simulated refusal"]
+
+        old_umask = os.umask(0o077) if os.name != "nt" else None
+        try:
+            with unittest.mock.patch.object(tg, "_faults_elsewhere", fail_after_move), \
+                    self.assertRaises(tg.Refused) as ctx:
+                tg.unstamp(self.root, "D00 T01 §1", "regressed", "2026-11-14")
+        finally:
+            if old_umask is not None:
+                os.umask(old_umask)
+        self.assertIn("unstamp rolled back", str(ctx.exception))
+        self.assertTrue(receipt_path.is_file())
+        self.assertEqual(receipt_path.read_bytes(), before_receipt)
+        self.assertEqual(list(receipt_path.parent.glob("*.revoked-*")), [])
+        self.assertEqual((self.root / self.REGISTRY).read_bytes(), before_registry)
+        self.assertEqual((self.root / "todo/00-workspace/TODO-01-a.md").read_bytes(), before_todo)
+        after_stat = receipt_path.stat()
+        self.assertEqual(after_stat.st_ino, before_stat.st_ino)
+        self.assertEqual(stat.S_IMODE(after_stat.st_mode), stat.S_IMODE(before_stat.st_mode))
+        self.assertEqual((after_stat.st_uid, after_stat.st_gid), (before_stat.st_uid, before_stat.st_gid))
 
 
 class Repository(unittest.TestCase):
