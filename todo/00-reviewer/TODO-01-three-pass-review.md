@@ -42,7 +42,7 @@ title: "TODO-01 -- Three-pass review"
 | 6 | §6 | Reviewer process tree ended on Windows by a job object | §2 | [x] |
 | 7 | §7 | Review prompt filler | §2 | [x] |
 | 8 | §8 | Stamp that recovers from a write cut short | §3 | [x] |
-| 9 | §9 | Re-plan route for a chain that cannot settle, recovery planned up front | §4 | [ ] |
+| 9 | §9 | Re-plan route for unsettled chains, recovery planned up front | §4, §13 | [ ] |
 | 10 | §10 | Verify-only reconciliation trial in the SDK's own pin | -- | [ ] |
 | 11 | §11 | One severity rubric weighted by likelihood | -- | [x] |
 | 12 | §12 | Check resolution entries before reconciliation dispatch | -- | [x] |
@@ -318,7 +318,7 @@ Filed 2026-11-11 from the completion review of §3 (an out-of-scope gap). `stamp
 > **Verified:** 2026-11-11 | §8 | 89ff448ffb36806b77593755e3021c3145783e3a
 > **Review:** `docs/reviews/d00-t01-s8.json`
 
-## 9. Re-plan route for a chain that cannot settle, recovery planned up front
+## 9. Re-plan route for unsettled chains, recovery planned up front
 
 > **Started:** 2026-11-21T13:38Z
 
@@ -332,7 +332,7 @@ Filed 2026-11-18 from `D07 T01 §7`, which spent 19 passes before a re-plan: its
 
 **Corrected 2026-11-19:** the checkpoint named `kits/todo/templates/scripts/tests`, which does not exist: the todo kit's graph and stamp tests are the SDK's `tests/test_todo_graph.py`, its slow ones behind `CONCLAVE_FULL_TESTS`.
 
-**Phase:** 8
+**Phase:** 9
 **Needs:** none
 **Surface:** no
 
@@ -381,7 +381,7 @@ Filed 2026-11-19 at the owner's request. A P2 finding held `D02 T02 §12` throug
 - [x] Set the repair-diff shape in `.conclave/reviewers.toml` (completed in historical commit `6c3e08eb`, active across all 5 measured rows, later retired at `fab491cc`). Done when: verified at `6c3e08eb` (`no_progress_cap none`).
 - [x] Verify all 5 shadow audits (reusing existing `docs/reviews/07-launchers/audit-d07-t02-s2.md` for Row 1 and `audit-d07-t02-s8.md` for Row 2; committing and verifying `docs/reviews/07-launchers/audit-d07-t02-s2-c3.md` for Row 3 `D07 T02 §2` c3 `bacac1f2..d86bc31a`, `docs/reviews/00-reviewer/audit-d00-t01-s9.md` for Row 4 `D00 T01 §9` `9015bf1c..7bf101fd`, and `docs/reviews/07-launchers/audit-d07-t01-s8.md` for Row 5 `D07 T01 §8` `7bf101fd..c9158e4e`, each with a `## Writer note: shadow audit verdict` separating highest reported vs highest missed grade and noting which findings are already fixed on HEAD), file repairs for every confirmed missed blocker (`D07 T02 §9`, `D00 T01 §13`, `D07 T01 §10`), and reopen each affected stamped section with `todo-graph.py unstamp` (recording any stamped dependents reported as suspect). Done when: all 5 audit files exist in `docs/reviews/`, every filed repair resolves via `todo-graph.py resolve`, and every reopened row reads back open with its dated `Unstamped:` reason and preserved `*.revoked-*.json` receipt.
 - [x] Record the trial conclusion (under the owner's 2026-11-20 delegated criteria and 2026-11-22 zero-degradation directive): derive the decline-promotion verdict from the verified audit findings (Row 1's confirmed misses already fail the trial, and all 5 rows' verified results are recorded), confirm full reconciliation lenses (`adversarial`, `integration`, `plan-delivery`, `record` at medium effort, `simplest` on plan, no `no_progress_cap`, `blocking = ["P1", "P2"]`) in `.conclave/reviewers.toml` and `AGENTS.md`, and prove `kits/reviewer/templates/.conclave/reviewers.toml` keeps its pre-trial effective schedule (`6c3e08eb~1`). Done when: the decision and reversal cost are recorded here and in `docs/phase-runs/2026-11-21-phase-9.md`, the effective SDK schedule read-back (`scheduled()` and `--caps`) passes, and the kit template effective schedule equals `6c3e08eb~1`.
-- [x] Format the mixed-severity replay result in `D00 T01 §11` (`todo/00-reviewer/TODO-01-three-pass-review.md:453`) as a Markdown table showing each reported finding, its grade (`P2`, `P2`, `P3`), and `HIGHEST: P2` (filed P3 gap 1 from `D00 T01 §11` Reconciliation 2). Done when: the table sits under `§11` with all three findings and `HIGHEST: P2`, and `python -m unittest tests.test_forge -k markdown_table` passes.
+- [x] Format the mixed-severity replay result under `D00 T01 §11` (`**Mixed-severity no-filtering replay ...**`) as a Markdown table showing each reported finding, its grade (`P2`, `P2`, `P3`), and `HIGHEST: P2` (filed P3 gap 1 from `D00 T01 §11` Reconciliation 2). Done when: the table sits under `§11` with all three findings and `HIGHEST: P2`, and `python -m unittest tests.test_forge -k markdown_table` passes.
 - [ ] Commit: `review: conclude D00 T01 s10 trial, decline repair-diff, restore full reconciliation lenses`
 
 **Measured repair-diff trial rows (after `6c3e08eb`, all 5 historical chains have rubric `unknown` because receipts omit the running dispatcher revision and delivered prompt, so all 5 are excluded from rubric-version comparisons; baseline: normal-section median 1.2h, long tails `D07 T01 §7` 16.4h / 15 recs, `D02 T02 §12` 20.0h / 19 recs, `D00 T01 §9` c1 22.2h):**
@@ -401,13 +401,13 @@ Filed 2026-11-19 at the owner's request. A P2 finding held `D02 T02 §12` throug
 
 | Row | Base..Cand | Receipt | Audit | Hi | Missed | Filed |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 09646718 | d07-t02-s2.revoked-2026-11-21.json | audit-d07-t02-s2.md | P1 | P2 (2) | D07 T02 §8 |
-| 2 | 273fea94 | d07-t02-s8.json | audit-d07-t02-s8.md | P2 | P2 (3) | Into §2 c3 |
+| 1 | e7e55ea6..09646718 | d07-t02-s2.revoked-2026-11-21.json | audit-d07-t02-s2.md | P1 | P2 (2) | D07 T02 §8 |
+| 2 | 074fed6c..273fea94 | d07-t02-s8.json | audit-d07-t02-s8.md | P2 | P2 (3) | Into §2 c3 |
 | 3 | bacac1f2..d86bc31a | d07-t02-s2.revoked-2026-11-22.json | audit-d07-t02-s2-c3.md | P2 | P2 (6) | D07 T02 §9 |
 | 4 | 9015bf1c..7bf101fd | d00-t01-s9.revoked-2026-11-22.json | audit-d00-t01-s9.md | P1 | P1+4 P2 | D00 T01 §13 |
 | 5 | 7bf101fd..c9158e4e | d07-t01-s8.revoked-2026-11-22.json | audit-d07-t01-s8.md | P1 | P1+6 P2 | D07 T01 §10 |
 
-**Suspect dependents reported by `todo-graph.py unstamp` (2026-11-22):** `D07 T02 §4`, `D07 T02 §5`, and `D07 T02 §6` are marked suspect until `D07 T02 §2` re-stamps; `D00 T01 §9` and `D07 T01 §8` had zero suspect dependents. Row 5 note: 3 of the 7 blockers at `c9158e4e` (findings 2, 3, 4) were already fixed on HEAD by `D07 T01 §9` (`1a843490`/`7211c4c2`); the 4 still-open P2s and 1 P3 are filed in `D07 T01 §10`.
+**Suspect dependents reported by `todo-graph.py unstamp` (2026-11-22):** `D07 T02 §4`, `D07 T02 §5`, and `D07 T02 §6` are marked suspect until `D07 T02 §2` re-stamps; `D00 T01 §9` and `D07 T01 §8` had zero suspect dependents. Each reopened row depends in the graph on its repair (`D07 T02 §2` on `§9` in Phase 8; `D00 T01 §9` on `§13` and `D07 T01 §8` on `§10` in Phase 9 so Phase 8's plan table stays <= 120 chars) so no reopened row can become ready or re-stamp before its repair ships. Row 3 note: 1 of the 6 blockers at `d86bc31a` (signed 64-bit `wordpress_user_id` overflow) was already fixed in production by `5a6d5fd6` (`wp_site.py:195`, `open-dashboard.py:156`), leaving its regression test plus the other 5 P2s and 1 P3 in `D07 T02 §9`. Row 5 note: 3 of the 7 blockers at `c9158e4e` (findings 2, 3, 4) were already fixed on HEAD by `D07 T01 §9` (`1a843490`/`7211c4c2`); the 4 still-open P2s and 1 P3 are filed in `D07 T01 §10`.
 
 **Speed conclusion (independent of quality):** across the 5 repair-diff rows, `Started`-to-stamp elapsed times were 0.7h, 1.4h, 1.7h, 2.0h, and 25.1h (median 1.7h; 1 to 5 reconciliations, median 3). Repair-diff avoided the 15-to-19-pass tail of `D07 T01 §7` and `D02 T02 §12`, but its 1.7h median remained slower than the 1.2h normal-section baseline.
 

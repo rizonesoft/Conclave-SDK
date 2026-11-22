@@ -44,5 +44,6 @@ OVERALL: needs-attention
 ## Writer note: shadow audit verdict (D00 T01 §10)
 
 - Run on 2026-11-22 as a new full-lens shadow audit of Row 3 (`D07 T02 §2` chain 3, base `bacac1f2`, candidate `d86bc31a`, stamped `9015bf1c`).
-- Highest reported grade: `P2`; highest missed grade: `P2` (6 real P2 defects and 1 P3 missed by the repair-diff chain: `_kill_browser_tree` skips `killpg` after leader exits, 64-bit `wordpress_user_id` float coercion in PHP, Windows machine-default HTTPS lookup without `UserChoice`, `xdg-mime` desktop ID echoed in stderr, PowerShell wildcard bracket matching in browser cleanup, single-threaded HTTP server shutdown hang, and unpruned `.open-*.tmp` files).
-- Repair filed as `D07 T02 §9` and `D07 T02 §2` reopened with `todo-graph.py unstamp` per `D00 T01 §10`.
+- Highest reported grade: `P2`; highest missed grade: `P2` (6 real P2 defects and 1 P3 missed by the repair-diff chain at `d86bc31a`: `_kill_browser_tree` skips `killpg` after leader exits, 64-bit `wordpress_user_id` float coercion in PHP, Windows machine-default HTTPS lookup without `UserChoice`, `xdg-mime` desktop ID echoed in stderr, PowerShell wildcard bracket matching in browser cleanup, single-threaded HTTP server shutdown hang, and unpruned `.open-*.tmp` files).
+- Verified against HEAD: the signed 64-bit `wordpress_user_id` production guard was subsequently fixed in `5a6d5fd6` (`wp_site.py:195`, `open-dashboard.py:156`), leaving its regression test in `test_open_dashboard.py` plus the other 5 P2 defects and 1 P3 open on HEAD.
+- Repair filed as `D07 T02 §9` and `D07 T02 §2` reopened with `todo-graph.py unstamp` (with `§2` depending on `§9` in the graph) per `D00 T01 §10`.

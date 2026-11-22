@@ -45,7 +45,7 @@ title: "TODO-02 -- WordPress dashboard login by one-use ticket"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Ticket login plugin in the WordPress kit | -- | [x] |
-| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1 | [ ] |
+| 2 | §2 | Dashboard opener `scripts/open-dashboard.py` | §1, §9 | [ ] |
 | 3 | §3 | Plugin install, status and removal on the pinned site | §1 | [x] |
 | 4 | §4 | Doctor rows and host refusals for the ticket login | §2, §3 | [x] |
 | 5 | §5 | WordPress link in the launcher profile | §2, T01 §6 | [x] |
@@ -283,24 +283,24 @@ Filed 2026-11-21 from the `D00 T01 §10` shadow audit of `D07 T02 §2` (`docs/re
 
 ## 9. Shadow-audit repairs for `open-dashboard.py` and browser test
 
-Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T02 §2` chain 3 (`docs/reviews/07-launchers/audit-d07-t02-s2-c3.md`), which found 6 P2 defects and 1 P3 missed by repair-diff.
+Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T02 §2` chain 3 (`docs/reviews/07-launchers/audit-d07-t02-s2-c3.md`), which found 6 P2 defects and 1 P3 missed by repair-diff at `d86bc31a`. The signed 64-bit `wordpress_user_id` guard was subsequently fixed in production by `5a6d5fd6` (`wp_site.py:195`, `open-dashboard.py:156`), leaving its regression test in `test_open_dashboard.py` plus the other 5 open P2 defects and 1 P3.
 
-**Phase:** 9
+**Phase:** 8
 **Needs:** none
 **Surface:** no
 
 **Build order:**
 
-1. Fix the 3 production defects and 1 P3 cleanup gap in `kits/wordpress/templates/scripts/open-dashboard.py` and `kits/wordpress/templates/scripts/lib/wp_site.py`. Done when: unit tests prove 64-bit integer range rejection, machine-default Windows HTTPS fallback, fixed stderr without child desktop ID, and `.open-*.tmp` pruning.
+1. Fix the remaining production defects and P3 cleanup gap in `kits/wordpress/templates/scripts/open-dashboard.py` and add the missing `9223372036854775808` regression test in `test_open_dashboard.py`. Done when: `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py` proves 64-bit overflow refusal, machine-default Windows HTTPS fallback, fixed stderr without child desktop ID, and `.open-*.tmp` pruning.
 2. Fix the 3 browser-test teardown and server defects in `kits/wordpress/templates/scripts/tests/test_open_dashboard.py`. Done when: the checkpoint passes.
 
-- [ ] Reject `wordpress_user_id` values outside signed 64-bit integer range (`1 <= id <= (1 << 63) - 1`) in `kits/wordpress/templates/scripts/lib/wp_site.py` and `kits/wordpress/templates/scripts/open-dashboard.py` so PHP never coerces the ID to float and fails redemption with 403. Done when: a test in `test_open_dashboard.py` passes `9223372036854775808` and asserts refusal before any remote call. Cheaper substitute: allowing unbounded Python integers, which PHP parses as floats.
+- [ ] Add a regression test in `kits/wordpress/templates/scripts/tests/test_open_dashboard.py` proving `open-dashboard.py` and `wp_site.py` (fixed in production by `5a6d5fd6` at `wp_site.py:195` and `open-dashboard.py:156`) refuse `wordpress_user_id = 9223372036854775808` (`> MAX_PHP_INT`) before any remote call. Done when: the test passes on HEAD and fails if the `MAX_PHP_INT` upper bound in `open-dashboard.py:156` is removed. Cheaper substitute: relying only on manual inspection of `5a6d5fd6` without an opener-side regression test.
 - [ ] Fall back from per-user `UserChoice` to the effective Windows HTTPS handler (`HKCR\https\shell\open\command` or `IApplicationAssociationRegistration`) in `kits/wordpress/templates/scripts/open-dashboard.py` without falling back to `.html` associations. Done when: a test exercises a profile without `UserChoice` and asserts resolution succeeds via the machine default while distinct `.html` handlers stay unused. Cheaper substitute: failing whenever per-user `UserChoice` is absent.
 - [ ] Keep fixed stderr messages in `kits/wordpress/templates/scripts/open-dashboard.py` without echoing child `xdg-mime` desktop entry IDs on lookup failure, and prune leftover `.open-*.tmp` files alongside `open-*.html` on Windows and Linux. Done when: tests verify stale `xdg-mime` output never appears in stderr and stale `.open-*.tmp` files are removed on launch. Cheaper substitute: echoing `xdg-mime` output verbatim.
 - [ ] Harden `kits/wordpress/templates/scripts/tests/test_open_dashboard.py`: call `os.killpg` in `_kill_browser_tree` even after the process-group leader exits, use literal substring matching (not PowerShell `-like` wildcards) for temp profile paths containing `[...]`, and use a threaded loopback server with accepted-socket timeouts so an idle connection never hangs `server.shutdown()`. Done when: tests reproduce an exited leader with a live child, a `[work]` temp profile path, and an idle loopback socket during shutdown. Cheaper substitute: skipping cleanup once `poll()` returns non-None or matching paths with `-like`.
 - [ ] Commit: `wordpress: shadow-audit repairs for open-dashboard.py and browser test (D07 T02 §9)`
 
-**Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py`, `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p "test_ticket_login.py"`, and `python forge.py check-all --only kit-wordpress` pass; removing any of the 6 P2 repairs makes its corresponding test fail.
+**Test checkpoint:** `python kits/wordpress/templates/scripts/tests/test_open_dashboard.py` passes during the repair loop and `python forge.py check-all --only kit-wordpress` passes once on the closeout candidate; removing the `MAX_PHP_INT` bound or any of the 5 remaining P2 repairs makes its corresponding test fail.
 
 ## Verification
 

@@ -156,31 +156,30 @@ Sections: 6 | Checklist items: 32
 
 ### Phase 8: Project launchers
 
-Sections: 17 | Checklist items: 150
+Sections: 16 | Checklist items: 143
 
-| Status | Reference  | Deliverable                                                             | Needs        | Items |
-| ------ | ---------- | ----------------------------------------------------------------------- | ------------ | ----- |
-| [ ]    | D00 T01 §9 | Re-plan route for a chain that cannot settle, recovery planned up front | none         | 6     |
-| [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                       | none         | 9     |
-| [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader              | none         | 7     |
-| [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                                | none         | 12    |
-| [x]    | D07 T01 §4 | Rounded-square overlay icons                                            | none         | 9     |
-| [x]    | D07 T01 §5 | Desktop links that open the project in an agent                         | windows-host | 19    |
-| [x]    | D07 T01 §6 | Declared links that run a command or open a URL                         | windows-host | 7     |
-| [x]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share        | windows-host | 22    |
-| [ ]    | D07 T01 §8 | Operator page and `project-launchers` skill                             | windows-host | 6     |
-| [x]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page               | windows-host | 5     |
-| [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                                | none         | 10    |
-| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                            | none         | 13    |
-| [x]    | D07 T02 §3 | Plugin install, status and removal on the pinned site                   | none         | 7     |
-| [x]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                      | none         | 5     |
-| [x]    | D07 T02 §5 | WordPress link in the launcher profile                                  | none         | 4     |
-| [x]    | D07 T02 §6 | `wordpress-connect` step and tooling page                               | none         | 4     |
-| [x]    | D07 T02 §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py`      | none         | 5     |
+| Status | Reference  | Deliverable                                                        | Needs        | Items |
+| ------ | ---------- | ------------------------------------------------------------------ | ------------ | ----- |
+| [x]    | D07 T01 §1 | Launchers kit known to `forge.py`                                  | none         | 9     |
+| [x]    | D07 T01 §2 | Launcher profile `.conclave/launchers.json` and its loader         | none         | 7     |
+| [x]    | D07 T01 §3 | Icon renderer owned by the launchers kit                           | none         | 12    |
+| [x]    | D07 T01 §4 | Rounded-square overlay icons                                       | none         | 9     |
+| [x]    | D07 T01 §5 | Desktop links that open the project in an agent                    | windows-host | 19    |
+| [x]    | D07 T01 §6 | Declared links that run a command or open a URL                    | windows-host | 7     |
+| [x]    | D07 T01 §7 | Campaign links under the project's title, icon read from a share   | windows-host | 22    |
+| [x]    | D07 T01 §9 | Agent and declared links named outside the ANSI code page          | windows-host | 5     |
+| [x]    | D07 T02 §1 | Ticket login plugin in the WordPress kit                           | none         | 10    |
+| [x]    | D07 T02 §3 | Plugin install, status and removal on the pinned site              | none         | 7     |
+| [x]    | D07 T02 §8 | Desktop-entry ID lookup and Exec unescaping in `open-dashboard.py` | none         | 5     |
+| [ ]    | D07 T02 §9 | Shadow-audit repairs for `open-dashboard.py` and browser test      | none         | 5     |
+| [ ]    | D07 T02 §2 | Dashboard opener `scripts/open-dashboard.py`                       | none         | 13    |
+| [x]    | D07 T02 §4 | Doctor rows and host refusals for the ticket login                 | none         | 5     |
+| [x]    | D07 T02 §5 | WordPress link in the launcher profile                             | none         | 4     |
+| [x]    | D07 T02 §6 | `wordpress-connect` step and tooling page                          | none         | 4     |
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 26 | Checklist items: 160
+Sections: 27 | Checklist items: 167
 
 | Status | Reference   | Deliverable                                                   | Needs        | Items |
 | ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
@@ -188,6 +187,7 @@ Sections: 26 | Checklist items: 160
 | [x]    | D00 T01 §11 | One severity rubric weighted by likelihood                    | none         | 8     |
 | [x]    | D00 T01 §12 | Check resolution entries before reconciliation dispatch       | none         | 3     |
 | [ ]    | D00 T01 §13 | Shadow-audit repairs for `replan` path check and lock safety  | none         | 5     |
+| [ ]    | D00 T01 §9  | Re-plan route for unsettled chains, recovery planned up front | none         | 6     |
 | [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt              | none         | 10    |
 | [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 6     |
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                           | windows-host | 7     |
@@ -209,7 +209,7 @@ Sections: 26 | Checklist items: 160
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
 | [ ]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 5     |
-| [ ]    | D07 T02 §9  | Shadow-audit repairs for `open-dashboard.py` and browser test | none         | 5     |
+| [ ]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 6     |
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 113/155 verified sections, 14 ready to run now.
+Progress: 113/155 verified sections, 11 ready to run now.
 
 Checklist: 940/1165 items completed (includes Commit items).

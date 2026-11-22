@@ -51,7 +51,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [x] |
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [x] |
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [x] |
-| 8 | §8 | Operator page and `project-launchers` skill | §6, §7 | [ ] |
+| 8 | §8 | Operator page and `project-launchers` skill | §6, §7, §10 | [ ] |
 | 9 | §9 | Agent and declared links named outside the ANSI code page | §6 | [x] |
 | 10 | §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests | §9 | [ ] |
 
@@ -307,7 +307,7 @@ Two faults in the campaign link, both found on the first project that used the w
 
 A person or an agent in a project needs one place that says how to set the title and icon, write the links and remove them. The page is the operator's; the skill points each agent at it.
 
-**Phase:** 8
+**Phase:** 9
 **Needs:** windows-host
 **Surface:** no
 
