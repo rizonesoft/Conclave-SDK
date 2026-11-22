@@ -100,6 +100,8 @@ lenses = ["adversarial"]
 3. Choose `pass_cap` and, if only some severities should hold the stamp, `blocking`.
 4. Commit the pin. Sections whose plan review ran before that commit finish under the rotation pin they began with; sections started after it run three-pass.
 
+Upgrading an existing pin when `design-plan` became a built-in lens: if a project previously declared a custom `design-plan` entry under `[schedule.lenses]`, rename it (for example to `ui-plan`) and update any `[[schedule.conditional]]` or step references to that new name, or remove the custom declaration to use the built-in `design-plan` question.
+
 ## What lands
 
 | Path | Role |

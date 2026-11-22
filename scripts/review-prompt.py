@@ -101,19 +101,66 @@ def section_field(body: str, name: str) -> str | None:
     return values[0].strip() if len(values) == 1 else None
 
 
-def resolve_fidelity(ref: str) -> str | None:
+def _extract_section_body(text: str, number: int) -> str | None:
+    """Body of `## <number>. ...` up to the next `## ` heading (matching todo_graph.section_text)."""
+    m = re.search(rf"^## {number}\. [^\n]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    return m.group(1) if m else None
+
+
+def _section_body_at_commit(root: Path, candidate: str, rel_path: str, ref: str) -> str | None:
+    """Read `ref`'s section body from `candidate:rel_path` when `candidate` is a commit in `root`; None when `root`
+    has no git commit for `candidate` (for example synthetic SHA fixtures outside a git checkout)."""
+    try:
+        probe = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "--quiet", f"{candidate}^{{commit}}"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if probe.returncode != 0:
+        return None
+    try:
+        shown = subprocess.run(
+            ["git", "-C", str(root), "show", f"{candidate}:{rel_path}"],
+            capture_output=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as error:
+        raise Refused(f"--fidelity is needed: reading {rel_path} at {candidate} failed ({error})")
+    if shown.returncode != 0:
+        raise Refused(f"--fidelity is needed: {rel_path} is not in candidate {candidate}")
+    num_match = re.search(r"§(\d+)$", ref)
+    if not num_match:
+        raise Refused(f"--fidelity is needed: cannot parse section number from {ref!r}")
+    body = _extract_section_body(shown.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n"),
+                                 int(num_match.group(1)))
+    if body is None:
+        raise Refused(f"--fidelity is needed: {ref} is not in {rel_path} at candidate {candidate}")
+    return body
+
+
+def resolve_fidelity(ref: str, candidate: str | None = None) -> str | None:
     """The design source the section itself names, so the reviewer reads the contract the section was planned
     against without the writer retyping it: its `**Fidelity:**` value on `Surface: yes`, None (the template's
-    `none (Surface: no)`) on `Surface: no`. A `Surface: yes` section that names none is refused, never sent to the
-    reviewer as a section without a surface. Without todo-graph.py beside this script, or from one whose `resolve`
-    gives no section body, there is nothing to read and the default stands."""
+    `none (Surface: no)`) only on an explicit, unambiguous `Surface: no`. When `candidate` is a commit in this repo,
+    the section is read from `candidate` rather than the working tree. A missing body, missing/ambiguous Surface, or
+    `Surface: yes` with no Fidelity is refused, never sent as `none (Surface: no)`. Without todo-graph.py beside this
+    script, there is nothing to look up and the default stands."""
     if not GRAPH.is_file():
         return None
-    body = resolve_section(ref, "--fidelity")[0].get("body")
-    if not isinstance(body, str):
+    data, _code = resolve_section(ref, "--fidelity")
+    body = None
+    rel_path = data.get("path")
+    if candidate and isinstance(rel_path, str) and rel_path:
+        body = _section_body_at_commit(Path(__file__).resolve().parent.parent, candidate, rel_path, ref)
+    if body is None:
+        body = data.get("body")
+    if not isinstance(body, str) or not body.strip():
+        raise Refused(f"--fidelity is needed: {GRAPH.name} resolve {ref!r} printed no section body")
+    surface = section_field(body, "Surface")
+    if surface == "no":
         return None
-    if section_field(body, "Surface") != "yes":
-        return None
+    if surface != "yes":
+        raise Refused(f"--fidelity is needed: {ref} has no single unambiguous Surface: yes or Surface: no field")
     fidelity = section_field(body, "Fidelity")
     if not fidelity:
         raise Refused(f"--fidelity is needed: {ref} has Surface: yes and names no one Fidelity design source")
@@ -296,8 +343,10 @@ def run(args: argparse.Namespace) -> Path:
     if not args.findings and args.ref and "`<docs/reviews/" in body:
         args.findings = section_findings(args.ref)
     given_fidelity = args.fidelity
+    if args.fidelity is not None and not one_line(args.fidelity):
+        raise Refused("--fidelity must not be blank (omit it to let --ref read the section's Surface and Fidelity)")
     if args.fidelity is None and args.ref and FIDELITY_SPAN in body:
-        args.fidelity = resolve_fidelity(args.ref)
+        args.fidelity = resolve_fidelity(args.ref, args.candidate)
     gates = None
     if args.gates is not None:
         try:

@@ -260,6 +260,16 @@ class ThreePass(Cases):
         planned = both + '\n[[schedule.conditional]]\nlenses = ["design-plan"]\npasses = ["plan"]\npaths = ["src/ui/"]\n'
         self.assertEqual(lenses(load(planned)["schedule"], "plan", ["src/ui/a.c"]), ["plan", "design-plan"])
         self.assertEqual(lenses(load(planned)["schedule"], "plan", ["src/app/x.c"]), ["plan"])
+        # Declaring `design-plan` under [schedule.lenses] is refused as a built-in; renaming it migrates cleanly.
+        redeclared = both.replace('[schedule.lenses]\n', '[schedule.lenses]\ndesign-plan = "Custom UI plan?"\n', 1)
+        self.refuses(redeclared, "'design-plan' is already a built-in")
+        migrated = (
+            both.replace('[schedule.lenses]\n', '[schedule.lenses]\nui-plan = "Custom UI plan?"\n', 1)
+            + '\n[[schedule.conditional]]\nlenses = ["ui-plan"]\npasses = ["plan"]\npaths = ["src/ui/"]\n'
+        )
+        migrated_schedule = load(migrated)["schedule"]
+        self.assertEqual(lenses(migrated_schedule, "plan", ["src/ui/a.c"]), ["plan", "ui-plan"])
+        self.assertEqual(review_pin.lens_table(migrated_schedule)["ui-plan"], "Custom UI plan?")
         # Only the surface-gated lens: any other lens the round always has is still a repeat, and another pass's
         # lens is still another pass's.
         moved = 'lenses = ["design"]\npasses = ["round", "reconciliation"]'
@@ -267,8 +277,12 @@ class ThreePass(Cases):
                      "repeats the lens quality, which the round pass always has")
         self.refuses(both.replace(moved, 'lenses = ["design"]\npasses = ["completion"]'),
                      "gives the completion pass the lens design, which belongs to round")
+        import re
         for name in ("design", "source-defect", "design-plan"):
-            self.assertNotIn("design/SPEC.md", review_pin.LENSES[name], "a lens names no project's contract path")
+            question = review_pin.LENSES[name]
+            self.assertNotIn("design/SPEC.md", question, "a lens names no project's contract path")
+            self.assertIsNone(re.search(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", question),
+                              f"{name} question must not hardcode a project path: {question!r}")
         self.assertIn("Fidelity", review_pin.LENSES["design"])
         self.assertIn("Fidelity", review_pin.LENSES["source-defect"])
 
@@ -788,14 +802,16 @@ class CommandLine(unittest.TestCase):
 
     def test_no_surface_lists_design_only_for_a_file_under_a_conditional_path(self):
         def names(done):
+            self.assertEqual(done.returncode, 0, done.stderr)
             return [line.split(":")[0] for line in done.stdout.splitlines()]
         gated = THREE_PASS.replace('"integration", "quality"]', '"integration", "quality", "design"]').replace(
             'lenses = ["design"]\npasses = ["plan", "round"]', 'lenses = ["design"]\npasses = ["round"]')
-        self.assertIn("design", names(self.run_cli(gated, "--lenses", "round")))
-        self.assertNotIn("design", names(self.run_cli(gated, "--lenses", "round", "--no-surface")))
-        self.assertNotIn("design", names(self.run_cli(gated, "--lenses", "round", "--no-surface", "--paths", "a.c")))
+        base = ["adversarial", "integration", "quality"]
+        self.assertEqual(names(self.run_cli(gated, "--lenses", "round")), base + ["design"])
+        self.assertEqual(names(self.run_cli(gated, "--lenses", "round", "--no-surface")), base)
+        self.assertEqual(names(self.run_cli(gated, "--lenses", "round", "--no-surface", "--paths", "a.c")), base)
         self.assertEqual(names(self.run_cli(gated, "--lenses", "round", "--no-surface", "--paths", "src/ui/a.c")),
-                         ["adversarial", "integration", "quality", "design"])
+                         base + ["design"])
         refused = self.run_cli(gated, "--check", "--no-surface")
         self.assertEqual(refused.returncode, 2)
         self.assertIn("--no-surface goes with --lenses", refused.stderr)

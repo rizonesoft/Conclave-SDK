@@ -386,7 +386,8 @@ class TodoLookup(Filler):
     graph = textwrap.dedent('''\
         import json, sys
         if sys.argv[1:] == ["resolve", "D00 T01 §7"]:
-            print(json.dumps({"ref": "D00 T01 §7", "path": "todo/00-x/TODO-01-y.md", "exit": 3}))
+            print(json.dumps({"ref": "D00 T01 §7", "path": "todo/00-x/TODO-01-y.md",
+                              "body": "## 7. Example\\n\\n**Surface:** no\\n", "exit": 3}))
             sys.exit(3)
         print(json.dumps({"error": "no such section"}))
         sys.exit(1)
@@ -437,6 +438,8 @@ class FidelityLookup(Filler):
             "D00 T01 §8": "## 8. No surface\\n\\n**Surface:** no\\n",
             "D00 T01 §9": "## 9. A surface with no source\\n\\n**Surface:** yes\\n**Job:** Open a file.\\n",
             "D00 T02 §1": "## 1. Quoted fields\\n\\n> **Surface:** yes\\n> **Fidelity:** docs/design/mockup.md\\n",
+            "D00 T02 §2": "## 2. Missing surface\\n\\n**Job:** No surface field.\\n",
+            "D00 T02 §3": "## 3. Ambiguous surface\\n\\n**Surface:** yes\\n**Surface:** no\\n",
         }
         ref = sys.argv[2] if sys.argv[1:2] == ["resolve"] and len(sys.argv) == 3 else None
         if ref == "D00 T03 §1":
@@ -484,8 +487,54 @@ class FidelityLookup(Filler):
         message = self.refused("round", "--fidelity is needed", "--ref", "D09 T09 §9")
         self.assertIn("looking up D09 T09 §9 failed", message)
 
-    def test_a_graph_that_prints_no_body_keeps_the_default(self):
-        self.assertIn("- Fidelity: `none (Surface: no)`.", self.ok("round", "--ref", "D00 T03 §1"))
+    def test_a_graph_that_prints_no_body_is_refused(self):
+        message = self.refused("round", "--fidelity is needed", "--ref", "D00 T03 §1")
+        self.assertIn("printed no section body", message)
+
+    def test_blank_fidelity_override_is_refused(self):
+        for blank in ("", "   "):
+            with self.subTest(blank=blank):
+                message = self.refused("round", "--fidelity must not be blank", "--ref", REF, "--fidelity", blank)
+                self.assertIn("--fidelity must not be blank", message)
+
+    def test_missing_or_ambiguous_surface_field_is_refused(self):
+        for ref in ("D00 T02 §2", "D00 T02 §3"):
+            with self.subTest(ref=ref):
+                message = self.refused("round", "--fidelity is needed", "--ref", ref)
+                self.assertIn("unambiguous Surface", message)
+
+    def test_candidate_commit_fidelity_wins_over_working_tree(self):
+        import subprocess
+        git = lambda *args: subprocess.run(
+            ["git", "-C", str(self.root), *args], check=True, capture_output=True, text=True
+        )
+        git("init", "-q")
+        git("config", "user.email", "test@example.com")
+        git("config", "user.name", "Test")
+        todo_file = self.root / "todo/00-x/TODO-01-y.md"
+        todo_file.parent.mkdir(parents=True, exist_ok=True)
+        todo_file.write_text(
+            "## 7. A surface\n\n**Surface:** yes\n**Fidelity:** `docs/design/v1.md` section 1\n",
+            encoding="utf-8",
+        )
+        git("add", "todo/00-x/TODO-01-y.md")
+        git("commit", "-q", "-m", "v1 fidelity")
+        cand = git("rev-parse", "HEAD").stdout.strip()
+        # Mutate working tree to a different Fidelity (and stub graph returns contract.md section 4).
+        todo_file.write_text(
+            "## 7. A surface\n\n**Surface:** no\n**Fidelity:** `docs/design/v2.md` section 2\n",
+            encoding="utf-8",
+        )
+        out = self.root / "cand-prompt.md"
+        done = self.run_filler([
+            "--kind", "round", "--candidate", cand, "--ref", REF,
+            "--purpose", "Verify candidate Fidelity.", "--governing", "docs/plan.md", "--out", str(out),
+        ])
+        self.assertEqual(done.returncode, 0, done.stderr)
+        text = out.read_text(encoding="utf-8")
+        self.assertIn("- Fidelity: `docs/design/v1.md` section 1.", text)
+        self.assertNotIn("docs/design/v2.md", text)
+        self.assertNotIn("docs/design/contract.md", text)
 
 
 class NoGraph(Filler):

@@ -446,5 +446,43 @@ class DesignCheckStepTests(unittest.TestCase):
             self.assertIn(outcome, prompt)
 
 
+class DesignContractWordingTests(unittest.TestCase):
+    """D00 T03 §1: canonical design-contract rule lookup, path trigger, static lint, and rendered check clauses."""
+
+    PROCESS_SKILL = SDK_ROOT / "kits/todo/templates/.claude/skills/process-todo-section/SKILL.md"
+    REVIEW_SKILL = SDK_ROOT / "kits/todo/templates/.claude/skills/review-todo-section/SKILL.md"
+    GEMINI = SDK_ROOT / "kits/base/templates/GEMINI.md"
+
+    def test_canonical_skills_and_gemini_require_design_contract_and_both_checks(self):
+        process_text = self.PROCESS_SKILL.read_text(encoding="utf-8")
+        for clause in (
+            ".agents/rules/design-contract.md",
+            ".claude/rules/design-contract.md",
+            "--lenses round --no-surface --paths",
+            "python scripts/design-lint.py",
+            "real rendered check",
+            "Reading the code is not a rendered check",
+        ):
+            self.assertIn(clause, process_text)
+
+        review_text = self.REVIEW_SKILL.read_text(encoding="utf-8")
+        for clause in (
+            ".agents/rules/design-contract.md",
+            ".claude/rules/design-contract.md",
+            "static lint and rendered check",
+            "[[schedule.conditional]]",
+            "never drop `--surface` or reword a section to `Surface: no`",
+        ):
+            self.assertIn(clause, review_text)
+
+        gemini_text = self.GEMINI.read_text(encoding="utf-8")
+        for clause in (
+            ".agents/rules/design-contract.md",
+            "design contract, token source, forbidden patterns",
+            "lint and rendered-check commands",
+        ):
+            self.assertIn(clause, gemini_text)
+
+
 if __name__ == "__main__":
     unittest.main()
