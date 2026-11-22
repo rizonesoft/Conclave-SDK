@@ -691,6 +691,7 @@ IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
 REVSPEC_SUFFIX = re.compile(r"(?:[~^][0-9]*)+$")
 REF_DEF_LINE = re.compile(r"^\s{0,3}\[([^\[\]]+)\]:[ \t]*(.*)$")
+FENCE_OPEN = re.compile(r"^\s{0,3}(`{3,}|~{3,})(.*)$")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1462,40 +1463,74 @@ def _parse_link_title(text, pos):
     return j + 1 if j < n and text[j] == closer else None
 
 
-def _valid_ref_rest(rest):
-    """True when `rest` begins with a valid CommonMark link destination followed only by optional whitespace/title."""
-    end = _parse_link_dest(rest, 0)
+def _fence_step(line, fence):
+    """Track CommonMark §4.5 fenced code blocks (` ``` ` or `~~~`). Returns `(new_fence, inside_fence)`."""
+    if fence is None:
+        m = FENCE_OPEN.match(line)
+        if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+            return (m.group(1)[0], len(m.group(1))), True
+        return None, False
+    char, length = fence
+    stripped = line.lstrip(" ")
+    leading = len(line) - len(stripped)
+    if leading <= 3 and stripped.startswith(char * length) and stripped.lstrip(char).strip(" \t") == "":
+        return None, True
+    return fence, True
+
+
+def _valid_ref_block(block):
+    """True when a consecutive non-blank reference-definition `block` starts with a valid CommonMark destination
+    followed either by end-of-line or by horizontal space and a valid (possibly multiline) CommonMark title."""
+    end = _parse_link_dest(block, 0)
     if end is None:
         return False
-    j, n = end, len(rest)
-    ws = j
-    while j < n and rest[j] in " \t":
-        j += 1
-    if j == n:
+    nl = block.find("\n", end)
+    line_end = len(block) if nl == -1 else nl
+    if block[end:line_end].strip(" \t") == "":
         return True
-    if j == ws:
+    j = end
+    while j < line_end and block[j] in " \t":
+        j += 1
+    if j == end:
         return False
-    title_end = _parse_link_title(rest, j)
-    return title_end is not None and rest[title_end:].strip(" \t") == ""
+    title_end = _parse_link_title(block, j)
+    if title_end is None:
+        return False
+    tail_nl = block.find("\n", title_end)
+    tail_end = len(block) if tail_nl == -1 else tail_nl
+    return block[title_end:tail_end].strip(" \t") == ""
 
 
 def _collect_ref_defs(raw_lines):
-    """Collect valid CommonMark link reference definitions (including a destination on the immediately following
-    non-blank line) from `raw_lines`."""
+    """Collect valid CommonMark link reference definitions from `raw_lines`, skipping fenced code blocks and
+    supporting next-line destinations and multiline link titles."""
     defs = set()
+    fence = None
     i, n = 0, len(raw_lines)
     while i < n:
+        fence, inside = _fence_step(raw_lines[i], fence)
+        if inside:
+            i += 1
+            continue
         m = REF_DEF_LINE.match(raw_lines[i])
         if m:
             rest = m.group(2)
-            if rest:
-                if _valid_ref_rest(rest):
+            start = i if rest else i + 1
+            if start < n and (rest or raw_lines[start].strip()):
+                first = rest if rest else raw_lines[start].lstrip(" \t")
+                # Gather consecutive non-blank, non-fence lines for multiline title validation.
+                block_lines = [first]
+                k = start + 1
+                while k < n and raw_lines[k].strip():
+                    next_fence, next_in = _fence_step(raw_lines[k], None)
+                    if next_in:
+                        break
+                    block_lines.append(raw_lines[k])
+                    k += 1
+                if _valid_ref_block("\n".join(block_lines)):
                     defs.add(_norm_ref_label(m.group(1)))
-            elif i + 1 < n and raw_lines[i + 1].strip():
-                next_rest = raw_lines[i + 1].lstrip(" \t")
-                if _valid_ref_rest(next_rest):
-                    defs.add(_norm_ref_label(m.group(1)))
-                    i += 1
+                    if not rest:
+                        i = start
         i += 1
     return defs
 
@@ -1616,6 +1651,28 @@ def _is_commit_ref_token(raw, seen):
     return True
 
 
+def _split_tokens(text):
+    """Split `text` on whitespace while keeping balanced `{...}` groups (such as Git reflog/search selectors
+    `HEAD@{1 minute ago}` or `HEAD^{/fix bug}`) inside one token."""
+    tokens, buf, depth = [], [], 0
+    for ch in text:
+        if ch == "{":
+            depth += 1
+            buf.append(ch)
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            buf.append(ch)
+        elif ch.isspace() and depth == 0:
+            if buf:
+                tokens.append("".join(buf))
+                buf = []
+        else:
+            buf.append(ch)
+    if buf:
+        tokens.append("".join(buf))
+    return tokens
+
+
 def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
     entry with non-empty description text (distinct from commit references, ranges, refs, reflog selectors, and URLs)
@@ -1628,7 +1685,7 @@ def _has_resolution_entry(writer_lines, seen=None, raw_lines=None):
         m = IMPLEMENTED_LINE.match(line)
         if m:
             visible = _unwrap_markdown_links(m.group(1).strip(), ref_defs)
-            parts = visible.split()
+            parts = _split_tokens(visible)
             commit_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or "://" in raw:

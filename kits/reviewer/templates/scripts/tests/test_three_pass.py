@@ -1068,6 +1068,8 @@ class ResolutionGuard(ThreePass):
             ("SHA plus git range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..{repaired[:8]}"),
             ("SHA plus branch range with no description", f"- Implemented: {repaired[:8]} {built[:8]}..main"),
             ("SHA plus reflog selector with no description", f"- Implemented: {repaired[:8]} HEAD@{{0}}"),
+            ("SHA plus date reflog selector with spaces and no description",
+             f"- Implemented: {repaired[:8]} HEAD@{{1 minute ago}}"),
             ("SHA plus triple-dot range and HEAD with no description",
              f"- Implemented: {repaired[:8]} {built[:8]}...HEAD"),
             ("SHA plus bare commit URL with no description",
@@ -1082,6 +1084,9 @@ class ResolutionGuard(ThreePass):
             ("undefined full reference-linked SHA", f"- Implemented: fixed [{repaired[:8]}][missing]"),
             ("undefined collapsed reference-linked SHA", f"- Implemented: fixed [{repaired[:8]}][]"),
             ("undefined shortcut reference-linked SHA", f"- Implemented: fixed [{repaired[:8]}]"),
+            ("reference definition inside fenced code block",
+             f"- Implemented: fixed [{repaired[:8]}][repair]\n\n```markdown\n"
+             f"[repair]: https://example.com/commit/{repaired[:8]}\n```"),
             ("malformed angle-bracket reference definition",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: <unterminated"),
             ("blank line before reference destination",
@@ -1115,6 +1120,9 @@ class ResolutionGuard(ThreePass):
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: https://example.com/commit/{repaired[:8]}"),
             ("multiline reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]:\n  https://example.com/commit/{repaired[:8]}"),
+            ("multiline quoted title reference-linked SHA",
+             f'- Implemented: fixed [{repaired[:8]}][repair]\n\n[repair]: https://example.com/commit/{repaired[:8]} '
+             f'"Repair of\nthe guard"'),
             ("collapsed reference-linked SHA",
              f"- Implemented: fixed [{repaired[:8]}][]\n\n[{repaired[:8]}]: https://example.com/commit/{repaired[:8]}"),
             ("shortcut reference-linked SHA",
