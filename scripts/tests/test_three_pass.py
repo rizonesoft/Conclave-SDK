@@ -1055,7 +1055,7 @@ class ResolutionGuard(ThreePass):
     resolution entry appears in writer-authored text after that pass."""
 
     def test_reconciliation_refuses_missing_or_incomplete_resolution_before_calling_reviewer(self):
-        self.to_completion(top="P2", gaps=True)
+        built = self.to_completion(top="P2", gaps=True)
         repaired = self.commit("repair", {"src/app/a.py": "x = 2\n"})
         baseline = self.record.read_bytes()
         bad_notes = (
@@ -1064,6 +1064,9 @@ class ResolutionGuard(ThreePass):
             ("missing commit SHA", "- Implemented: fixed the gap without a commit"),
             ("nonexistent commit SHA", "- Implemented: fixed the gap in deadbeef"),
             ("bare SHA with no description", f"- Implemented: `{repaired[:8]}`"),
+            ("two pasted SHAs with no description", f"- Implemented: {built[:8]} {repaired[:8]}"),
+            ("linked SHA with no description",
+             f"- Implemented: [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
             ("malformed identifier suffix", f"- Implemented: {repaired[:8]}oops"),
             ("bare commit URL", f"- Implemented: https://example.com/commit/{repaired[:8]}"),
             ("bare Filed without ref", "- Filed: later"),
@@ -1081,6 +1084,10 @@ class ResolutionGuard(ThreePass):
         short4 = self.git("rev-parse", "--short=4", repaired)
         good_impl_cases = (
             ("backticked short SHA", f"- Implemented: fixed the gap in `{repaired[:8]}`"),
+            ("Markdown-linked SHA",
+             f"- Implemented: repaired the guard in [{repaired[:8]}](https://example.com/commit/{repaired[:8]})"),
+            ("Markdown-linked backticked SHA",
+             f"- Implemented: repaired the guard in [`{repaired[:8]}`](https://example.com/commit/{repaired[:8]})."),
             ("short=4 SHA", f"- Implemented: fixed in {short4}"),
             ("uppercase SHA", f"- Implemented: fixed in {repaired[:8].upper()}"),
             ("non-ASCII Unicode description", f"- Implemented: 修復 {repaired[:8]}"),

@@ -689,6 +689,7 @@ COUNT = re.compile(r"[0-9]{1,%d}" % len(str(MAX_OUTPUT_BYTES + 1)))
 DIGEST = re.compile(r"[0-9a-f]{16}")
 IMPLEMENTED_LINE = re.compile(r"^- Implemented:\s*(.+)$")
 COMMIT_TOKEN = re.compile(r"[0-9a-fA-F]{4,40}")
+MD_LINK = re.compile(r"\[([^\[\]]+)\]\(([^()\s]+)\)")
 FILED_LINE = re.compile(r"^- Filed: D\d{2} T\d{2} §[1-9]\d*(?![\w§]|\.\d)")
 WRITER_NOTE = re.compile(r"^## Writer note:(.*)$")
 
@@ -1410,28 +1411,34 @@ def _tails_have_resolution(tails):
 
 def _has_resolution_entry(writer_lines, seen=None):
     """True when one pass's writer-authored lines hold at least one valid resolution: a populated `- Implemented:`
-    entry with non-empty description text and a standalone commit SHA resolving in git, a `- Filed: DNN TNN §N` line
-    matching `todo_graph.FILED`, or a non-empty `## Writer note:` section (title text or body before the next `## `)."""
+    entry with non-empty description text (distinct from commit references) and a standalone or Markdown-linked
+    commit SHA resolving in git, a `- Filed: DNN TNN §N` line matching `todo_graph.FILED`, or a non-empty
+    `## Writer note:` section (title text or body before the next `## `)."""
     if seen is None:
         seen = {}
     for idx, line in enumerate(writer_lines):
         m = IMPLEMENTED_LINE.match(line)
         if m:
-            parts = m.group(1).strip().split()
+            visible = MD_LINK.sub(r"\1", m.group(1).strip())
+            parts = visible.split()
+            commit_pos = set()
+            hex_like_pos = set()
             for pos, raw in enumerate(parts):
                 if "/" in raw or "://" in raw:
                     continue
                 tok = raw.strip("`.,:;()[]<>\"'")
                 if not COMMIT_TOKEN.fullmatch(tok):
                     continue
-                if not any(any(ch.isalnum() for ch in other) for other_pos, other in enumerate(parts)
-                           if other_pos != pos):
-                    continue
+                if len(tok) >= 7:
+                    hex_like_pos.add(pos)
                 key = tok.lower()
                 if key not in seen:
                     seen[key] = git("cat-file", "-e", f"{tok}^{{commit}}").returncode == 0
                 if seen[key]:
-                    return True
+                    commit_pos.add(pos)
+            if commit_pos and any(any(ch.isalnum() for ch in other) for other_pos, other in enumerate(parts)
+                                  if other_pos not in commit_pos and other_pos not in hex_like_pos):
+                return True
         if FILED_LINE.match(line):
             return True
         wn = WRITER_NOTE.match(line)
