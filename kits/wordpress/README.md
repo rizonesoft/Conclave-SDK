@@ -16,6 +16,8 @@ Every host (`templates/`):
 | `bin/wp-remote`, `scripts/site-access.py` | WP-CLI on the live site; SSH/SFTP runner and `check` |
 | `scripts/tests/test_site_access.py` | Pin and identity refusal tests (no network) |
 | `tools/ticket-login/conclave-ticket-login.php` | Plugin that logs the admin in from a one-use ticket; holds no key |
+| `tools/elementor-cache-purge/` | Plugin that purges the page cache when Elementor deletes its CSS |
+| `scripts/elementor-cache.py`, `scripts/tests/test_elementor_cache.py` | Its check, status and install, and tests |
 | `scripts/tests/test_ticket_login.py`, `ticket_login_harness.php` | The plugin's text and behaviour tests (PHP CLI) |
 | `.{agents,claude,codex}/skills/wordpress-site-safety/` | Site-safety rules |
 | `.{agents,claude,codex}/skills/wordpress-connect/` | The setup runbook |

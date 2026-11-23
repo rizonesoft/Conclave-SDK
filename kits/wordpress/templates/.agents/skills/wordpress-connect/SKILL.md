@@ -56,6 +56,10 @@ Before offering this step, check the `ticket-login` and `ticket-login-user` rows
 4. To open the dashboard, run `python3 scripts/open-dashboard.py` directly on Linux or in projects without the launchers kit; on a Windows desktop with the launchers kit (where installing both kits already declared the `WordPress` entry in `.conclave/launchers.json`), set `title` and `icon` in `.conclave/launchers.json` and run `pwsh scripts/project-shortcuts.ps1` in Windows PowerShell 7 (see `docs/launchers.md` for WSL checkout paths).
 5. To remove the plugin later (with the owner's approval), run `python3 scripts/ticket-login.py remove --yes` and verify its read-back reports `plugin: absent` and `option: absent`.
 
-## 6. Record it
+## 6. Elementor cache purge (Elementor sites)
+
+Run `python3 scripts/elementor-cache.py status`. Skip this step when it reports `elementor: not active`. Elementor deletes its generated stylesheets on every plugin change and cache clear, and the host's page cache does not listen for that. When `plugin` is `absent` or `differs` and `host purge hook` is `present`, ask the owner's approval for the write, run `python3 scripts/elementor-cache.py install --yes` (it backs up, writes, reads back and purges the page cache) and run `python3 scripts/elementor-cache.py check`, which reads the pages as they are served now; only the next Elementor change exercises the purge itself. Where the hook is absent the plugin would do nothing: record in `docs/connections.md` that the host's cache is purged by hand after such a change. It is a workaround for a vendor defect: remove it (`remove --yes`) once Elementor or the host handles it.
+
+## 7. Record it
 
 Write `docs/connections.md` the way the port source does: how the environments work, the verified site identity (with the date), the Conclave items by immutable id and what each is for, the MCP clients, the commands, and open findings with evidence. Finish with `python3 forge.py doctor <repo> wordpress` showing no `missing` and no `setup_required` other than what the doc says is pending.

@@ -44,6 +44,18 @@ tools/phpcs/vendor/bin/phpcs
 
 `scripts/hooks/wordpress-phpcs-pre-push.sh` is the pre-push snippet. Run it from the project's hook as its own command (`bash scripts/hooks/wordpress-phpcs-pre-push.sh || exit 1`), never sourced, since it exits. A missing binary is SKIPPED, not a silent pass.
 
+## Why can an Elementor page lose its styles?
+
+Elementor deletes its generated stylesheets when it clears its cache, including after an ordinary plugin activation, deactivation or update, and rewrites them when PHP next renders the page. The Pressable and WordPress.com page cache does not listen for that and goes on serving HTML that names the deleted files, so visitors get unstyled pages while a logged-in editor sees nothing wrong. `tools/elementor-cache-purge/conclave-elementor-cache-purge.php` is a must-use plugin that requests the host's own purge (`edge_cache_purge_domain`) when Elementor clears its styles. It is a workaround: no Elementor setting stops the deletion. Limits: a visitor in the moments before the purge runs can still get an old page, the host skips the purge during an import or an autosave, and permanently deleting a component still in use or a stylesheet that becomes empty is not covered.
+
+```bash
+python3 scripts/elementor-cache.py check            # as a visitor: exit 1 when a page names a missing stylesheet
+python3 scripts/elementor-cache.py status           # Elementor, the host's purge hook and the plugin
+python3 scripts/elementor-cache.py install --yes    # owner-approved: back up, write, read back, purge
+```
+
+`check --url https://example.com` needs no pin or credential. It exits 2, not 0, when it finds no Elementor stylesheet at all (combined or inlined CSS), because that proves nothing.
+
 ## How do I open the dashboard?
 
 `scripts/open-dashboard.py` launches your browser on a one-use ticket link (`?conclave_ticket=<token>`) for the pinned site's WordPress admin as the pinned user through a one-use ticket. It generates a 64-character hex token locally, stores only the token's SHA-256 hash, the pinned WordPress user ID, and a 60-second expiry in the `conclave_login_ticket` option over the pinned SSH connection, and hands the link to the browser through a private local redirect page so the opener never prints or logs the token locally or puts it in process arguments. Because the browser redeems the ticket over HTTPS via `?conclave_ticket=<token>`, web-server or proxy access logs may record that query string; security rests on the token being consumed on the first request that reaches WordPress (right or wrong; a request that stops at a proxy before reaching WordPress leaves the ticket live until WordPress handles a request or the 60-second expiry passes) rather than access-log secrecy.
