@@ -4544,10 +4544,11 @@ class ThreePassStamp(Stamp):
     def test_every_open_finding_of_the_last_reconciliation_is_accounted_for(self):
         names = self.LENSES["reconciliation"]
         review = "\n".join(["1. **closed.** done, was P1.", "2. **open, P1.** a", "3. **New, P2. b**", "4. P3 c", "5. **open** (P2) d",
+                            "6. **P2, closed: e.**", "7. **open: f.**", "8. **Gap 11, open, P2.** g",
                             *[f"LENS {n}: findings" for n in names], "HIGHEST: P1", "RECONCILIATION: gaps"])
-        lines = [f"- Implemented: gap {n} in {{fixed}}" for n in (2, 3, 4, 5)]
+        lines = [f"- Implemented: gap {n} in {{fixed}}" for n in (2, 3, 4, 5, 7, 11)]
         _, fixed = self.capped_case(self.SHIP, notes="\n".join([lines[0]] * 3), review=review)
-        self.stamp3_refuses(fixed, "(missing: 3, 4, 5)", verdict="capped")
+        self.stamp3_refuses(fixed, "(missing: 3, 4, 5, 7, 11)", verdict="capped")
         # Under a heading of the writer's own, they are the same lines.
         _, fixed = self.capped_case(self.SHIP, notes="\n".join(["## Writer note: fixes", *lines]), review=review)
         self.stamp3(fixed, verdict="capped")

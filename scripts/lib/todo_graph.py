@@ -64,8 +64,10 @@ SEVERITY_CUTOFF_ROUND = 0
 # ("- Implemented: ...") or filed ("- Filed: DNN TNN §N"), and the fixes ship without another pass.
 COMPLETION_VERDICTS = ("complete", "completed", "filed", "reconciled", "capped")
 IMPLEMENTED = re.compile(r"^- Implemented: .*\bin `?([0-9a-f]{7,40})\b")
-# A finding a reconciliation leaves open, as its numbered list tags it: "16. **open, P1.**", "27. **New, P2.", "3. P2".
-OPEN_FINDING = re.compile(r"^\s*(\d+)\.\s+\**(?:(?:open|new)\b[,.:]?)?\**[\s(]*P[123]\b", re.I)
+# A finding a reconciliation leaves open, as its numbered list tags it: "16. **open, P1.**", "27. **New, P2.", "3. P2",
+# "4. **open: ...", "1. **Gap 11, open, P2.**" (gap 11); "2. **P2, closed: ..." is not one.
+OPEN_FINDING = re.compile(r"^\s*(\d+)\.\s+(?!.{0,24}\bclosed\b)[*\s(\[]*(?:gap (\d+)[,:]\s*)?(?:still )?"
+                          r"(?:open|reopened|new|P[123])\b", re.I)
 FILED = re.compile(r"^- Filed: (D\d{2} T\d{2} §[1-9]\d*)(?![\w§]|\.\d)")
 # The one-pass plan review before the build and the review schedule: every new receipt records the plan
 # review (`plan`) and the pin's [schedule] (`schedule`), and stamp replays the schedule over every recorded pass through
@@ -686,7 +688,7 @@ def completion_record(root, completion, ref, stamp_sha, commits=None):
     if verdict == "capped":
         notes = capped_lines(dispatch, dispatch.read_findings(path.read_bytes().decode("utf-8")), final)
         # Only a reconciliation numbers its open findings one way; a completion review repeats its gaps in a list.
-        owed = dict.fromkeys(m[1] for m in map(OPEN_FINDING.match, final["review"].splitlines()) if m) if passed else {}
+        owed = dict.fromkeys(m[2] or m[1] for m in map(OPEN_FINDING.match, final["review"].splitlines()) if m) if passed else {}
         silent = [n for n in owed if not any(re.search(rf"\b(?:gap|finding) {n}\b", line, re.I) for line in notes)]
         require(bool(notes) and not silent,
                 f"completion verdict capped needs each finding of the last returned review in {report} named, as "
