@@ -178,6 +178,13 @@ class WriteTests(unittest.TestCase):
         self.assertEqual(self.live.read_bytes(), b"old")
         self.assertEqual([path.name for path in self.mu.iterdir()], [cache.NAME])
 
+    def test_output_php_prints_around_the_answer_does_not_break_it(self):
+        # Found 2026-11-23: a site's own log line followed the answer on the same line.
+        answer = json.dumps(self.facts)
+        noisy = SimpleNamespace(returncode=0, stdout=f"Notice: x\nCONCLAVE:{answer}PHP: 2026-11-23 [notice] [array (\n")
+        with mock.patch.object(cache.site_ssh, "wp", return_value=noisy):
+            self.assertEqual(cache.probe(PIN), self.facts)
+
     def test_refused_with_no_write(self):
         for change in ({"elementor": None}, {"hook": False}, {"multisite": True}, {"home": "https://copy.example"}):
             with self.subTest(change=change):

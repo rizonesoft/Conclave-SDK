@@ -154,7 +154,8 @@ def probe(pin):
     done = site_ssh.wp([f"--url={pin['url']}", "eval", PROBE], timeout=90, pin=pin)
     for line in (done.stdout or "").splitlines():
         if line.startswith("CONCLAVE:"):
-            return json.loads(line[len("CONCLAVE:"):])
+            # PHP on some sites prints a log entry straight after the answer, on the same line.
+            return json.JSONDecoder().raw_decode(line[len("CONCLAVE:"):])[0]
     raise NoAnswer("WordPress on the pinned site gave no answer")
 
 
