@@ -94,21 +94,12 @@ class TemplateRoutes(unittest.TestCase):
         self.assertEqual(review_pin.lenses_for(enabled_sched, "completion", outside, False), ["plan-delivery", "record"])
         self.assertEqual(review_pin.lenses_for(enabled_sched, "reconciliation", outside, False), default_rec)
 
-        # README documents both opt-in lenses, placeholder prefixes, and a working [[schedule.conditional]] snippet.
+        # README documents both opt-in lenses, placeholder prefixes, and the same [[schedule.conditional]] snippet.
         readme = (ROOT / "kits/reviewer/README.md").read_text(encoding="utf-8")
         for clause in ("C++ projects", "`thread-safety`", "`memory-safety`", "add no pass",
                        "placeholder repository-relative prefixes"):
             self.assertIn(clause, readme)
-        snippet = cpp_block.replace("# ", "")
-        self.assertIn(snippet, readme)
-        readme_sched = review_pin.load_pin(data=(raw + "\n" + snippet + "\n").encode("utf-8"))["schedule"]
-        self.assertEqual(review_pin.lenses_for(readme_sched, "round", ["src/app.cpp"], False),
-                         default_round + ["thread-safety", "memory-safety"])
-        self.assertEqual(review_pin.lenses_for(readme_sched, "reconciliation", ["src/app.cpp"], False),
-                         default_rec + ["thread-safety", "memory-safety"])
-        self.assertEqual(review_pin.lenses_for(readme_sched, "plan", ["src/app.cpp"], False), ["plan"])
-        self.assertEqual(review_pin.lenses_for(readme_sched, "completion", ["src/app.cpp"], False),
-                         ["plan-delivery", "record"])
+        self.assertIn(cpp_block.replace("# ", ""), readme)
 
 
 class TemplateDispatch(_kit_tests.Harness):
