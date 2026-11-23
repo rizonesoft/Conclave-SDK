@@ -36,7 +36,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Design lens by path and Fidelity on every prompt | -- | [ ] |
+| 1 | §1 | Design lens by path and Fidelity on every prompt | -- | [x] |
 | 2 | §2 | Thread-safety and memory-safety lenses in the template pin | §1 | [ ] |
 | 3 | §3 | Kit refresh in every listed project | §2 | [ ] |
 | 4 | §4 | Agent entrypoints, hooks and native skill folders | §3 | [ ] |
@@ -78,9 +78,12 @@ The kit change is already in the tree (the commit `reviewer: design by path, des
 - [x] Harden `resolve_fidelity` and `--fidelity` validation in `kits/reviewer/templates/scripts/review-prompt.py`: read the section from the `--candidate` commit via `git show <candidate>:<path>` when `<candidate>` is a commit in the repo; refuse blank `--fidelity`, a graph that prints no `body`, a missing/ambiguous `Surface` field, a `Surface: yes` section with no `Fidelity`, or an unresolvable section; keep `none (Surface: no)` only for an actual `Surface: no` section (or when no `todo-graph.py` is installed). Done when: `FidelityLookup` tests in `test_review_prompt.py` prove all refusals, candidate-vs-checkout Fidelity isolation, and the `Surface: no` positive case. Cheaper substitute: defaulting to `none (Surface: no)` on a blank override, missing body, or working-tree drift.
 - [x] Confirm the stamp refuses a `Surface: no` section that changed a file under a conditional `design` path when its round or reconciliation lacks the lens. Done when: `test_a_surface_no_section_that_changed_a_design_path_needs_the_design_lens_to_stamp` in `tests/test_todo_graph.py` passes under `CONCLAVE_FULL_TESTS=1`.
 - [x] Confirm the skills and `kits/base/templates/GEMINI.md` name the design contract rule, path trigger, static lint, and rendered check, and that the generated copies and SDK installed copies match (`python forge.py self-sync`). Done when: `tests/test_skill_copies.py` asserts the canonical clauses in `process-todo-section/SKILL.md`, `review-todo-section/SKILL.md`, and `kits/base/templates/GEMINI.md`, `python forge.py skill-copies --check` exits 0, and `python -m unittest tests.test_skill_copies tests.test_forge -k test_the_sdk_uses_the_agent_setup_its_kits_ship` passes.
-- [ ] Commit: `reviewer: design by path, reviewed (D00 T03 §1)`
+- [x] Commit: `reviewer: design by path, reviewed (D00 T03 §1)`
 
 **Test checkpoint:** Run the `SURFACE_GATED` mutation once against `test_review_pin.py` (`test_a_conditional_entry_gives_the_round_its_surface_gated_design_by_path` fails), then on the unmodified candidate pass `python forge.py check-all --only kit-reviewer --only sdk-scripts`, `python -m unittest tests.test_skill_copies`, and `CONCLAVE_FULL_TESTS=1 python -m unittest tests.test_todo_graph -k design_path`.
+
+> **Verified:** 2026-11-23 | §1 | 82684cdaafa6d7da4574726fc06e0228f7034f45
+> **Review:** `docs/reviews/d00-t03-s1.json`
 
 ## 2. Thread-Safety and Memory-Safety Lenses in the Template Pin
 
@@ -100,6 +103,7 @@ A C++ project needs two questions the built-in lenses only touch: `adversarial` 
 - [ ] Add a commented `[[schedule.conditional]]` example beside it with `lenses = ["thread-safety", "memory-safety"]`, `passes = ["round", "reconciliation"]` and placeholder C++ paths. Done when: a test uncomments the example in a copy of the template and loads it, and `lenses_for` gives both lenses for a path under it and neither outside.
 - [ ] Refresh the SDK's own `.conclave/reviewers.toml` where the first item found the tests expect template and install to agree. Done when: `python -m unittest tests.test_template_pin` passes.
 - [ ] Add the two lenses to the lens table of `kits/reviewer/README.md`, the conditional example, and a "C++ projects" note saying they join the round and reconciliations by path and add no pass. Done when: the Markdown table check passes (`python -m unittest tests.test_forge -k markdown_table`).
+- [ ] Strip `GIT_CONFIG`, `GIT_CONFIG_PARAMETERS`, and `GIT_CONFIG_COUNT` in `_git_across_fs()` of `kits/reviewer/templates/scripts/review-prompt.py` (filed non-blocking P3 from `D00 T03 §1` Reconciliation 8) so an inherited `GIT_CONFIG` cannot disable Git's `--type=bool` parse of `GIT_DISCOVERY_ACROSS_FILESYSTEM`, then run `python forge.py self-sync`. Done when: a test in `kits/reviewer/templates/scripts/tests/test_review_prompt.py` sets `GIT_CONFIG=os.devnull` with `GIT_DISCOVERY_ACROSS_FILESYSTEM=1` and asserts `_git_across_fs()` returns `True` (and `_section_body_at_commit` refuses across a mount boundary).
 - [ ] Commit: `reviewer: thread-safety and memory-safety lenses in the template pin (D00 T03 §2)`
 
 **Test checkpoint:** `python forge.py check-all --only kit-reviewer --only sdk-scripts` and `python -m unittest tests.test_template_pin` pass, and the wording test fails when one word of either question is changed.

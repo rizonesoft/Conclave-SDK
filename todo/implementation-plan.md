@@ -179,7 +179,7 @@ Sections: 16 | Checklist items: 143
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 27 | Checklist items: 170
+Sections: 27 | Checklist items: 171
 
 | Status | Reference   | Deliverable                                                   | Needs        | Items |
 | ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
@@ -188,8 +188,8 @@ Sections: 27 | Checklist items: 170
 | [x]    | D00 T01 §12 | Check resolution entries before reconciliation dispatch       | none         | 3     |
 | [x]    | D00 T01 §13 | Shadow-audit repairs for `replan` path check and lock safety  | none         | 6     |
 | [x]    | D00 T01 §9  | Re-plan route for unsettled chains, recovery planned up front | none         | 7     |
-| [ ]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt              | none         | 10    |
-| [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 6     |
+| [x]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt              | none         | 10    |
+| [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 7     |
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                           | windows-host | 7     |
 | [ ]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders             | windows-host | 7     |
 | [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                         | windows-host | 6     |
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 118/155 verified sections, 8 ready to run now.
+Progress: 119/155 verified sections, 8 ready to run now.
 
-Checklist: 964/1168 items completed (includes Commit items).
+Checklist: 965/1169 items completed (includes Commit items).
