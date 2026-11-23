@@ -176,3 +176,33 @@ LENS plan-delivery: findings
 LENS record: findings  
 HIGHEST: P2  
 RECONCILIATION: gaps
+
+- Implemented: Recorded exact todo-graph.py validate exit code 2 ('TODO refused: canonical TODO tree is missing or empty') on wsl-site-1 at 67f4ef6 alongside passing pre-commit hook (100755, exit 0) and review_pin --check --all (ok) in 6f4db994.
+
+## Writer note: contesting P2 grade on wsl-site-1 empty todo/ validate refusal
+
+wsl-site-1 at 67f4ef6 has scripts/todo-graph.py installed and a scaffold-only todo/ folder (plan.json, TODO-00-INDEX.md, findings.md, README.md, templates; zero TODO-*.md files). Running python3 scripts/todo-graph.py validate directly on 67f4ef6 exits 2 with 'TODO refused: canonical TODO tree is missing or empty', which is the validator's documented behavior on an unpopulated todo/ tree, not a defect in the kit refresh; scripts/hooks/pre-commit (100755) exits 0 on 67f4ef6 and review_pin.py --check --all prints ok. Under SEVERITY_RUBRIC this has zero user or maintainer defect impact and cannot exit 0 without authoring fake TODO files out of scope for §3; please reassess as closed or non-blocking.
+
+## Reconciliation review: astra (`gpt-6.2-astra` via `codex`)
+
+- Writer: agy
+- Run: 2026-11-23T03:06:08Z
+- Candidate: 6f4db994d3a2f0654c1daa1d54dcc1f9059aa339
+- Effort: medium
+- Lenses: adversarial, integration, plan-delivery, record
+- Lines: 13
+- Digest: baaf01045d0f0d00
+
+1. **open (P2). Quick checks at `wsl-site-1`.** **Path:** A maintainer accepting the refresh at `67f4ef6` relies on the checked §3 item, which requires the installed validator to exit 0. **Evidence:** Traced that requirement to the commit-indexed row. The supplied gate ran `python3 scripts/todo-graph.py validate` and returned 2 because the checkout contains only the TODO scaffold. Both WSL hooks now pass, and the second site’s validator passes. The writer’s `Implemented` line and grade contest explain the first site’s refusal accurately. P2 stands because the checklist certifies a required check that failed on an actual rollout target. This is the same gap raised at completion and reopened in both reconciliations. `todo/00-reviewer/TODO-03-design-and-safety-lenses.md:137` `docs/phase-runs/2026-11-22-phase-9.md:48` `docs/phase-runs/2026-11-22-phase-9.md:49` `docs/reviews/00-reviewer/D00-T03-s3.md:180` `docs/reviews/00-reviewer/D00-T03-s3.md:184`
+2. **closed. A second hold has an executor.** If Bosun or Updates is still held when §5 runs, §5 must file a write-capable retry section that resolves in the graph and blocks §16. `todo/00-reviewer/TODO-03-design-and-safety-lenses.md:183` `docs/reviews/00-reviewer/D00-T03-s3.md:128`
+3. **closed. All 19 refreshed SHAs have recoverable check results.** Each row records the validator and hook dispositions. The first WSL row now gives the exact validator exit code and its cause. `docs/phase-runs/2026-11-22-phase-9.md:31` `docs/phase-runs/2026-11-22-phase-9.md:48` `docs/phase-runs/2026-11-22-phase-9.md:49` `docs/reviews/00-reviewer/D00-T03-s3.md:127` `docs/reviews/00-reviewer/D00-T03-s3.md:180`
+4. **closed. Ownership continues through the verified commit.** Both held projects have §5 as their current owner. Its handoff explicitly retains one open write-capable owner per project until the verified refresh commit is recorded. `docs/phase-runs/2026-11-22-phase-9.md:53` `docs/phase-runs/2026-11-22-phase-9.md:54` `todo/00-reviewer/TODO-03-design-and-safety-lenses.md:183` `docs/reviews/00-reviewer/D00-T03-s3.md:128`
+
+The full repair preserves §3’s contract. Its only TODO edit is in §5. No code or test changed, and the repair introduced no separate finding. `todo/00-reviewer/TODO-03-design-and-safety-lenses.md:137` `todo/00-reviewer/TODO-03-design-and-safety-lenses.md:183`
+
+LENS adversarial: clean  
+LENS integration: findings  
+LENS plan-delivery: findings  
+LENS record: findings  
+HIGHEST: P2  
+RECONCILIATION: gaps
