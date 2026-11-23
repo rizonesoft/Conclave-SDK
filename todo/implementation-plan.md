@@ -191,7 +191,7 @@ Sections: 27 | Checklist items: 172
 | [x]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt              | none         | 10    |
 | [x]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 7     |
 | [x]    | D00 T03 §3  | Kit Refresh in Every Listed Project                           | windows-host | 7     |
-| [ ]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders             | windows-host | 7     |
+| [x]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders             | windows-host | 7     |
 | [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                         | windows-host | 7     |
 | [ ]    | D00 T03 §6  | Design Paths in Every Three-Pass Pin                          | windows-host | 5     |
 | [ ]    | D00 T03 §7  | Design Lint Where a Project Has None                          | windows-host | 7     |
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 121/155 verified sections, 13 ready to run now.
+Progress: 122/155 verified sections, 12 ready to run now.
 
-Checklist: 985/1171 items completed (includes Commit items).
+Checklist: 986/1171 items completed (includes Commit items).

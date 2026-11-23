@@ -39,7 +39,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 1 | §1 | Design lens by path and Fidelity on every prompt | -- | [x] |
 | 2 | §2 | Thread-safety and memory-safety lenses in the template pin | §1 | [x] |
 | 3 | §3 | Kit refresh in every listed project | §2 | [x] |
-| 4 | §4 | Agent entrypoints, hooks and native skill folders | §3 | [ ] |
+| 4 | §4 | Agent entrypoints, hooks and native skill folders | §3 | [x] |
 | 5 | §5 | Design contract rule in every project | §3 | [ ] |
 | 6 | §6 | Design paths in every three-pass pin | §5 | [ ] |
 | 7 | §7 | Design lint where a project has none | §3 | [ ] |
@@ -165,9 +165,12 @@ Antigravity must find each project's skills, rules and campaign Stop hook withou
 - [x] Update stale entrypoint and structure docs in `Gemail` (`GEMINI.md`, `AGENTS.md`), `Office` (`AGENTS.md`, `CLAUDE.md`), and `Recto` (`docs/todo-workflow.md`) so they name `.agents/skills/` accurately and match what is on disk. Done when: effective entrypoints point Antigravity to `.agents/skills/` and `.agents/rules/` and contain no stale `skills.json`-only or "mirrors removed" claims.
 - [x] Prove native loading once via `agy` in an isolated copy of one migrated project with `.agents/skills.json` removed, checking a native-only skill detail and an always-on rule; if `agy` proves native loading, record the quoted output and remove `.agents/skills.json` (or if headless `agy` cannot run here, record why, keep `.agents/skills.json` in place, and assign the live proof to `§16` / follow-up). Done when: the proof output or exact refusal and stub disposition are recorded.
 - [x] Run a fleet-wide audit of `GEMINI.md`, `.agents/hooks.json` (valid JSON), and `.agents/skills/process-todo-section/SKILL.md` across all 24 registered projects, recording per-project applicability, commit SHA, and outcome in `docs/phase-runs/2026-11-22-phase-9.md` (routing any held checkout to §5 write-capable retry). Done when: all 24 projects have an audited status row.
-- [ ] Commit: `agents: native Antigravity entrypoint, hooks and skills` in each changed project (`Gemail`, `Office`, `Recto`, `Resolute`), and `docs: agent entrypoints and native skills record (D00 T03 §4)` here.
+- [x] Commit: `agents: native Antigravity entrypoint, hooks and skills` in each changed project (`Gemail`, `Office`, `Recto`, `Resolute`), and `docs: agent entrypoints and native skills record (D00 T03 §4)` here.
 
 **Test checkpoint:** in `Gemail`, `Office`, `Recto`, and `Resolute`, `.agents/hooks.json` parses as JSON, `Resolute`'s Antigravity hook test passes from `.agents/`, full `.agents/skills/` inventory and internal references pass (and fail when a secondary skill or resource is removed), `Recto/GEMINI.md` and `Gemail`'s design-contract clauses pass, and all 24 registered projects are audited in `docs/phase-runs/2026-11-22-phase-9.md`.
+
+> **Verified:** 2026-11-23 | §4 | 250d805a1aaf6d0594c5b4754e750f4b68c46dd0
+> **Review:** `docs/reviews/d00-t03-s4.json`
 
 ## 5. Design Contract Rule in Every Project
 
