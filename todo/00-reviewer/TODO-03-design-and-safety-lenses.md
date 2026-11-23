@@ -38,7 +38,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Design lens by path and Fidelity on every prompt | -- | [x] |
 | 2 | §2 | Thread-safety and memory-safety lenses in the template pin | §1 | [x] |
-| 3 | §3 | Kit refresh in every listed project | §2 | [ ] |
+| 3 | §3 | Kit refresh in every listed project | §2 | [x] |
 | 4 | §4 | Agent entrypoints, hooks and native skill folders | §3 | [ ] |
 | 5 | §5 | Design contract rule in every project | §3 | [ ] |
 | 6 | §6 | Design paths in every three-pass pin | §5 | [ ] |
@@ -137,9 +137,12 @@ Sections 4 to 16 need the kit files of §1 and §2 in each project. `forge.py up
 - [x] In `ScratchPad` (whose `AGENTS.md` forbids the todo/unattended kits and `forge.py update`), hand-port only the changed `reviewer` and `base` files, preserving and verifying all four invariants at the committed HEAD: `campaign_review_marker` exercised in `scripts/review-dispatch.py`, `effort: high` in `.claude/agents/`, `git-runner` read-only via `python scripts/agent_routing.py check`, and receipt resolution through `layout.receipts` (`docs/cross-model-reviews/`). Done when: all four invariants pass on the committed HEAD.
 - [x] For free projects without `.conclave/kits.json` (`Office`, `Recto`), hand-copy the §1/§2 reviewer files (`scripts/review_pin.py`, `scripts/review-prompt.py`, all four `docs/*-prompt.md` templates, and applicable skills/`GEMINI.md` clauses) as their `AGENTS.md` allow; defer `Resolute` to §8, `RasterFold` (scripts and 4 prompt templates) to §10, `Gemail` pin decision to §12, and `Gemail` skills/`GEMINI.md` plus `Recto` `GEMINI.md` to §4. Done when: `Office` and `Recto` match the kit's §1/§2 files (or have a behavior-tested local port) and all deferrals are recorded.
 - [x] Run each applicable refreshed project's own quick check (`python scripts/todo-graph.py validate` where a canonical TODO tree is populated, `python scripts/review_pin.py --check --all`, its pre-commit hook on the commit) plus the runtime proofs (byte-equal `review-prompt.py` across all 19, all four prompt kinds rendering their exact `Fidelity:` line, `scripts/review_pin.py --lenses round --no-surface --paths ...` with a temporary conditional pin on matching and nonmatching paths, and `schedule_ok`+`changed_paths` stamp enforcement verified on all 18 stamp-capable repos), and inspect post-commit `git status --short`. Done when: every applicable check exits 0 at the new SHA (or verified existing SHA), any unpopulated `todo/` scaffold (`wsl-site-1`) records its exact `validate` refusal (`rc=2`) beside passing hook and pin checks, and the working tree is clean. **Corrected 2026-11-23:** narrowed `todo-graph.py validate` exit-0 requirement from "where present" to "where a canonical TODO tree is populated" after chain 1 (`docs/reviews/00-reviewer/D00-T03-s3-chain1.md`) proved `wsl-site-1` has `todo-graph.py` installed on a scaffold-only `todo/` directory (`rc=2`, `"canonical TODO tree is missing or empty"`) while its `100755` pre-commit hook and pin check pass.
-- [ ] Commit: `chore: update the Conclave-SDK kits (design by path, safety lenses)` in each changed project, and `docs: kit refresh record (D00 T03 §3)` here with the per-project outcome list (using neutral aliases for client sites) in `docs/phase-runs/2026-11-22-phase-9.md`.
+- [x] Commit: `chore: update the Conclave-SDK kits (design by path, safety lenses)` in each changed project, and `docs: kit refresh record (D00 T03 §3)` here with the per-project outcome list (using neutral aliases for client sites) in `docs/phase-runs/2026-11-22-phase-9.md`.
 
 **Test checkpoint:** per-file audit at committed HEAD confirms all 19 refreshed projects hold byte-equal `scripts/review-prompt.py` (SPDX-normalized on `Office`; `ScratchPad` `--ref` JSON resolver compatibility deferred to `§11`) and all four `docs/*-prompt.md` templates, byte-equal or behavior-tested `scripts/review_pin.py`, `schedule_ok`+`changed_paths` stamp enforcement on all 18 stamp-capable repos (`ScratchPad` stamp gate deferred to `§12`), and applicable `GEMINI.md`/skill clauses (with remaining ports assigned to `§4`, `§5`, `§8`, `§10`, `§11`, `§12`); every refreshed project passes 4-kind Fidelity rendering and temporary conditional-pin `--no-surface` matching/nonmatching proofs.
+
+> **Verified:** 2026-11-23 | §3 | 787351707d4261fd0d27db1b483a7ddaf94960b8
+> **Review:** `docs/reviews/d00-t03-s3.json`
 
 ## 4. Agent Entrypoints, Hooks and Native Skill Folders
 
@@ -418,7 +421,7 @@ One script, outside every repository, answers whether each project holds what th
 - [ ] Check `python scripts/review-prompt.py --kind round --fidelity x` writes a `- Fidelity:` line. Done when: the row quotes the line.
 - [ ] Check the design linter: `--self-test`, a plain run on `HEAD`, exit 1 on a scratch fixture with `#FF00AA`, and its presence in the hook `core.hooksPath` names. Done when: each is a column.
 - [ ] Check `python scripts/todo-graph.py validate` and `git status --short` empty. Done when: each is a column.
-- [ ] Mark as not applicable, with the reason, what a project is exempt from by the owner's decisions (Bosun's pin, the three custom graphs' stamp gate, the checkpoints of open surface sections). Done when: no exempt cell reads as a pass.
+- [ ] Mark as not applicable, with the reason, what a project is exempt from by the owner's decisions (Bosun's pin, the three custom graphs' stamp gate, the checkpoints of open surface sections), verify `Office`'s SPDX-normalized `review-prompt.py` parity, and label every row with its explicit disposition (`refreshed at <SHA>`, `already verified at <SHA>`, or `deferred to <section>`). Done when: no exempt cell reads as a pass and every row names its disposition.
 - [ ] Commit: `docs: design and safety lenses, verified across the projects (D00 T03 §16)`
 
 **Test checkpoint:** `python <scratch>/verify-carbon-fleet.py` exits 0 with every applicable cell green, and exits non-zero when run against a copy of one project whose design rule cites a missing path.
