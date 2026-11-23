@@ -16,7 +16,7 @@ It needs the `todo` kit (the run guard, `scripts/campaign_guard.py`, and the gra
 | `docs/unattended-prompt.md` | The seed prompt the run starts with, naming no project |
 | `docs/unattended-run.md` | The operator's page: start, watch, stop, shortcuts, the heartbeat, each message |
 | `scripts/unattended-run.py` | `start`, `status`, `attach`, `stop`, `heartbeat`, `shortcut`: the run in tmux |
-| `scripts/unattended-preflight.py` | One PASS or FAIL line per precondition; exit 1 on any FAIL (Linux, WSL) |
+| `scripts/unattended-preflight.py` | A PASS or FAIL line per precondition, as it comes; exit 1 on a FAIL (Linux, WSL) |
 | `scripts/unattended-shortcut.ps1` | Windows desktop shortcuts, one per runner, that start the run in WSL |
 | `scripts/lib/unattended.py` | `load_profile`, `runner`, the launch lock and claim, `ships_between` |
 | `scripts/tests/` | The kit's own tests |
