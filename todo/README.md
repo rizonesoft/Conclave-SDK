@@ -107,7 +107,7 @@ When adopting or grooming this system on a repository where code is already part
 A section closes only through `stamp`, after the review passes the project's pin (`.conclave/reviewers.toml`) schedules. Under a three-pass pin (`[schedule] policy = "three-pass"`, what a new install starts on) those are a plan review, one round, a completion review and reconciliations after gaps:
 
 ```powershell
-python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <full 40-char tip commit> --plan docs/reviews/01-engine/D01-T01-s1.md --completion 'docs/reviews/01-engine/D01-T01-s1.md:<complete|reconciled|filed>' --review '<N>:docs/reviews/01-engine/D01-T01-s1.md:<clean|fixed>' --check '<command> -> <quoted result>'
+python scripts/todo-graph.py stamp 'D01 T01 §1' --sha <full 40-char tip commit> --plan docs/reviews/01-engine/D01-T01-s1.md --completion 'docs/reviews/01-engine/D01-T01-s1.md:<complete|reconciled|filed|capped>' --review '<N>:docs/reviews/01-engine/D01-T01-s1.md:<clean|fixed>' --check '<command> -> <quoted result>'
 ```
 
 `<N>` is the number of the one round that returned a review: 1, or the `## Round N` the dispatcher recorded it under when an earlier attempt returned none.

@@ -10,7 +10,7 @@ beyond the pin's conventional place beside this file's folder, so a project can 
                                                                     that pass's lenses, one `name: question` per line;
                                                                     the conditional ones only for the files given, the
                                                                     surface-gated ones left out with --no-surface
-    python3 scripts/review_pin.py --caps [--pin <path>]             pass_cap and no_progress_cap
+    python3 scripts/review_pin.py --caps [--pin <path>]             pass_cap, at_cap and the other caps
 
 The pin (`schema_version = 1`) holds `[reviewers.<name>]` (`cli`, `model`, optional `effort`), `[routes]` (one reviewer
 per writer, never of the writer's own model family; the writers are `claude`, `codex` and `agy`, with `gemini` as
@@ -23,6 +23,10 @@ Three-pass (`policy = "three-pass"`): `plan`, exactly one `[[schedule.rounds]]` 
 `reconciliation`, run in that order, the reconciliation only after a completion that returned gaps. It may add:
 
     pass_cap = 33                  the most returned passes a section may take in all (3 to 999; absent reads as 33)
+    at_cap = "ship"                what a section that has spent pass_cap with gaps open does: "hold" (the default)
+                                   leaves it unstamped, "ship" lets it stamp with the `capped` verdict once the last
+                                   pass's findings are fixed or filed. A later pin that says "ship" also lowers the
+                                   cap of sections already under review (`section_cap`)
     no_progress_cap = 3            the most passes in a row that return gaps no less severe than the pass before
     blocking = ["P1", "P2"]        the severities that hold the stamp; absent, every finding does
     [schedule.lenses]              extra lens names, each with the question the reviewer is given
@@ -66,6 +70,8 @@ SECTION_KINDS = ("plan", "round", "completion", "reconciliation")
 SEVERITIES = ("P1", "P2", "P3")
 # What a three-pass pin without `pass_cap` means: the cap the loop had before the key existed.
 DEFAULT_PASS_CAP = 33
+# What a section that has spent its pass_cap with gaps open does.
+AT_CAP = ("hold", "ship")
 # Plan, round and completion always run, so a cap below three could never stamp a section.
 MIN_PASS_CAP = 3
 MAX_PASS_CAP = 999
@@ -343,6 +349,8 @@ def faults(path=PIN, data=None):
             into(per["recurrence_cap"], check_recurrence_cap, schedule)
         elif type(recur) is not int or recur < 2:
             per["recurrence_cap"].append("[schedule] recurrence_cap needs a whole number of passes from 2 to pass_cap")
+    if "at_cap" in schedule:
+        into(per["at_cap"], check_at_cap, schedule)
     if "blocking" in schedule:
         into(per["blocking"], check_blocking, schedule)
     # The one-owner rule and a conditional entry's overlap read the steps' lens lists, not their efforts: a step
@@ -418,7 +426,7 @@ SURFACE_GATED = {"round": ("design",)}
 STEP_KEYS = {"effort", "lenses"}
 ROTATION_KEYS = {"plan", "completion", "rounds", "rotation", "escalation", "severity_stop_after"}
 THREE_PASS_KEYS = {"policy", "plan", "completion", "rounds", "reconciliation"}
-THREE_PASS_OPTIONAL = {"pass_cap", "no_progress_cap", "recurrence_cap", "blocking", "lenses", "conditional"}
+THREE_PASS_OPTIONAL = {"pass_cap", "at_cap", "no_progress_cap", "recurrence_cap", "blocking", "lenses", "conditional"}
 CONDITIONAL_KEYS = {"lenses", "passes", "paths"}
 
 
@@ -589,6 +597,11 @@ def check_pass_cap(schedule):
                       f"{MAX_PASS_CAP}")
 
 
+def check_at_cap(schedule):
+    if not _one_of(schedule["at_cap"], AT_CAP):
+        raise Refused(f"[schedule] at_cap needs one of {', '.join(AT_CAP)}")
+
+
 def check_no_progress_cap(schedule):
     stall = schedule["no_progress_cap"]
     if type(stall) is not int or not 1 <= stall <= pass_cap(schedule):
@@ -691,6 +704,8 @@ def check_three_pass(schedule, efforts):
         check_no_progress_cap(schedule)
     if "recurrence_cap" in schedule:
         check_recurrence_cap(schedule)
+    if "at_cap" in schedule:
+        check_at_cap(schedule)
     if "blocking" in schedule:
         check_blocking(schedule)
     entries = schedule.get("conditional", [])
@@ -723,6 +738,22 @@ def pass_cap(schedule):
     """The most returned review passes a three-pass section may take: plan, round, completion and every
     reconciliation together."""
     return schedule.get("pass_cap", DEFAULT_PASS_CAP)
+
+
+def at_cap(schedule):
+    """What a section that has spent its `pass_cap` with gaps open does: "hold" or "ship"."""
+    return schedule.get("at_cap", "hold")
+
+
+def section_cap(schedule, current=None):
+    """(cap, ships) for a section whose own schedule is `schedule`, at a commit whose pin's schedule is `current`
+    (None when it holds no usable pin). A section keeps its own pin, with one exception: a current three-pass pin that
+    says `at_cap = "ship"` ends it at the lower of the two caps, so an owner can stop a chain that is already running.
+    It can only shorten a section, never buy it passes."""
+    cap, ships = pass_cap(schedule), at_cap(schedule) == "ship"
+    if current is not None and current.get("policy") == THREE_PASS and at_cap(current) == "ship":
+        return min(cap, pass_cap(current)), True
+    return cap, ships
 
 
 def no_progress_cap(schedule):
@@ -965,7 +996,7 @@ def main(argv=None):
                         help="With --check: list every independent fault, one line each, instead of the first")
     group.add_argument("--lenses", metavar="KIND", choices=SECTION_KINDS,
                        help="Print that pass's lenses with their questions (three-pass pins)")
-    group.add_argument("--caps", action="store_true", help="Print pass_cap and no_progress_cap (three-pass pins)")
+    group.add_argument("--caps", action="store_true", help="Print pass_cap, at_cap and the other caps (three-pass pins)")
     parser.add_argument("--paths", nargs="*", default=[], metavar="FILE",
                         help="With --lenses: the section's changed files, repository-relative with forward slashes, "
                              "so the conditional lenses that apply to them are listed too")
@@ -998,6 +1029,7 @@ def main(argv=None):
                 print(f"{name}: {table[name]}")
         else:
             print(f"pass_cap {pass_cap(schedule)}")
+            print(f"at_cap {at_cap(schedule)}")
             print(f"no_progress_cap {no_progress_cap(schedule) or 'none'}")
             print(f"recurrence_cap {recurrence_cap(schedule) or 'none'}")
     except Refused as exc:

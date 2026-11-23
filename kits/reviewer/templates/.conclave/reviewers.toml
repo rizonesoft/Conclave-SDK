@@ -76,6 +76,12 @@ lenses = ["adversarial", "integration", "plan-delivery", "record"]
 
 # Optional keys, shown as examples.
 #
+# at_cap = "ship"          under [schedule]: a section that has spent pass_cap
+#                          with gaps open fixes or files the last pass's
+#                          findings and stamps `capped`. Absent ("hold"),
+#                          it stays unstamped. Also lowers the cap of
+#                          sections already under review.
+#
 # recurrence_cap = 3       under [schedule]: stop a section's chain when a
 #                          finding that holds the stamp has been reported open
 #                          in three passes (the completion review and two

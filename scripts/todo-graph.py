@@ -15,7 +15,7 @@
     python scripts/todo-graph.py classify 'D02 T01 §1' ...   # dispositions as JSON
     python scripts/todo-graph.py stamp 'D02 T01 §1' --sha <40-char commit> \
         --plan '<findings file>' \
-        --completion '<findings file>:<complete|reconciled|filed|completed>' \
+        --completion '<findings file>:<complete|reconciled|filed|capped|completed>' \
         --review '<round>:<report path>:<clean|fixed|stopped-at-33|stopped-low-severity>' --check '<command> -> <result>' \
         [--cap-outcome '<what was done when the review cap was reached>']   # required with a stopped verdict
     python scripts/todo-graph.py unstamp 'D02 T01 §1' --reason '<what regressed, and the repair section>'
@@ -88,7 +88,9 @@ def main():
                    help="required: <findings file>:<verdict> of the completion review. complete: it found no gap. "
                         "reconciled (three-pass pins): it returned gaps and a later reconciliation ended complete. "
                         "filed: gaps filed as new sections, each on a '- Filed:' line (under three-pass only when "
-                        "the last pass's worst finding is below the pin's blocking levels). completed (rotation pins "
+                        "the last pass's worst finding is below the pin's blocking levels). capped (three-pass pins "
+                        "with at_cap = \"ship\"): the passes are spent with gaps open, and each is on an "
+                        "'- Implemented:' or '- Filed:' line. completed (rotation pins "
                         "only): every gap was fixed in the section")
     ad = sub.add_parser("adopt-stamps", help="freeze, once, the stamps this project made before it took the kit "
                                              "(the adopted and adoption keys of the receipts folder's legacy file)")

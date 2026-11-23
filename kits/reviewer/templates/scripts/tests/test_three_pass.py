@@ -694,6 +694,19 @@ class Caps(ThreePass):
         again = self.commit("cap 9", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5", "pass_cap = 9")})
         self.refused("reconciliation", again, "has spent its 4 review passes (pass_cap)")
 
+    def test_a_section_at_a_cap_that_ships_is_told_to_stamp_capped(self):
+        self.base = self.commit("ship", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5",
+                                                                                 'pass_cap = 4\nat_cap = "ship"')})
+        self.gaps_until_refused(["P2", "P2"])
+        again = self.commit("repair again", {"src/app/a.py": "x = 9\n"})
+        self.refused("reconciliation", again, "has spent its 4 review passes (pass_cap) and ships (at_cap)")
+
+    def test_a_later_pin_that_ships_lowers_the_cap_of_a_section_under_review(self):
+        self.gaps_until_refused(["P2"])  # three of five passes spent
+        lower = self.commit("ship at 3", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5",
+                                                                                  'pass_cap = 3\nat_cap = "ship"')})
+        self.refused("reconciliation", lower, "has spent its 3 review passes (pass_cap) and ships (at_cap)")
+
     def test_no_progress_cap_counts_reconciliations_that_got_no_less_severe(self):
         stalled = PIN.replace("pass_cap = 5", "pass_cap = 30\nno_progress_cap = 2")
         self.base = self.commit("stall 2", {".conclave/reviewers.toml": stalled})

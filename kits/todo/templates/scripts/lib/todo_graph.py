@@ -59,8 +59,13 @@ SEVERITY_CUTOFF_ROUND = 0
 # gaps), completed (every gap implemented in the section) or filed (some gaps filed as new sections, each listed under
 # the completion review as "- Filed: DNN TNN §N"). A receipt without a completion field predates the requirement.
 # Under the three-pass policy a completion review that returned gaps is followed by reconciliation passes: the verdict
-# is `reconciled` when the last one ended RECONCILIATION: complete.
-COMPLETION_VERDICTS = ("complete", "completed", "filed", "reconciled")
+# is `reconciled` when the last one ended RECONCILIATION: complete, and `capped` when the section spent its review
+# passes with gaps open under a pin whose `at_cap` is "ship": each finding of the last pass is fixed after it
+# ("- Implemented: ...") or filed ("- Filed: DNN TNN §N"), and the fixes ship without another pass.
+COMPLETION_VERDICTS = ("complete", "completed", "filed", "reconciled", "capped")
+IMPLEMENTED = re.compile(r"^- Implemented: .*\bin `?([0-9a-f]{7,40})\b")
+# A finding a reconciliation leaves open, as its numbered list tags it: "16. **open, P1.**", "27. **New, P2.", "3. P2".
+OPEN_FINDING = re.compile(r"^\s*(\d+)\.\s+\**(?:(?:open|new)\b[,.:]?)?\**[\s(]*P[123]\b", re.I)
 FILED = re.compile(r"^- Filed: (D\d{2} T\d{2} §[1-9]\d*)(?![\w§]|\.\d)")
 # The one-pass plan review before the build and the review schedule: every new receipt records the plan
 # review (`plan`) and the pin's [schedule] (`schedule`), and stamp replays the schedule over every recorded pass through
@@ -616,6 +621,15 @@ def report_ok(root, raw_report, ref):
     return report_path
 
 
+def capped_lines(dispatch, found, final):
+    """The `- Implemented:` and `- Filed:` lines the writer added after the last returned pass, under a heading of the
+    writer's own or none, up to the next review the dispatcher recorded."""
+    entry = next((e for e in found["reconciliations"] + found["completions"]
+                  if (e["run"], e["candidate"]) == (final["run"], final["candidate"])), final)
+    return [line for lines, _ in dispatch._writer_tails_after(found, entry) for line in lines
+            if FILED.match(line) or IMPLEMENTED.match(line)]
+
+
 def completion_record(root, completion, ref, stamp_sha, commits=None):
     """The receipt's record of the section's completion review, from `--completion <findings file>:<verdict>`: the
     findings file holds exactly one completion review returned by a reviewer of another model family, its last line
@@ -663,11 +677,23 @@ def completion_record(root, completion, ref, stamp_sha, commits=None):
         expected = "COMPLETION: complete" if verdict == "complete" else "COMPLETION: gaps"
         require(last == expected, f"completion verdict {verdict} needs a review ending {expected}, and {report} ends "
                                   f"{last}: {ref}")
-        require(not passed or ending(final) == "RECONCILIATION: gaps",
+        # A last pass that ended complete on a changed promise settled nothing, so a capped section may follow it.
+        require(not passed or ending(final) == "RECONCILIATION: gaps" or (
+            verdict == "capped" and not reconciliation_settles(root, ref, entry["candidate"], final["candidate"])),
                 f"{report} holds a reconciliation ending RECONCILIATION: complete, so the verdict is reconciled, not "
                 f"{verdict}: {ref}")
-    filed = list(dict.fromkeys(m[1] for m in (FILED.match(line) for line in final["notes"]) if m))
-    require(bool(filed) == (verdict == "filed"),
+    notes = final["notes"]
+    if verdict == "capped":
+        notes = capped_lines(dispatch, dispatch.read_findings(path.read_bytes().decode("utf-8")), final)
+        # Only a reconciliation numbers its open findings one way; a completion review repeats its gaps in a list.
+        owed = dict.fromkeys(m[1] for m in map(OPEN_FINDING.match, final["review"].splitlines()) if m) if passed else {}
+        silent = [n for n in owed if not any(re.search(rf"\b(?:gap|finding) {n}\b", line, re.I) for line in notes)]
+        require(bool(notes) and not silent,
+                f"completion verdict capped needs each finding of the last returned review in {report} named, as "
+                f"'gap <N>', on an '- Implemented: <what> in <commit>' or '- Filed: DNN TNN §N' line after it"
+                f"{' (missing: ' + ', '.join(silent) + ')' if silent else ''}: {ref}")
+    filed = list(dict.fromkeys(m[1] for m in (FILED.match(line) for line in notes) if m))
+    require(verdict == "capped" or bool(filed) == (verdict == "filed"),
             f"completion verdict filed needs each filed section listed as '- Filed: DNN TNN §N' under the last "
             f"returned completion or reconciliation review in {report}, and only filed lists any: {ref}")
     require(ref not in filed, f"{ref} cannot file a completion gap to itself: {ref}")
@@ -884,6 +910,8 @@ def schedule_ok(root, data, ref, surface):
             check(f"the reconciliation review in {completion}", entry,
                   dispatch.scheduled(schedule, "reconciliation", [], surface, changed(entry)))
     else:
+        require(data["completion"]["verdict"] != "capped",
+                f"completion verdict capped is only for the three-pass policy: {ref}")
         require(not found["reconciliations"],
                 f"{completion} holds a reconciliation review, which only the three-pass policy takes: {ref}")
     for report in dict.fromkeys(r["report"] for r in data["reviews"]):
@@ -924,12 +952,28 @@ def reconciliation_settles(root, ref, failed_candidate, candidate):
     return section_contract(root, candidate, ref) == section_contract(root, failed_candidate, ref)
 
 
+def section_cap(root, schedule, sha):
+    """(cap, ships) for a three-pass section stamped at `sha`, read the way the dispatcher reads it. A reviewer kit
+    from before `at_cap` has no such rule, and its pins cannot set the key."""
+    dispatch = review_dispatch()
+    rule = getattr(dispatch.review_pin, "section_cap", None)
+    if rule is None:
+        return dispatch.review_pin.pass_cap(schedule), False
+    shown = _git(root, "show", f"{sha}:{PIN}")
+    try:
+        current = dispatch.load_pin(PIN, data=shown.stdout).get("schedule") if shown.returncode == 0 else None
+    except dispatch.Refused:
+        current = None
+    return rule(schedule, current)
+
+
 def three_pass_ok(root, data, ref, found):
     """The three-pass chain: one plan review, exactly one returned round naming its candidate, one completion review,
     then reconciliations up to the section pin's `pass_cap` returned passes in all, each run after the pass before on
     a candidate at or after it, the last on the stamped commit. The receipt's completion verdict is `complete`,
-    `reconciled`, or, when the pin sets `blocking` and the last pass ended gaps below those levels, `filed`. The
-    section's promise at the stamped commit is the one the completion review that failed reviewed (a reconciliation
+    `reconciled`, or, when the pin sets `blocking` and the last pass ended gaps below those levels, `filed`, or, when
+    the section spent its passes with gaps open and its pin ships at the cap, `capped`: the last pass then reviewed
+    the stamped commit or an ancestor of it, since the fixes for that pass come after it. The section's promise at the stamped commit is the one the completion review that failed reviewed (a reconciliation
     between may have changed it and returned gaps for that)."""
     dispatch = review_dispatch()
     schedule, sha = data["schedule"], data["implementation_sha"]
@@ -948,6 +992,11 @@ def three_pass_ok(root, data, ref, found):
     cap = dispatch.review_pin.pass_cap(schedule)
     require(3 + len(passed) <= cap,
             f"the section's pin allows {cap} review passes (pass_cap), not {3 + len(passed)}: {ref}")
+    # A capped section's receipt records the cap that ended it, which a later pin may have lowered (`section_cap`).
+    verdict = data["completion"]["verdict"]
+    shipped_cap, ships = section_cap(root, schedule, sha)
+    if verdict == "capped":
+        cap = shipped_cap
     require(data.get("pass_cap") == cap and data.get("passes_spent") == 3 + len(passed),
             f"receipt passes_spent or pass_cap is not what the findings file and the section's pin hold "
             f"({3 + len(passed)} of {cap}): {ref}")
@@ -999,10 +1048,17 @@ def three_pass_ok(root, data, ref, found):
         got = (entry["reviewer"], entry["cli"], entry["model"])
         require(got == want, f"the {name} was reviewed by {got[0]} ({got[2]} via {got[1]}), not the reviewer "
                              f"{want[0]} ({want[2]} via {want[1]}) the section's pin routes {writer!r} to: {ref}")
-    verdict = data["completion"]["verdict"]
     worst = dispatch.review_pin.declared_highest(chain[-1][1]["review"])
     below = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst)
-    require(verdict in ("complete", "reconciled") or (verdict == "filed" and below),
+    if verdict == "capped":
+        require(ships, f"completion verdict capped needs a pin whose at_cap is \"ship\": {ref}")
+        require(3 + len(passed) >= cap, f"completion verdict capped needs the section's {cap} review passes spent "
+                                        f"(pass_cap), not {3 + len(passed)}: {ref}")
+        # A last pass on a changed promise cannot be filed on, whatever it found: the restored commit stamps capped.
+        kept = section_contract(root, tail[-1]["candidate"], ref) == section_contract(root, completion["candidate"], ref)
+        require(not below or not kept, f"the last pass's worst finding ({worst}) is below the pin's blocking levels, so the "
+                           f"verdict is filed, not capped: {ref}")
+    require(verdict in ("complete", "reconciled", "capped") or (verdict == "filed" and below),
             f"the three-pass policy takes completion verdict complete or reconciled, or filed when the last pass's "
             f"worst finding ({worst}) is below the pin's blocking levels, not {verdict}: {ref}")
     # A last pass that ends complete while declaring a finding that holds the stamp contradicts itself: the severity
@@ -1010,20 +1066,29 @@ def three_pass_ok(root, data, ref, found):
     # A reply with no HIGHEST line counts as P1 under a pin that names blocking levels (the dispatcher that reads
     # such a pin records no reply without the line); a pin without the key predates the line and is not held to it.
     holds = dispatch.review_pin.blocks(schedule, worst) if worst is not None else "blocking" in schedule
-    require(verdict == "filed" or worst == "none" or not holds,
+    require(verdict in ("filed", "capped") or worst == "none" or not holds,
             f"the last review ({chain[-1][0]}) ends complete but "
             f"{'declares HIGHEST: ' + worst if worst else 'declares no HIGHEST line, which counts as P1'}, which holds "
             f"the stamp under the section's pin: {ref}")
     for (older_name, older), (newer_name, newer) in zip(chain, chain[1:]):
         require(older["run"] <= newer["run"] and is_ancestor(root, older["candidate"], newer["candidate"]),
                 f"the {newer_name} must run after the {older_name}, on a candidate at or after it: {ref}")
-    require(chain[-1][1]["candidate"] == sha,
+    last = chain[-1][1]["candidate"]
+    if verdict == "capped":
+        for line in capped_lines(dispatch, found, chain[-1][1]):
+            fix = IMPLEMENTED.match(line)
+            if fix:
+                full = _git(root, "rev-parse", "--verify", "--quiet", f"{fix[1]}^{{commit}}").stdout.decode().strip()
+                require(bool(full) and full != last and is_ancestor(root, last, full) and is_ancestor(root, full, sha),
+                        f"the capped section's fix {fix[1]} is not a commit after the last reviewed one and at or "
+                        f"before the stamped one: {ref}")
+    require(last == sha or (verdict == "capped" and is_ancestor(root, last, sha)),
             f"the last review ({chain[-1][0]}) reviewed {chain[-1][1]['candidate']}, not the stamped commit {sha}: {ref}")
     # The promise the stamp holds is the stamped candidate's: it must be the one the failed completion reviewed. A
     # reconciliation whose candidate changed it returns gaps for that and a later one may restore it, so the
     # candidates in between are not held to it (D02 T02 §5, 2026-11-12).
     promised = section_contract(root, completion["candidate"], ref)
-    require(not passed or section_contract(root, sha, ref) == promised,
+    require((not passed and verdict != "capped") or section_contract(root, sha, ref) == promised,
             f"the section's contract changed between the failed completion and its reconciliation: {ref} (restore "
             f"the promised text, writing any correction as a dated ' **Corrected YYYY-MM-DD:** ...' note at the end "
             f"of the line it corrects, commit, and run another reconciliation, which the dispatcher then takes)")
@@ -2852,6 +2917,8 @@ def review_rounds(root=ROOT):
                  "verdicts": [r["verdict"] for r in data["reviews"]],
                  "cap_outcome": data.get("cap_outcome"),
                  "completion": (data.get("completion") or {}).get("verdict")}
+        if "passes_spent" in data:
+            entry.update(passes_spent=data["passes_spent"], pass_cap=data["pass_cap"])
         chains = kept_chains(root, row.ref)
         if chains:
             entry["kept_chains"] = chains
@@ -2863,6 +2930,7 @@ def review_rounds(root=ROOT):
                         "max": max(spent, default=None),
                         "stopped_at_cap": sum(any(v.startswith("stopped-at-") for v in s.get("verdicts", ()))
                                               for s in sections),
+                        "capped": sum(s.get("completion") == "capped" for s in sections),
                         "stopped_low_severity": sum("stopped-low-severity" in s.get("verdicts", ()) for s in sections)}}
 
 
@@ -2878,6 +2946,15 @@ def same_request(persisted, data):
              "completion": "completion review"}
     return [label for key, label in names.items()
             if held.get(key) != json.loads(json.dumps(data.get(key)))]
+
+
+def capped_targets_ok(data, row, rows, stamped, ref):
+    """A capped section's gaps are filed to open sections of its own phase, so none ships without open work."""
+    if stamped or data["completion"]["verdict"] != "capped":
+        return
+    for target in data["completion"]["filed"]:
+        require(target in rows and not rows[target].done and rows[target].phase == row.phase,
+                f"a capped section's gap is filed as an open section of its own phase, and {target} is not one: {ref}")
 
 
 def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=None, completion=None, plan=None):
@@ -2922,6 +2999,8 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
     data["completion"] = completion_record(root, completion, ref, sha)
     for target in data["completion"]["filed"]:
         require(target in rows, f"completion gap filed as {target}, which does not resolve: {ref}")
+    # Checked when the stamp is made, not when its receipt is read back: the filed section closes later.
+    capped_targets_ok(data, row, rows, stamped, ref)
     data["rounds_spent"] = rounds_recorded(root, reviews)
     data["round_cap"] = REVIEW_ROUND_CAP
     if stopped:
@@ -2936,7 +3015,8 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
         held = dispatch.read_findings((root / data["plan"]["report"]).read_bytes().decode("utf-8"))
         data["passes_spent"] = 3 + sum(1 for e in held["reconciliations"]
                                        if dispatch.returned_one_pass(e, "reconciliation"))
-        data["pass_cap"] = dispatch.review_pin.pass_cap(data["schedule"])
+        data["pass_cap"] = section_cap(root, data["schedule"], sha)[0] if data["completion"]["verdict"] == "capped" \
+            else dispatch.review_pin.pass_cap(data["schedule"])
     receipt_data_ok(data, ref, sha, root=root, surface=field(row.body, "Surface") == "yes")
     receipt_path = root / receipt
     plan_path = root / plan_file(root)
@@ -2949,6 +3029,7 @@ def stamp(root, ref, sha, reviews, checks, date, sync_plan=False, cap_outcome=No
             require(ref in rows, "unresolved section: " + ref)
             row = rows[ref]
             stamped = row.done
+            capped_targets_ok(data, row, rows, stamped, ref)
             if not stamped:
                 require(all(settled(d, rows) for d in row.depends),
                         f"open prerequisite, or one resting on a reopened section: {ref}")

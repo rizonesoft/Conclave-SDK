@@ -116,7 +116,7 @@ WRITERS, CLIS, FAMILY, WRITER_FAMILY = review_pin.WRITERS, review_pin.CLIS, revi
 EFFORTS, LENSES, THREE_PASS = review_pin.EFFORTS, review_pin.LENSES, review_pin.THREE_PASS
 highest, returned_review, scheduled = review_pin.highest, review_pin.returned_review, review_pin.scheduled
 lens_block, check_schedule, check_step = review_pin.lens_block, review_pin.check_schedule, review_pin.check_step
-declared_highest, pass_cap = review_pin.declared_highest, review_pin.pass_cap
+declared_highest = review_pin.declared_highest
 # Antigravity takes the prompt only as the -p value. Past this size it gets a pointer to the prompt file instead.
 # Windows caps a whole command line at 32,767 characters; Linux caps one argument at 128 KiB.
 ARGV_PROMPT_LIMIT = 24_000 if os.name == "nt" else 100_000
@@ -1048,6 +1048,16 @@ def committed_pin(sha):
         raise Refused(f"the reviewer pin at {sha} does not load: {exc}") from None
 
 
+def current_schedule(candidate):
+    """The [schedule] of the pin committed at `candidate`, or None: what a section under review reads its cap against
+    (`review_pin.section_cap`). A pin there that does not load never stops a section, which has its own."""
+    try:
+        held = committed_pin(candidate)
+    except Refused:
+        return None
+    return held.get("schedule") if held else None
+
+
 def section_pin(pin_path, record_path, kind, candidate):
     """The pin a pass runs under.
 
@@ -1382,10 +1392,10 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
     """The order of a three-pass section's passes: the plan review, one round on a candidate descending from it, one
     completion review, then reconciliations only after a completion that returned gaps, each on a candidate
     descending from the pass before, until one returns complete. A reconciliation is also refused once the section
-    has spent its `pass_cap` returned passes, after `no_progress_cap` reconciliations in a row whose worst finding is
-    no less severe than the pass before, and after a pass whose worst finding is below the pin's `blocking` levels
-    (those findings are filed, not reviewed again). Refused here so that a pass out of order never spends a review;
-    the stamp holds the receipt to the same order. A findings file not named for a section has no order."""
+    has spent its `pass_cap` returned passes (`review_pin.section_cap`), after `no_progress_cap` reconciliations in a
+    row whose worst finding is no less severe than the pass before, and after a pass whose worst finding is below the
+    pin's `blocking` levels (those findings are filed, not reviewed again). Refused here so that a pass out of order
+    never spends a review; the stamp holds the receipt to the same order. A findings file not named for a section has no order."""
     if not section_record(record_path):
         return
     raw_text = existing_findings(Path(record_path), f"{kind} review")
@@ -1433,8 +1443,14 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if "blocking" in schedule and not unsettled and not review_pin.blocks(schedule, worst[-1]):
             raise Refused(f"the last pass's worst finding is {worst[-1]}, below the pin's blocking levels "
                           f"({', '.join(schedule['blocking'])}): file its findings and stamp; it takes no further pass")
-        cap = pass_cap(schedule)
+        cap, ships = review_pin.section_cap(schedule, current_schedule(candidate))
         if len(plans) + len(rounds) + len(chain) >= cap:
+            if ships and unsettled:
+                raise Refused(f"the section has spent its {cap} review passes (pass_cap) and ships (at_cap): restore "
+                              f"the section text the failed completion reviewed, rerun the gates, and stamp it capped")
+            if ships:
+                raise Refused(f"the section has spent its {cap} review passes (pass_cap) and ships (at_cap): fix the "
+                              f"last pass's findings, rerun the gates, file what is left, and stamp it capped")
             raise Refused(f"the section has spent its {cap} review passes (pass_cap); it stays blocked")
         stall = review_pin.no_progress_cap(schedule)
         if stall is not None:

@@ -1,4 +1,5 @@
 """Tests for scripts/lib/todo_graph.py and scripts/todo-graph.py: the graph refuses malformed work and stamps only real evidence."""
+import dataclasses
 import importlib.util
 import io
 import json
@@ -1400,7 +1401,7 @@ class Stamp(Tree):
         before = self.snapshot()
         with self.assertRaises(tg.Refused) as ctx:
             tg.stamp(self.root, "D00 T01 §1", self.sha, self.reviews, ["true -> ok"], "2026-10-23")
-        self.assertIn("--completion '<findings file>:<complete|completed|filed|reconciled>' is required",
+        self.assertIn("--completion '<findings file>:<complete|completed|filed|reconciled|capped>' is required",
                       str(ctx.exception))
         self.assertEqual(self.snapshot(), before)
 
@@ -4488,6 +4489,155 @@ class ThreePassStamp(Stamp):
             self.stamp3_refuses(sha, "lacks its single RECURRING line", verdict="reconciled")
         finally:
             type(self).PIN_TEXT = THREE_PASS_PIN
+    def capped_case(self, keys, notes="- Implemented: the gap in {fixed}", tops=("P2", "P2"), later=None,
+                    review=None, reconciled=True):
+        """A chain of plan, round, completion and one reconciliation, each with gaps, under a pin with `keys`, then a
+        commit that holds the last fixes (and `later`'s pin, if given) and `notes` under the last pass. Returns the
+        last reviewed commit and the fixing one."""
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", keys)
+        try:
+            self.setUp()
+            reviewed = self.chain(completion=(tops[0], True))
+            if reconciled:
+                reviewed = self.build("repair 1")
+                self.passed("reconciliation", reviewed, tops[1], True, review=review)
+            if later is not None:
+                (self.root / tg.PIN).write_bytes(THREE_PASS_PIN.replace("pass_cap = 45", later).encode())
+            fixed = self.build("last fixes")
+            with open(self.root / self.FILE, "a", encoding="utf-8", newline="") as handle:
+                handle.write("\n" + notes.format(fixed=fixed, reviewed=reviewed) + "\n")
+            return reviewed, fixed
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    SHIP = 'pass_cap = 4\nat_cap = "ship"'
+
+    def test_a_capped_section_ships_its_last_fixes_without_another_pass(self):
+        reviewed, fixed = self.capped_case(self.SHIP + '\nblocking = ["P1", "P2"]')
+        data = self.stamp3(fixed, verdict="capped")
+        self.assertEqual((data["implementation_sha"], data["completion"]["candidate"]), (fixed, reviewed))
+        self.assertEqual((data["passes_spent"], data["pass_cap"], data["completion"]["filed"]), (4, 4, []))
+        rounds = tg.review_rounds(self.root)
+        self.assertEqual(rounds["summary"]["capped"], 1)
+        (entry,) = [s for s in rounds["sections"] if s["ref"] == "D00 T01 §1"]
+        self.assertEqual((entry["passes_spent"], entry["pass_cap"]), (4, 4))
+
+    def test_a_capped_section_may_file_what_is_left_in_its_own_phase(self):
+        _, fixed = self.capped_case(self.SHIP, notes="- Filed: D00 T01 §2 (the P2 finding)")
+        self.assertEqual(self.stamp3(fixed, verdict="capped")["completion"]["filed"], ["D00 T01 §2"])
+
+    def test_a_capped_gap_is_not_filed_to_a_closed_section_or_another_phase(self):
+        for field, value in (("done", True), ("phase", 99)):
+            with self.subTest(field):
+                _, fixed = self.capped_case(self.SHIP, notes="- Filed: D00 T01 §2 (the P2 finding)")
+                real = tg.graph
+
+                def changed(root, real=real, field=field, value=value):
+                    rows = real(root)
+                    rows["D00 T01 §2"] = dataclasses.replace(rows["D00 T01 §2"], **{field: value}) \
+                        if dataclasses.is_dataclass(rows["D00 T01 §2"]) else rows["D00 T01 §2"]._replace(**{field: value})
+                    return rows
+                with mock.patch.object(tg, "graph", changed):
+                    self.stamp3_refuses(fixed, "is filed as an open section of its own phase", verdict="capped")
+
+    def test_every_open_finding_of_the_last_reconciliation_is_accounted_for(self):
+        names = self.LENSES["reconciliation"]
+        review = "\n".join(["1. **closed.** done, was P1.", "2. **open, P1.** a", "3. **New, P2. b**", "4. P3 c", "5. **open** (P2) d",
+                            *[f"LENS {n}: findings" for n in names], "HIGHEST: P1", "RECONCILIATION: gaps"])
+        lines = [f"- Implemented: gap {n} in {{fixed}}" for n in (2, 3, 4, 5)]
+        _, fixed = self.capped_case(self.SHIP, notes="\n".join([lines[0]] * 3), review=review)
+        self.stamp3_refuses(fixed, "(missing: 3, 4, 5)", verdict="capped")
+        # Under a heading of the writer's own, they are the same lines.
+        _, fixed = self.capped_case(self.SHIP, notes="\n".join(["## Writer note: fixes", *lines]), review=review)
+        self.stamp3(fixed, verdict="capped")
+
+    def test_a_capped_filing_target_that_closes_before_the_lock_is_refused(self):
+        _, fixed = self.capped_case(self.SHIP, notes="- Filed: D00 T01 §2 (the P2 finding)")
+        real, calls = tg.graph, []
+
+        def closing(root):
+            rows = real(root)
+            calls.append(1)
+            if len(calls) > 1:  # the graph read again under the lock
+                rows["D00 T01 §2"] = dataclasses.replace(rows["D00 T01 §2"], done=True) \
+                    if dataclasses.is_dataclass(rows["D00 T01 §2"]) else rows["D00 T01 §2"]._replace(done=True)
+            return rows
+        with mock.patch.object(tg, "graph", closing):
+            self.stamp3_refuses(fixed, "is filed as an open section of its own phase", verdict="capped")
+
+    def test_a_capped_fix_is_a_real_commit_after_the_last_pass(self):
+        for note in ("- Implemented: x in deadbeef", "- Implemented: x in {reviewed}"):
+            with self.subTest(note):
+                _, fixed = self.capped_case(self.SHIP, notes=note)
+                self.stamp3_refuses(fixed, "is not a commit after the last reviewed one", verdict="capped")
+
+    def test_a_capped_section_keeps_its_promise_even_with_no_reconciliation(self):
+        _, fixed = self.capped_case('pass_cap = 3\nat_cap = "ship"', reconciled=False)
+        todo = self.root / "todo/00-workspace/TODO-01-a.md"
+        text = todo.read_text(encoding="utf-8")
+        todo.write_text(text.replace("- [x] Work.", "- [x] Work, but less of it.", 1), encoding="utf-8")
+        self.stamp3_refuses(self.commit("narrow"), "the section's contract changed", verdict="capped")
+
+    def test_a_promise_restored_after_the_last_allowed_pass_stamps_capped(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", self.SHIP + '\nblocking = ["P1", "P2"]')
+        try:
+            self.setUp()
+            todo = self.root / "todo/00-workspace/TODO-01-a.md"
+            self.chain(completion=("P2", True))
+            text = todo.read_text(encoding="utf-8")
+            todo.write_text(text.replace("- [x] Work.", "- [x] Work, but less of it.", 1), encoding="utf-8")
+            narrowed = self.commit("narrow the section")
+            self.passed("reconciliation", narrowed)
+            todo.write_text(text, encoding="utf-8")
+            restored = self.commit("restore the promise")
+            self.stamp3_refuses(restored, "needs each finding of the last returned review", verdict="capped")
+            with open(self.root / self.FILE, "a", encoding="utf-8", newline="") as handle:
+                handle.write(f"\n- Implemented: restored the promise in {restored}\n")
+            self.stamp3_refuses(narrowed, "", verdict="capped")
+            self.stamp3(restored, verdict="capped")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_a_p3_gap_on_a_changed_promise_at_the_cap_still_ships_once_restored(self):
+        self.tearDown()
+        type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", self.SHIP + '\nblocking = ["P1", "P2"]')
+        try:
+            self.setUp()
+            todo = self.root / "todo/00-workspace/TODO-01-a.md"
+            self.chain(completion=("P2", True))
+            text = todo.read_text(encoding="utf-8")
+            todo.write_text(text.replace("- [x] Work.", "- [x] Work, but less of it.", 1), encoding="utf-8")
+            self.passed("reconciliation", self.commit("narrow the section"), "P3", True)
+            todo.write_text(text, encoding="utf-8")
+            restored = self.commit("restore the promise")
+            with open(self.root / self.FILE, "a", encoding="utf-8", newline="") as handle:
+                handle.write(f"\n- Implemented: gap 1 and the promise restored in {restored}\n")
+            self.stamp3(restored, verdict="capped")
+        finally:
+            type(self).PIN_TEXT = THREE_PASS_PIN
+
+    def test_a_later_pin_that_ships_ends_a_section_already_past_its_lower_cap(self):
+        _, fixed = self.capped_case("pass_cap = 45", later='pass_cap = 3\nat_cap = "ship"')
+        data = self.stamp3(fixed, verdict="capped")
+        self.assertEqual((data["passes_spent"], data["pass_cap"]), (4, 3))
+
+    def test_capped_is_refused_where_the_rule_does_not_hold(self):
+        for label, kwargs, fragment in (
+                ("a pin that holds", {"keys": "pass_cap = 4"}, 'needs a pin whose at_cap is "ship"'),
+                ("passes left", {"keys": 'pass_cap = 5\nat_cap = "ship"'}, "needs the section's 5 review passes spent"),
+                ("nothing fixed or filed", {"keys": self.SHIP, "notes": ""},
+                 "needs each finding of the last returned review"),
+                ("below the blocking levels", {"keys": self.SHIP + '\nblocking = ["P1"]', "tops": ("P1", "P2")},
+                 "the verdict is filed, not capped")):
+            with self.subTest(label):
+                _, fixed = self.capped_case(**kwargs)
+                self.stamp3_refuses(fixed, fragment, verdict="capped")
+        with self.subTest("another verdict still needs the stamped commit reviewed"):
+            _, fixed = self.capped_case(self.SHIP, notes="")
+            self.stamp3_refuses(fixed, "ending RECONCILIATION: complete", verdict="reconciled")
+
     def filed_case(self, blocking, reconciled):
         """A chain whose last pass ends HIGHEST: P2 and gaps, its finding filed as §2, under `blocking`."""
         self.tearDown()
