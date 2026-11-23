@@ -116,7 +116,9 @@ A C++ project needs two questions the built-in lenses only touch: `adversarial` 
 
 ## 3. Kit Refresh in Every Listed Project
 
-Sections 4 to 16 need the kit files of §1 and §2 in each project. `forge.py update` writes only files a project lacks or never changed and lists the rest, so a project's own edits are kept. The projects list holds one entry today, so it is completed first, in the ignored `.conclave/local.toml`.
+> **Started:** 2026-11-23T01:55Z
+
+Sections 4 to 16 need the kit files of §1 and §2 in each project. `forge.py update` writes only files a project lacks or never changed and lists the rest, so a project's own edits are kept. The projects list holds one entry today, so it is completed first, in the ignored `.conclave/local.toml`. **Verified 2026-11-23:** `.conclave/local.toml` currently holds 3 entries (`RasterFold`, `redfernshop-coza`, `swisshotelschool-coza`). Free/held survey of all 21 surveyed projects (plus `Updates`, `redfernshop-coza`, `swisshotelschool-coza`): **free (22):** `Berth`, `Busview`, `CarbonCD`, `DoubleTake`, `Gemail` (has `kits.json`, no reviewer pin yet), `GluonStack`, `Isotone`, `Kami`, `KitsuneBrowser`, `Merchant`, `Office` (no `kits.json`), `RasterFold` (WSL, no `kits.json`; reviewer scripts migrate in §10), `Recto` (no `kits.json`), `Resolute` (no `kits.json`, `.git/run-guard/state.json` `active: false` `ended`; three-pass migration in §8), `Resolute-SDK`, `ScratchPad` (hand-copy `base` and `reviewer` only per its `AGENTS.md`, keeping `campaign_review_marker`, `effort: high`, `git-runner`, and `layout.receipts`), `Steward` (`.git/run-guard/state.json` `active: false` `drained`), `Strata`, `Voxel`, `Wobble`, `redfernshop-coza`, `swisshotelschool-coza`; **held/dirty, skipped (2):** `Bosun` (live `.git/run-guard/state.json` `active: true`, 2 dirty files; also stays on rotation), `Updates` (2 dirty files including `docs/phase-runs/2026-11-23-phase-4.md`).
 
 **Phase:** 9
 **Needs:** windows-host
