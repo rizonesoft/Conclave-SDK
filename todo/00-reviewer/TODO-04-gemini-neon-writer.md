@@ -76,6 +76,7 @@ The todo kit's Antigravity copies of `process-plan`, `process-phase` and `proces
 - [ ] Remove the Carbon and Hydrogen handoff instructions from `kits/todo/skill-patches/agents/process-plan/SKILL.md.json`, `process-phase/SKILL.md.json` and `process-todo-section/SKILL.md.json`, keeping every other declared difference. Done when: each patch still applies. Cheaper substitute: editing the generated copies by hand, which the generator test refuses.
 - [ ] Run `python forge.py skill-copies`. Done when: `kits/todo/templates/.agents/skills/process-*/SKILL.md` name no Carbon, Hydrogen or `exit_plan_mode`.
 - [ ] Update `tests/test_agy_agents.py` assertions that expect the handoff text to assert its absence. Done when: the test passes and fails if a handoff line is put back in a patch.
+- [ ] Clarify in `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md` (filed non-blocking P3 from `D00 T03 §2` Completion review) that a section's `Commit:` checklist item stays `[ ]` until `todo-graph.py stamp` ticks it with the Implementation Order row, then run `python forge.py skill-copies`. Done when: the clause appears in the Claude source and generated Antigravity/Codex copies and `python forge.py skill-copies --check` exits 0.
 - [ ] Commit: `todo: Antigravity skills follow the Claude steps under Gemini 4 Neon (D00 T04 §2)`
 
 **Test checkpoint:** `python -m unittest tests.test_agy_agents` ends `OK`, and fails when a Carbon handoff line is restored in `kits/todo/skill-patches/agents/process-plan/SKILL.md.json`.

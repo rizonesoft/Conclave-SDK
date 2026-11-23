@@ -37,7 +37,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Design lens by path and Fidelity on every prompt | -- | [x] |
-| 2 | §2 | Thread-safety and memory-safety lenses in the template pin | §1 | [ ] |
+| 2 | §2 | Thread-safety and memory-safety lenses in the template pin | §1 | [x] |
 | 3 | §3 | Kit refresh in every listed project | §2 | [ ] |
 | 4 | §4 | Agent entrypoints, hooks and native skill folders | §3 | [ ] |
 | 5 | §5 | Design contract rule in every project | §3 | [ ] |
@@ -110,6 +110,9 @@ A C++ project needs two questions the built-in lenses only touch: `adversarial` 
 - [x] Commit: `reviewer: thread-safety and memory-safety lenses in the template pin (D00 T03 §2)`
 
 **Test checkpoint:** `python forge.py check-all --only kit-reviewer --only sdk-scripts` and `python -m unittest tests.test_template_pin` pass, and the wording test fails when one word of either question is changed.
+
+> **Verified:** 2026-11-23 | §2 | b337c13bd64454bf9c141eada6f46ce4a95491fd
+> **Review:** `docs/reviews/d00-t03-s2.json`
 
 ## 3. Kit Refresh in Every Listed Project
 

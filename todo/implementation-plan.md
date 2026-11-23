@@ -189,7 +189,7 @@ Sections: 27 | Checklist items: 171
 | [x]    | D00 T01 §13 | Shadow-audit repairs for `replan` path check and lock safety  | none         | 6     |
 | [x]    | D00 T01 §9  | Re-plan route for unsettled chains, recovery planned up front | none         | 7     |
 | [x]    | D00 T03 §1  | Design Lens by Path and Fidelity on Every Prompt              | none         | 10    |
-| [ ]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 7     |
+| [x]    | D00 T03 §2  | Thread-Safety and Memory-Safety Lenses in the Template Pin    | none         | 7     |
 | [ ]    | D00 T03 §3  | Kit Refresh in Every Listed Project                           | windows-host | 7     |
 | [ ]    | D00 T03 §4  | Agent Entrypoints, Hooks and Native Skill Folders             | windows-host | 7     |
 | [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                         | windows-host | 6     |
@@ -213,12 +213,12 @@ Sections: 27 | Checklist items: 171
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
-Sections: 16 | Checklist items: 93
+Sections: 16 | Checklist items: 94
 
 | Status | Reference   | Deliverable                                                  | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------------ | ----- | ----- |
 | [ ]    | D00 T04 §1  | Base kit guidance names Gemini 4 Neon                        | none  | 6     |
-| [ ]    | D00 T04 §2  | Antigravity TODO skills without Carbon handoffs              | none  | 4     |
+| [ ]    | D00 T04 §2  | Antigravity TODO skills without Carbon handoffs              | none  | 5     |
 | [ ]    | D00 T04 §3  | Reviewer pin accepts Neon with an effort                     | none  | 4     |
 | [ ]    | D00 T04 §4  | Unattended profile runs Neon with its effort                 | none  | 5     |
 | [ ]    | D00 T04 §5  | SDK copies, documents and tests follow the kits              | none  | 5     |
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 119/155 verified sections, 8 ready to run now.
+Progress: 120/155 verified sections, 8 ready to run now.
 
-Checklist: 972/1169 items completed (includes Commit items).
+Checklist: 972/1170 items completed (includes Commit items).
