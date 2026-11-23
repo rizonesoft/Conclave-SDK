@@ -23,10 +23,10 @@ Three-pass (`policy = "three-pass"`): `plan`, exactly one `[[schedule.rounds]]` 
 `reconciliation`, run in that order, the reconciliation only after a completion that returned gaps. It may add:
 
     pass_cap = 33                  the most returned passes a section may take in all (3 to 999; absent reads as 33)
-    at_cap = "ship"                what a section that has spent pass_cap with gaps open does: "hold" (the default)
-                                   leaves it unstamped, "ship" lets it stamp with the `capped` verdict once the last
-                                   pass's findings are fixed or filed. A later pin that says "ship" also lowers the
-                                   cap of sections already under review (`section_cap`)
+    at_cap = "hold"                what a section a cap stops with gaps open does: "ship" (absent reads as that) lets
+                                   it stamp with the `capped` verdict once the last pass's findings are fixed or
+                                   filed, "hold" leaves it unstamped. A later pin that ships also lowers the pass_cap
+                                   of sections already under review (`section_cap`)
     no_progress_cap = 3            the most passes in a row that return gaps no less severe than the pass before
     blocking = ["P1", "P2"]        the severities that hold the stamp; absent, every finding does
     [schedule.lenses]              extra lens names, each with the question the reviewer is given
@@ -70,8 +70,9 @@ SECTION_KINDS = ("plan", "round", "completion", "reconciliation")
 SEVERITIES = ("P1", "P2", "P3")
 # What a three-pass pin without `pass_cap` means: the cap the loop had before the key existed.
 DEFAULT_PASS_CAP = 33
-# What a section that has spent its pass_cap with gaps open does.
-AT_CAP = ("hold", "ship")
+# What a section a cap stops with gaps open does: the first is the default, so no cap parks or blocks a section
+# unless the owner asks for it.
+AT_CAP = ("ship", "hold")
 # Plan, round and completion always run, so a cap below three could never stamp a section.
 MIN_PASS_CAP = 3
 MAX_PASS_CAP = 999
@@ -741,14 +742,14 @@ def pass_cap(schedule):
 
 
 def at_cap(schedule):
-    """What a section that has spent its `pass_cap` with gaps open does: "hold" or "ship"."""
-    return schedule.get("at_cap", "hold")
+    """What a section a cap stops with gaps open does: "ship" (the default) or "hold"."""
+    return schedule.get("at_cap", AT_CAP[0])
 
 
 def section_cap(schedule, current=None):
     """(cap, ships) for a section whose own schedule is `schedule`, at a commit whose pin's schedule is `current`
     (None when it holds no usable pin). A section keeps its own pin, with one exception: a current three-pass pin that
-    says `at_cap = "ship"` ends it at the lower of the two caps, so an owner can stop a chain that is already running.
+    ships at its cap ends it at the lower of the two caps, so an owner can stop a chain that is already running.
     It can only shorten a section, never buy it passes."""
     cap, ships = pass_cap(schedule), at_cap(schedule) == "ship"
     if current is not None and current.get("policy") == THREE_PASS and at_cap(current) == "ship":

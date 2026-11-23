@@ -88,8 +88,8 @@ def main():
                    help="required: <findings file>:<verdict> of the completion review. complete: it found no gap. "
                         "reconciled (three-pass pins): it returned gaps and a later reconciliation ended complete. "
                         "filed: gaps filed as new sections, each on a '- Filed:' line (under three-pass only when "
-                        "the last pass's worst finding is below the pin's blocking levels). capped (three-pass pins "
-                        "with at_cap = \"ship\"): the passes are spent with gaps open, and each is on an "
+                        "the last pass's worst finding is below the pin's blocking levels). capped (three-pass pins, "
+                        "unless at_cap is \"hold\"): a cap was reached with gaps open, and each is on an "
                         "'- Implemented:' or '- Filed:' line. completed (rotation pins "
                         "only): every gap was fixed in the section")
     ad = sub.add_parser("adopt-stamps", help="freeze, once, the stamps this project made before it took the kit "

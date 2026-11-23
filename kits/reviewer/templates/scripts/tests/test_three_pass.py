@@ -684,8 +684,15 @@ class Caps(ThreePass):
     def test_a_section_that_has_spent_its_passes_is_refused(self):
         last = self.gaps_until_refused(["P2", "P2", "P2"])   # plan, round, completion, two reconciliations: five
         again = self.commit("repair again", {"src/app/a.py": "x = 9\n"})
-        self.refused("reconciliation", again, "has spent its 5 review passes (pass_cap)")
+        # A pin that does not say otherwise ships at the cap.
+        self.refused("reconciliation", again, "has spent its 5 review passes (pass_cap) and ships (at_cap)")
         del last
+
+    def test_a_pin_that_holds_at_the_cap_keeps_the_section_blocked(self):
+        self.base = self.commit("hold", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5",
+                                                                                 'pass_cap = 4\nat_cap = "hold"')})
+        self.gaps_until_refused(["P2", "P2"])
+        self.refused("reconciliation", self.commit("again", {"src/app/a.py": "x = 9\n"}), "(pass_cap); it stays blocked")
 
     def test_the_cap_is_the_one_in_the_sections_own_pin(self):
         self.base = self.commit("cap 4", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5", "pass_cap = 4")})
@@ -696,7 +703,7 @@ class Caps(ThreePass):
 
     def test_a_section_at_a_cap_that_ships_is_told_to_stamp_capped(self):
         self.base = self.commit("ship", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5",
-                                                                                 'pass_cap = 4\nat_cap = "ship"')})
+                                                                                 'pass_cap = 4')})
         self.gaps_until_refused(["P2", "P2"])
         again = self.commit("repair again", {"src/app/a.py": "x = 9\n"})
         self.refused("reconciliation", again, "has spent its 4 review passes (pass_cap) and ships (at_cap)")
@@ -704,7 +711,7 @@ class Caps(ThreePass):
     def test_a_later_pin_that_ships_lowers_the_cap_of_a_section_under_review(self):
         self.gaps_until_refused(["P2"])  # three of five passes spent
         lower = self.commit("ship at 3", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5",
-                                                                                  'pass_cap = 3\nat_cap = "ship"')})
+                                                                                  'pass_cap = 3')})
         self.refused("reconciliation", lower, "has spent its 3 review passes (pass_cap) and ships (at_cap)")
 
     def test_no_progress_cap_counts_reconciliations_that_got_no_less_severe(self):
@@ -719,7 +726,7 @@ class Caps(ThreePass):
         self.assertEqual(result.returncode, 1)
         self.ok("reconciliation", mid, gaps=True, top="P2")
         last = self.commit("repair last", {"src/app/a.py": "x = 51\n"})
-        self.refused("reconciliation", last, "made no progress (no_progress_cap 2)")
+        self.refused("reconciliation", last, "made no progress (no_progress_cap 2), so it ships (at_cap)")
 
     def test_without_no_progress_cap_only_pass_cap_stops_the_loop(self):
         self.base = self.commit("cap 8", {".conclave/reviewers.toml": PIN.replace("pass_cap = 5", "pass_cap = 8")})
@@ -762,7 +769,7 @@ class Recurrence(ThreePass):
         self.to_completion()
         self.reconcile(2)
         self.reconcile(3)
-        self.refused("reconciliation", self.next_candidate(), "reported open in 3 passes (recurrence_cap 3)")
+        self.refused("reconciliation", self.next_candidate(), "(recurrence_cap 3), so the section ships (at_cap)")
 
     def test_new_findings_at_one_severity_keep_the_chain_running(self):
         self.to_completion()

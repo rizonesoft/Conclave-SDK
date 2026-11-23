@@ -60,7 +60,7 @@ SEVERITY_CUTOFF_ROUND = 0
 # the completion review as "- Filed: DNN TNN §N"). A receipt without a completion field predates the requirement.
 # Under the three-pass policy a completion review that returned gaps is followed by reconciliation passes: the verdict
 # is `reconciled` when the last one ended RECONCILIATION: complete, and `capped` when the section spent its review
-# passes with gaps open under a pin whose `at_cap` is "ship": each finding of the last pass is fixed after it
+# passes with gaps open (or a stall cap stopped it) and its pin ships at the cap, as it does unless `at_cap` is "hold": each finding of the last pass is fixed after it
 # ("- Implemented: ...") or filed ("- Filed: DNN TNN §N"), and the fixes ship without another pass.
 COMPLETION_VERDICTS = ("complete", "completed", "filed", "reconciled", "capped")
 IMPLEMENTED = re.compile(r"^- Implemented: .*\bin `?([0-9a-f]{7,40})\b")
@@ -1051,9 +1051,17 @@ def three_pass_ok(root, data, ref, found):
     worst = dispatch.review_pin.declared_highest(chain[-1][1]["review"])
     below = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst)
     if verdict == "capped":
-        require(ships, f"completion verdict capped needs a pin whose at_cap is \"ship\": {ref}")
-        require(3 + len(passed) >= cap, f"completion verdict capped needs the section's {cap} review passes spent "
-                                        f"(pass_cap), not {3 + len(passed)}: {ref}")
+        require(ships, f"completion verdict capped needs a pin that ships at the cap (its at_cap is \"hold\"): {ref}")
+        rank, run = dispatch.SEVERITY_RANK, 0
+        severities = [dispatch.review_pin.declared_highest(e["review"]) for e in tail]
+        for before, after in reversed(list(zip(severities, severities[1:]))):
+            if rank[after] < rank[before]:
+                break
+            run += 1
+        stopped = 3 + len(passed) >= cap or (stall is not None and run >= stall) \
+            or bool(recurrence and recurrence(schedule, tail))
+        require(stopped, f"completion verdict capped needs the section's {cap} review passes spent (pass_cap) or a "
+                         f"stall cap reached, not {3 + len(passed)} passes: {ref}")
         # A last pass on a changed promise cannot be filed on, whatever it found: the restored commit stamps capped.
         kept = section_contract(root, tail[-1]["candidate"], ref) == section_contract(root, completion["candidate"], ref)
         require(not below or not kept, f"the last pass's worst finding ({worst}) is below the pin's blocking levels, so the "

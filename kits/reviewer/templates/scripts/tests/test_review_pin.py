@@ -413,13 +413,13 @@ class ThreePass(Cases):
             with self.subTest(bad=bad):
                 self.refuses(THREE_PASS.replace("pass_cap = 45", bad).replace("no_progress_cap = 3\n", ""),
                              "[schedule] pass_cap needs")
-        self.assertEqual(review_pin.at_cap(without), "hold")
-        shipping = load(THREE_PASS.replace("pass_cap = 45", 'pass_cap = 45\nat_cap = "ship"'))["schedule"]
-        self.assertEqual(review_pin.section_cap(shipping), (45, True))
+        self.assertEqual(review_pin.at_cap(without), "ship")
+        holding = load(THREE_PASS.replace("pass_cap = 45", 'pass_cap = 45\nat_cap = "hold"'))["schedule"]
+        self.assertEqual(review_pin.section_cap(holding), (45, False))
         # A later pin that ships can only lower a section's cap; one that holds changes nothing.
-        self.assertEqual(review_pin.section_cap(without, shipping), (33, True))
-        self.assertEqual(review_pin.section_cap(shipping, without), (45, True))
-        self.assertEqual(review_pin.section_cap(without, dict(schedule, pass_cap=3)), (33, False))
+        self.assertEqual(review_pin.section_cap(holding, without), (33, True))
+        self.assertEqual(review_pin.section_cap(without, schedule), (33, True))
+        self.assertEqual(review_pin.section_cap(without, dict(holding, pass_cap=3)), (33, True))
         self.refuses(THREE_PASS.replace("pass_cap = 45", 'pass_cap = 45\nat_cap = "park"'), "[schedule] at_cap needs")
         for bad in ("no_progress_cap = true", "no_progress_cap = 0", "no_progress_cap = 46", 'no_progress_cap = "3"'):
             with self.subTest(bad=bad):
@@ -831,7 +831,7 @@ class CommandLine(unittest.TestCase):
                 text = THREE_PASS.replace("pass_cap = 45", f"pass_cap = 45\nrecurrence_cap = {value}")
                 done = self.run_cli(text, "--caps")
                 if ok:
-                    self.assertEqual(done.stdout, f"pass_cap 45\nat_cap hold\nno_progress_cap 3\nrecurrence_cap {value}\n")
+                    self.assertEqual(done.stdout, f"pass_cap 45\nat_cap ship\nno_progress_cap 3\nrecurrence_cap {value}\n")
                 else:
                     self.assertEqual(done.returncode, 2)
                     self.assertIn("recurrence_cap needs a whole number of passes from 2 to pass_cap", done.stderr)
@@ -856,8 +856,8 @@ class CommandLine(unittest.TestCase):
                 self.assertIsNone(review_pin.recurrence_stalled(schedule, chain(review)))
         self.assertIsNone(review_pin.recurrence_stalled({}, chain(cited)))
     def test_caps_prints_the_configured_caps(self):
-        self.assertEqual(self.run_cli(THREE_PASS, "--caps").stdout, "pass_cap 45\nat_cap hold\nno_progress_cap 3\nrecurrence_cap none\n")
-        self.assertEqual(self.run_cli(EARLIER_THREE_PASS, "--caps").stdout, "pass_cap 33\nat_cap hold\nno_progress_cap none\nrecurrence_cap none\n")
+        self.assertEqual(self.run_cli(THREE_PASS, "--caps").stdout, "pass_cap 45\nat_cap ship\nno_progress_cap 3\nrecurrence_cap none\n")
+        self.assertEqual(self.run_cli(EARLIER_THREE_PASS, "--caps").stdout, "pass_cap 33\nat_cap ship\nno_progress_cap none\nrecurrence_cap none\n")
         rotation = self.run_cli(ROTATION, "--caps")
         self.assertEqual(rotation.returncode, 2)
         self.assertIn("three-pass", rotation.stderr)

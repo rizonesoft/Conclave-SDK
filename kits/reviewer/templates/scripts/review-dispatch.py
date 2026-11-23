@@ -1459,10 +1459,23 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
                 if SEVERITY_RANK[after] < SEVERITY_RANK[before]:
                     break
                 run += 1
+            if run >= stall and ships and unsettled:
+                raise Refused(f"the section's last {run} reconciliations made no progress (no_progress_cap {stall}), "
+                              f"so it ships (at_cap): restore the section text the failed completion reviewed, rerun "
+                              f"the gates, and stamp it capped")
+            if run >= stall and ships:
+                raise Refused(f"the section's last {run} reconciliations made no progress (no_progress_cap {stall}), "
+                              f"so it ships (at_cap): fix the last pass's findings, rerun the gates, file what is "
+                              f"left, and stamp it capped")
             if run >= stall:
                 raise Refused(f"the section's last {run} reconciliations made no progress (no_progress_cap {stall}); "
                               f"it stays blocked")
         recurred = None if unsettled else review_pin.recurrence_stalled(schedule, chain)
+        if recurred and ships:
+            raise Refused(f"a finding that holds the stamp has been reported open in {recurred} passes "
+                          f"(recurrence_cap {schedule['recurrence_cap']}), so the section ships (at_cap): fix the last "
+                          f"pass's findings, redesigning the recurring one, rerun the gates, file what is left, and "
+                          f"stamp it capped")
         if recurred:
             raise Refused(f"a finding that holds the stamp has been reported open in {recurred} passes "
                           f"(recurrence_cap {schedule['recurrence_cap']}), so repairing it again is not converging; "

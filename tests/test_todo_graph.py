@@ -4600,6 +4600,10 @@ class ThreePassStamp(Stamp):
         finally:
             type(self).PIN_TEXT = THREE_PASS_PIN
 
+    def test_a_section_a_stall_cap_stops_ships_too(self):
+        _, fixed = self.capped_case("pass_cap = 45\nno_progress_cap = 1")
+        self.assertEqual(self.stamp3(fixed, verdict="capped")["passes_spent"], 4)
+
     def test_a_p3_gap_on_a_changed_promise_at_the_cap_still_ships_once_restored(self):
         self.tearDown()
         type(self).PIN_TEXT = THREE_PASS_PIN.replace("pass_cap = 45", self.SHIP + '\nblocking = ["P1", "P2"]')
@@ -4625,7 +4629,7 @@ class ThreePassStamp(Stamp):
 
     def test_capped_is_refused_where_the_rule_does_not_hold(self):
         for label, kwargs, fragment in (
-                ("a pin that holds", {"keys": "pass_cap = 4"}, 'needs a pin whose at_cap is "ship"'),
+                ("a pin that holds", {"keys": 'pass_cap = 4\nat_cap = "hold"'}, "needs a pin that ships at the cap"),
                 ("passes left", {"keys": 'pass_cap = 5\nat_cap = "ship"'}, "needs the section's 5 review passes spent"),
                 ("nothing fixed or filed", {"keys": self.SHIP, "notes": ""},
                  "needs each finding of the last returned review"),
