@@ -810,7 +810,8 @@ class ForgeProvisionTests(unittest.TestCase):
             shutil.copytree(kit / "templates/scripts", scripts)
             shutil.copytree(kit / "hosts/pressable/templates/scripts", scripts, dirs_exist_ok=True)
             # The ticket login's tests read the plugin where an install puts it, beside scripts/ (D07 T02 section 1).
-            shutil.copytree(kit / "templates/tools/ticket-login", pathlib.Path(tmp) / "tools/ticket-login")
+            for name in ("ticket-login", "elementor-cache-purge"):
+                shutil.copytree(kit / "templates/tools" / name, pathlib.Path(tmp) / "tools" / name)
             result = run_kit_suite(scripts / "tests", 120)
         self.assertTrue(result["passed"], suite_failure(result))
 
