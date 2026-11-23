@@ -139,38 +139,53 @@ _GIT_STORE_ENV_VARS = (
 )
 
 
-def _git_across_fs(env: dict[str, str]) -> bool:
-    """True when `GIT_DISCOVERY_ACROSS_FILESYSTEM` enables crossing mount boundaries (Git's bool rules)."""
-    val = (env.get("GIT_DISCOVERY_ACROSS_FILESYSTEM") or "").strip().lower()
-    if val in ("true", "yes", "on"):
-        return True
-    if val in ("", "false", "no", "off"):
+def _git_across_fs(env: dict[str, str], c_env: dict[str, str]) -> bool:
+    """True when `GIT_DISCOVERY_ACROSS_FILESYSTEM` is truthy under Git's own `--type=bool` parser."""
+    val = env.get("GIT_DISCOVERY_ACROSS_FILESYSTEM")
+    if not val:
         return False
     try:
-        return int(val, 0) != 0
-    except ValueError:
-        return False
+        done = subprocess.run(
+            ["git", "-c", f"review.cross={val}", "config", "--type=bool", "review.cross"],
+            capture_output=True, text=True, timeout=60, env=c_env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True  # conservative: keep scanning if Git cannot parse the override
+    return done.returncode == 0 and done.stdout.strip().lower() == "true"
 
 
-def _has_git_marker_within_discovery_boundary(root: Path, env: dict[str, str]) -> bool:
+def _has_git_marker_within_discovery_boundary(root: Path, env: dict[str, str], c_env: dict[str, str]) -> bool:
     """True when `root` or an ancestor before `GIT_CEILING_DIRECTORIES` and (unless `GIT_DISCOVERY_ACROSS_FILESYSTEM`
-    is set) before a filesystem mount boundary holds a `.git` entry (including a dangling `.git` symlink)."""
+    is truthy) before a filesystem mount boundary holds a `.git` entry (including a dangling `.git` symlink) or when
+    `lstat(".git")` / `stat()` fails with an unexpected `OSError` such as `EIO` or `EACCES`."""
     ceilings = {
         os.path.normcase(os.path.realpath(entry))
         for entry in env.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep)
         if entry and os.path.isabs(entry)
     }
-    across_fs = _git_across_fs(env)
+    across_fs = _git_across_fs(env, c_env)
     cur = Path(os.path.realpath(root))
-    root_dev = os.stat(cur).st_dev
+    try:
+        root_dev = os.stat(cur).st_dev
+    except OSError:
+        return True
     while True:
-        if os.path.lexists(cur / ".git"):
+        try:
+            os.lstat(cur / ".git")
+            return True
+        except (FileNotFoundError, NotADirectoryError):
+            pass
+        except OSError:
             return True
         parent = cur.parent
         if parent == cur or os.path.normcase(str(parent)) in ceilings:
             return False
-        if not across_fs and os.stat(parent).st_dev != root_dev:
-            return False
+        if not across_fs:
+            try:
+                if os.stat(parent).st_dev != root_dev:
+                    return False
+            except OSError:
+                return True
         cur = parent
 
 
@@ -196,7 +211,7 @@ def _section_body_at_commit(root: Path, candidate: str, rel_path: str | None, re
                 f"--fidelity is needed: git repository check failed for {root} "
                 f"(exit {probe_repo.returncode}: {err or 'no stderr'})"
             )
-        if _has_git_marker_within_discovery_boundary(root, os.environ):
+        if _has_git_marker_within_discovery_boundary(root, os.environ, c_env):
             raise Refused(
                 f"--fidelity is needed: git repository check failed for {root} "
                 f"(exit {probe_repo.returncode}: {err or 'no stderr'})"

@@ -730,15 +730,39 @@ class FidelityLookup(Filler):
             os.environ.pop("GIT_DISCOVERY_ACROSS_FILESYSTEM", None)
             self.assertIsNone(mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF))
 
-        # Reconciliation 6 finding 9: GIT_DISCOVERY_ACROSS_FILESYSTEM=2 is truthy in Git, so it crosses the mount
-        # boundary and refuses when discovery fails on the enclosing repository.
-        with unittest.mock.patch.dict(os.environ, {"GIT_DISCOVERY_ACROSS_FILESYSTEM": "2"}, clear=False), \
-                unittest.mock.patch.object(mod.os, "stat", side_effect=mount_boundary_stat), \
+        # Reconciliation 6/7 finding 9: Git's own bool parser handles '2', '01', and '1k' as truthy.
+        real_run = subprocess.run
+        def fake_rev_parse_real_config(cmd, *a, **kw):
+            if len(cmd) >= 2 and cmd[1] == "-c":
+                return real_run(cmd, *a, **kw)
+            return fake_not_git
+
+        for truthy in ("2", "01", "1k"):
+            with self.subTest(across_fs=truthy):
+                with unittest.mock.patch.dict(os.environ, {"GIT_DISCOVERY_ACROSS_FILESYSTEM": truthy}, clear=False), \
+                        unittest.mock.patch.object(mod.os, "stat", side_effect=mount_boundary_stat), \
+                        unittest.mock.patch.object(mod.subprocess, "run", side_effect=fake_rev_parse_real_config):
+                    for var in mod._GIT_STORE_ENV_VARS:
+                        os.environ.pop(var, None)
+                    with self.assertRaises(mod.Refused) as ctx:
+                        mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF)
+                self.assertIn("git repository check failed", str(ctx.exception))
+
+        # Reconciliation 7 finding 1: EIO/EACCES on lstat(".git") must refuse instead of returning False via lexists().
+        import errno
+        real_lstat = os.lstat
+        def fail_git_lstat(p, *a, **kw):
+            if Path(p).name == ".git":
+                raise OSError(errno.EIO, "simulated I/O error on .git")
+            return real_lstat(p, *a, **kw)
+
+        with unittest.mock.patch.dict(os.environ, {}, clear=False), \
+                unittest.mock.patch.object(mod.os, "lstat", side_effect=fail_git_lstat), \
                 unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
             for var in mod._GIT_STORE_ENV_VARS:
                 os.environ.pop(var, None)
             with self.assertRaises(mod.Refused) as ctx:
-                mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF)
+                mod._section_body_at_commit(self.root, CAND, "todo/00-x/TODO-01-y.md", REF)
         self.assertIn("git repository check failed", str(ctx.exception))
 
         # Reconciliation 6 finding 1: dangling .git symlink refuses instead of returning None via Path.exists().
