@@ -89,11 +89,15 @@ lenses = ["adversarial", "integration", "plan-delivery", "record"]
 #                          Blunter: sections that ran 5 to 15 passes at one
 #                          severity went on to pass, so prefer recurrence_cap.
 #
-# A lens of the project's own, with the question the reviewer is given:
-#
-# [schedule.lenses]
+# Extra lenses declared for opt-in conditional entries (no pass schedules them
+# until a [[schedule.conditional]] entry below names them). Add any custom lens
+# of the project's own inside this same [schedule.lenses] table, before any
+# [[schedule.conditional]] entries.
+[schedule.lenses]
+thread-safety = "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?"
+memory-safety = "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"
 # concurrency = "On two or more CPUs, which lock, atomic or teardown order is wrong?"
-#
+
 # Lenses that join the named passes only when the section changed a file
 # under one of the paths (repository-relative prefixes, forward slashes):
 #
@@ -101,6 +105,15 @@ lenses = ["adversarial", "integration", "plan-delivery", "record"]
 # lenses = ["concurrency"]
 # passes = ["round", "reconciliation"]
 # paths = ["src/kernel/", "include/kernel/"]
+#
+# C++ projects: uncomment and replace the placeholder paths with your C++
+# source and header prefixes so both safety lenses join `round` and
+# `reconciliation` by path (adding no pass):
+#
+# [[schedule.conditional]]
+# lenses = ["thread-safety", "memory-safety"]
+# passes = ["round", "reconciliation"]
+# paths = ["src/", "include/"]
 #
 # A project with a UI names its UI, style, asset, icon and design contract
 # folders here, so a section that changes one is reviewed through `design`

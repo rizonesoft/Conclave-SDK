@@ -144,10 +144,14 @@ def _git_across_fs(env: dict[str, str], c_env: dict[str, str]) -> bool:
     val = env.get("GIT_DISCOVERY_ACROSS_FILESYSTEM")
     if not val:
         return False
+    bool_env = {
+        k: v for k, v in c_env.items()
+        if k not in ("GIT_CONFIG", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_COUNT")
+    }
     try:
         done = subprocess.run(
             ["git", "-c", f"review.cross={val}", "config", "--type=bool", "review.cross"],
-            capture_output=True, text=True, timeout=60, env=c_env,
+            capture_output=True, text=True, timeout=60, env=bool_env,
         )
     except (OSError, subprocess.SubprocessError):
         return True  # conservative: keep scanning if Git cannot parse the override

@@ -45,6 +45,19 @@ The round's seven lenses are adversarial, integration, source-defect, consistenc
 - **Conditional lenses.** A `[[schedule.conditional]]` entry (`lenses`, `passes`, `paths`) adds its lenses to the named passes only when a file the section changed starts with one of its repository-relative paths. A plan review, and a review outside a section, take the files from `--paths`.
 - **Design by path.** The round's `design` is the one lens a conditional entry may repeat on the round, because the round has it only with `--surface`. A pin that names its UI, style, asset, icon and design contract folders in an entry with `lenses = ["design"]` and `passes = ["round", "reconciliation"]` gives the lens to any section that changed a file there, whatever its Surface field says, and the todo kit's stamp refuses such a section whose round or reconciliation was recorded without `LENS design:`. The plan review's counterpart is the built-in `design-plan` lens (`passes = ["plan"]`). The `design` and `source-defect` questions name no path: they point the reviewer at the design contract the candidate's Fidelity line names.
 - **Lenses of your own.** `[schedule.lenses]` declares extra lens names with their questions, so a project adds a lens without editing the dispatcher.
+- **C++ projects (opt-in safety lenses).** The template pin declares `thread-safety` and `memory-safety` under `[schedule.lenses]` without activating them on a fresh install. A C++ project opts in by uncommenting the C++ `[[schedule.conditional]]` block in `.conclave/reviewers.toml` and replacing the placeholder repository-relative prefixes (`src/`, `include/`) with its own C++ folders; both lenses then join `round` and `reconciliation` by path and add no pass:
+
+| Opt-in lens | Scope | Joined passes |
+| --- | --- | --- |
+| `thread-safety` | Cross-thread state, lock order, wait, cancel, teardown | `round`, `reconciliation` |
+| `memory-safety` | Pointer, view, handle, iterator lifetime; size/index/cast | `round`, `reconciliation` |
+
+```toml
+[[schedule.conditional]]
+lenses = ["thread-safety", "memory-safety"]
+passes = ["round", "reconciliation"]
+paths = ["src/", "include/"]
+```
 - **Effort is optional** on reviewers and steps: a step without one passes no effort to the reviewer's CLI, whose own configuration then decides. For non-Orchestrator Antigravity reviewers (`agy`), the model name must end with every effort a three-pass schedule sets; Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) require an effort-free schedule, and non-Orchestrator rotation schedules ignore step effort.
 
 ### Rotation (no `policy` key)

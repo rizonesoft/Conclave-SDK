@@ -748,6 +748,28 @@ class FidelityLookup(Filler):
                         mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF)
                 self.assertIn("git repository check failed", str(ctx.exception))
 
+        # D00 T03 §2 (filed P3 from D00 T03 §1 Rec 8): inherited GIT_CONFIG, GIT_CONFIG_PARAMETERS, and
+        # GIT_CONFIG_COUNT must not disrupt _git_across_fs()'s Git --type=bool parse.
+        for label, extra_env in (
+            ("GIT_CONFIG", {"GIT_CONFIG": os.devnull}),
+            ("GIT_CONFIG_PARAMETERS", {"GIT_CONFIG_PARAMETERS": "'review.cross=false'"}),
+            ("GIT_CONFIG_COUNT", {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "review.cross",
+                                  "GIT_CONFIG_VALUE_0": "false"}),
+        ):
+            with self.subTest(config_override=label):
+                test_env = {**os.environ, "GIT_DISCOVERY_ACROSS_FILESYSTEM": "1", **extra_env}
+                c_env = {**test_env, "LC_ALL": "C", "LANG": "C", "LANGUAGE": "C"}
+                self.assertTrue(mod._git_across_fs(test_env, c_env))
+                with unittest.mock.patch.dict(os.environ, {"GIT_DISCOVERY_ACROSS_FILESYSTEM": "1", **extra_env},
+                                              clear=False), \
+                        unittest.mock.patch.object(mod.os, "stat", side_effect=mount_boundary_stat), \
+                        unittest.mock.patch.object(mod.subprocess, "run", side_effect=fake_rev_parse_real_config):
+                    for var in mod._GIT_STORE_ENV_VARS:
+                        os.environ.pop(var, None)
+                    with self.assertRaises(mod.Refused) as ctx:
+                        mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF)
+                self.assertIn("git repository check failed", str(ctx.exception))
+
         # Reconciliation 7 finding 1: EIO/EACCES on lstat(".git") must refuse instead of returning False via lexists().
         import errno
         real_lstat = os.lstat
