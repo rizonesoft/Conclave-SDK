@@ -140,13 +140,21 @@ _GIT_STORE_ENV_VARS = (
 
 
 def _git_across_fs(env: dict[str, str]) -> bool:
-    """True when `GIT_DISCOVERY_ACROSS_FILESYSTEM` enables crossing mount boundaries (Git's truthy values)."""
-    return (env.get("GIT_DISCOVERY_ACROSS_FILESYSTEM") or "").strip().lower() in ("1", "true", "yes", "on")
+    """True when `GIT_DISCOVERY_ACROSS_FILESYSTEM` enables crossing mount boundaries (Git's bool rules)."""
+    val = (env.get("GIT_DISCOVERY_ACROSS_FILESYSTEM") or "").strip().lower()
+    if val in ("true", "yes", "on"):
+        return True
+    if val in ("", "false", "no", "off"):
+        return False
+    try:
+        return int(val, 0) != 0
+    except ValueError:
+        return False
 
 
 def _has_git_marker_within_discovery_boundary(root: Path, env: dict[str, str]) -> bool:
     """True when `root` or an ancestor before `GIT_CEILING_DIRECTORIES` and (unless `GIT_DISCOVERY_ACROSS_FILESYSTEM`
-    is set) before a filesystem mount boundary holds a `.git` entry."""
+    is set) before a filesystem mount boundary holds a `.git` entry (including a dangling `.git` symlink)."""
     ceilings = {
         os.path.normcase(os.path.realpath(entry))
         for entry in env.get("GIT_CEILING_DIRECTORIES", "").split(os.pathsep)
@@ -156,7 +164,7 @@ def _has_git_marker_within_discovery_boundary(root: Path, env: dict[str, str]) -
     cur = Path(os.path.realpath(root))
     root_dev = os.stat(cur).st_dev
     while True:
-        if (cur / ".git").exists():
+        if os.path.lexists(cur / ".git"):
             return True
         parent = cur.parent
         if parent == cur or os.path.normcase(str(parent)) in ceilings:

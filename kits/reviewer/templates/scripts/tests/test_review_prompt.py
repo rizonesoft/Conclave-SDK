@@ -730,6 +730,38 @@ class FidelityLookup(Filler):
             os.environ.pop("GIT_DISCOVERY_ACROSS_FILESYSTEM", None)
             self.assertIsNone(mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF))
 
+        # Reconciliation 6 finding 9: GIT_DISCOVERY_ACROSS_FILESYSTEM=2 is truthy in Git, so it crosses the mount
+        # boundary and refuses when discovery fails on the enclosing repository.
+        with unittest.mock.patch.dict(os.environ, {"GIT_DISCOVERY_ACROSS_FILESYSTEM": "2"}, clear=False), \
+                unittest.mock.patch.object(mod.os, "stat", side_effect=mount_boundary_stat), \
+                unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
+            for var in mod._GIT_STORE_ENV_VARS:
+                os.environ.pop(var, None)
+            with self.assertRaises(mod.Refused) as ctx:
+                mod._section_body_at_commit(nested, CAND, "todo/00-x/TODO-01-y.md", REF)
+        self.assertIn("git repository check failed", str(ctx.exception))
+
+        # Reconciliation 6 finding 1: dangling .git symlink refuses instead of returning None via Path.exists().
+        dangling = Path(self._tmp.name) / "dangling-repo"
+        dangling.mkdir()
+        dangling_git = dangling / ".git"
+        try:
+            os.symlink(dangling / "offline-volume-target", dangling_git)
+            dangling_made = True
+        except OSError as exc:
+            if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+                dangling_made = False
+            else:
+                raise
+        if dangling_made:
+            with unittest.mock.patch.dict(os.environ, {}, clear=False), \
+                    unittest.mock.patch.object(mod.subprocess, "run", return_value=fake_not_git):
+                for var in mod._GIT_STORE_ENV_VARS:
+                    os.environ.pop(var, None)
+                with self.assertRaises(mod.Refused) as ctx:
+                    mod._section_body_at_commit(dangling, CAND, "todo/00-x/TODO-01-y.md", REF)
+            self.assertIn("git repository check failed", str(ctx.exception))
+
 
 class NoGraph(Filler):
     def test_no_lookup_script_asks_for_todo(self):
