@@ -87,7 +87,9 @@ The kit change is already in the tree (the commit `reviewer: design by path, des
 
 ## 2. Thread-Safety and Memory-Safety Lenses in the Template Pin
 
-A C++ project needs two questions the built-in lenses only touch: `adversarial` mentions bounds and races and `integration` asks about threads and ownership, and both stay as they are. The loader accepts a lens declared under `[schedule.lenses]` that no step names (it checks the name and the question only; verified by reading `check_three_pass` on 2026-11-17), so the template can declare both lenses active and carry the conditional entry as a commented example a C++ project fills with its own paths. Not verified: whether a test or a doctor check requires an installed pin to match the template; check before editing.
+> **Started:** 2026-11-23T00:53Z
+
+A C++ project needs two questions the built-in lenses only touch: `adversarial` mentions bounds and races and `integration` asks about threads and ownership, and both stay as they are. The loader accepts a lens declared under `[schedule.lenses]` that no step names (it checks the name and the question only; verified by reading `check_three_pass` on 2026-11-17), so the template can declare both lenses active and carry the conditional entry as a commented example a C++ project fills with its own paths. **Verified 2026-11-23:** searched `forge.py` and `tests/`: no test or doctor row requires the SDK's own `.conclave/reviewers.toml` to equal the template (`forge.py` / `tests/test_forge.py:463` / `tests/test_kit_install.py:56` preserve a project's own pin and `doctor` only runs `load_pin()`; `tests/test_template_pin.py`, `tests/test_check_pin_contract.py`, and `tests/test_three_pass_install.py` test the template pin itself or a fresh install). Therefore the SDK's own `.conclave/reviewers.toml` stays unchanged.
 
 **Phase:** 9
 **Needs:** none
@@ -95,8 +97,9 @@ A C++ project needs two questions the built-in lenses only touch: `adversarial` 
 
 **Build order:**
 
-1. Declare both lenses in `kits/reviewer/templates/.conclave/reviewers.toml`. Done when: a fresh install's `python scripts/review_pin.py --check` prints `ok` and `--lenses round` is unchanged.
-2. Document them in `kits/reviewer/README.md`. Done when: the lens table, the conditional example and a short C++ projects note name both.
+1. Declare both lenses and the commented `[[schedule.conditional]]` example in `kits/reviewer/templates/.conclave/reviewers.toml` and test exact wording plus uncommented conditional scheduling in `tests/test_template_pin.py`. Done when: `python -m unittest tests.test_template_pin` passes and `python kits/reviewer/templates/scripts/review_pin.py --check --pin kits/reviewer/templates/.conclave/reviewers.toml` prints `ok` with `--lenses round` unchanged.
+2. Document both lenses, the conditional example, and the "C++ projects" note in `kits/reviewer/README.md`. Done when: `python -m unittest tests.test_forge -k markdown_table` passes.
+3. Strip `GIT_CONFIG`, `GIT_CONFIG_PARAMETERS`, and `GIT_CONFIG_COUNT` in `_git_across_fs()` of `kits/reviewer/templates/scripts/review-prompt.py`, add the `GIT_CONFIG=os.devnull` regression in `kits/reviewer/templates/scripts/tests/test_review_prompt.py`, and run `python forge.py self-sync`. Done when: the checkpoint passes.
 
 - [ ] Search `tests/` and `forge.py` for a check that an installed pin equals the template (`tests/test_template_pin.py`, `tests/test_three_pass_install.py`, the doctor's reviewer rows). Done when: the section body records, dated, what each requires.
 - [ ] Add `[schedule.lenses]` to `kits/reviewer/templates/.conclave/reviewers.toml` with `thread-safety = "Which state is reached from two threads (UI, worker, callback, timer) without one lock or atomic owning it, and which lock order, wait, cancellation or teardown can deadlock or run after its owner is gone?"` and `memory-safety = "Which pointer, reference, view, handle or iterator can outlive what it refers to, and which size, index or cast is trusted unchecked?"`, each on one line, word for word. Done when: the template loads and a test compares both questions with these strings. Cheaper substitute: adding them to the built-in `LENSES`, which the owner ruled out.
