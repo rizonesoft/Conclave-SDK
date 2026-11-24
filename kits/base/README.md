@@ -49,6 +49,8 @@ After installing, adapt `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, `CODEX.md`, and s
 
 No kit file names a machine's folder, an owner's address or a vault item. Those live in `.conclave/local.toml`, which `.conclave/.gitignore` keeps out of git: copy `.conclave/local.example.toml` to it and fill it in. Every key is optional and keeps the default the example shows.
 
+Local ops and deploy secrets (the optional local fallback when 1Password is unavailable or rate-limited) live in `.conclave/.env.local`, which `.conclave/.gitignore` keeps out of git, with a committed `.conclave/.env.example` template whenever a project needs local secret fallback. Keeping ops secrets under `.conclave/` prevents collisions with an app's or live site's root `.env`. Precedence is always process environment (CI) -> `.conclave/.env.local` -> 1Password `Conclave` vault.
+
 | Key | Read by | Default |
 | --- | ------- | ------- |
 | `paths.scratch` | The agent rules (temporary files and full logs) | The system temporary folder |
