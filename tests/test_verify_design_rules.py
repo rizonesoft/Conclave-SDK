@@ -115,15 +115,30 @@ class TestVerifyDesignRules(unittest.TestCase):
         errs = self.mod.check_frontmatter_and_sections(bad_rule)
         self.assertTrue(any("unclosed YAML frontmatter" in e for e in errs), errs)
         self.assertTrue(any("no substantive bullet under ## Contract" in e for e in errs), errs)
-        self.assertTrue(any("missing spacing/radius/font-size" in e for e in errs), errs)
+        self.assertTrue(any("missing literal prohibition terms" in e for e in errs), errs)
 
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
             files = self._base_files()
-            files["AGENTS.md"] = b"# AGENTS.md\nSee `.agents/rules/design-contract.md`.\n"
+            files["AGENTS.md"] = b"# AGENTS.md\nSee `.agents/rules/design-contract.md` and `python scripts/design-lint.py`.\n"
             sha = init_git_repo(root, files)
             errs_ag, _ = self.mod.verify_project(root, sha, check_clean=False)
-            self.assertTrue(any("missing static lint reference" in e for e in errs_ag), errs_ag)
+            self.assertTrue(any("missing authoritative contract reference" in e for e in errs_ag), errs_ag)
+
+    def test_extracts_root_level_filename_and_checks_all_literal_bans(self) -> None:
+        self.assertIn("tokens.json", self.mod.extract_referenced_paths("Use `tokens.json` for colours."))
+        partial_ban = VALID_RULE.replace("spacing, radius, or font size", "spacing only")
+        errs = self.mod.check_frontmatter_and_sections(partial_ban)
+        self.assertTrue(any("radius" in e and "font" in e for e in errs), errs)
+
+    def test_wsl_git_uses_positional_args_without_shell_interpolation(self) -> None:
+        # Verify no client identifiers exist in tools/verify-design-rules.py
+        src = SCRIPT.read_text(encoding="utf-8")
+        self.assertNotIn("redfern", src.lower())
+        self.assertNotIn("swiss", src.lower())
+        self.assertIn("wsl.exe", src)
+        self.assertNotIn("bash -lc", src)
+        self.assertIn("os.path.expanduser(sys.argv[1])", src)
 
 
 if __name__ == "__main__":

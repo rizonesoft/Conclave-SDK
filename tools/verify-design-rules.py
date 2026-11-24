@@ -19,19 +19,11 @@ REQUIRED_HEADINGS = (
 
 REQUIRED_BANS = ("#RRGGBB", "0xRRGGBB", "rgb()", "ColorF", "SVG", "emoji", "backdrop")
 PROVIDER_PREFIXES = ("shared/resolute-ui/", "shared/lucide/")
+# Only genuinely untracked runtime output or explicitly planned future paths
 NON_TRACKED_EXACT = {
     "build/renders/",
     "src/ui/theme.rs",
     "src/res",
-    "assets/icons/",
-    "design/icons/",
-    "assets/icons/src/",
-    "design/contract/",
-    "design/screens/",
-    "design/ui/",
-    "native/ui/",
-    "shared/",
-    "todo/",
 }
 NON_PATH_TOKENS = {
     "strict",
@@ -47,27 +39,25 @@ NON_PATH_TOKENS = {
     "Resolute-SDK",
     "always_on",
 }
-FILE_EXTS = (
-    ".md", ".json", ".xaml", ".css", ".py", ".ps1", ".mjs", ".cs",
-    ".h", ".svg", ".png", ".ico", ".html", ".txt", ".toml",
-)
+ROOT_FILE_EXTS = (".md", ".json", ".toml", ".xaml", ".css", ".html", ".svg", ".png", ".ico")
+HEX_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+_TREE_CACHE: dict[tuple[str, str], set[str]] = {}
 
 
 def run_git_bytes(root: pathlib.Path, args: list[str], posix: str = "") -> subprocess.CompletedProcess[bytes]:
     if str(root).startswith("\\\\wsl") and posix:
-        quoted = " ".join(f"'{a}'" if any(c in a for c in " :$") else a for a in args)
-        cmd = ["wsl.exe", "bash", "-lc", f"cd {posix} && git {quoted}"]
+        # Execute Linux git directly through Python argv (no shell, no bash interpolation).
+        py_exec = "import os, subprocess, sys; raise SystemExit(subprocess.call(['git', '-C', os.path.expanduser(sys.argv[1]), *sys.argv[2:]]))"
+        cmd = ["wsl.exe", "--exec", "python3", "-c", py_exec, posix, *args]
     else:
-        cmd = ["git", "-C", str(root)] + args
+        cmd = ["git", "-C", str(root), *args]
     return subprocess.run(cmd, capture_output=True, timeout=30)
 
 
 def git_show_bytes(root: pathlib.Path, commit: str, rel_path: str, posix: str = "") -> tuple[int, bytes]:
     r = run_git_bytes(root, ["show", f"{commit}:{rel_path}"], posix)
     return r.returncode, r.stdout
-
-
-_TREE_CACHE: dict[tuple[str, str], set[str]] = {}
 
 
 def git_tree_paths_at_commit(root: pathlib.Path, commit: str, posix: str = "") -> set[str]:
@@ -84,7 +74,6 @@ def git_tree_paths_at_commit(root: pathlib.Path, commit: str, posix: str = "") -
         if not p:
             continue
         entries.add(p)
-        # Also record parent directory prefixes so directory refs like `public/wp-content/themes/gostore-child` match
         parts = p.split("/")
         for i in range(1, len(parts)):
             entries.add("/".join(parts[:i]))
@@ -93,19 +82,17 @@ def git_tree_paths_at_commit(root: pathlib.Path, commit: str, posix: str = "") -
 
 
 def git_path_exists_at_commit(root: pathlib.Path, commit: str, rel_path: str, posix: str = "") -> bool:
-    clean = rel_path.rstrip("/")
-    return clean in git_tree_paths_at_commit(root, commit, posix)
+    return rel_path.rstrip("/") in git_tree_paths_at_commit(root, commit, posix)
 
 
 def extract_referenced_paths(rule_text: str) -> list[str]:
-    """Extract both direct file-path spans and script/file arguments inside command spans."""
+    """Extract direct file-path spans, root-level file names, and script paths inside command spans."""
     paths: list[str] = []
     seen: set[str] = set()
     for m in re.finditer(r"`([^`]+)`", rule_text):
         span = m.group(1).strip()
         if "§" in span or span.startswith(("#", "0x")):
             continue
-        # Split command spans into tokens to catch scripts like `python scripts/design-lint.py`
         tokens = span.split() if " " in span else [span]
         for tok in tokens:
             tok = tok.rstrip(".,;:'\")").lstrip("'\"(")
@@ -113,7 +100,7 @@ def extract_referenced_paths(rule_text: str) -> list[str]:
                 continue
             if tok in NON_PATH_TOKENS:
                 continue
-            if "/" in tok or tok in ("DESIGN.md", "AGENTS.md", "README.md", "sdk.json"):
+            if "/" in tok or tok.endswith(ROOT_FILE_EXTS):
                 if tok not in seen:
                     seen.add(tok)
                     paths.append(tok)
@@ -125,7 +112,6 @@ def check_frontmatter_and_sections(rule_text: str) -> list[str]:
     lines = rule_text.splitlines()
     if len(lines) >= 40:
         errs.append(f"lines={len(lines)}>=40")
-    # Closed YAML frontmatter with trigger: always_on
     if not lines or lines[0].strip() != "---":
         errs.append("missing opening frontmatter delimiter")
     else:
@@ -141,7 +127,6 @@ def check_frontmatter_and_sections(rule_text: str) -> list[str]:
             if "trigger: always_on" not in fm_lines:
                 errs.append("missing trigger: always_on in frontmatter")
 
-    # All five headings present with substantive bullet content under each
     heading_positions: dict[str, int] = {}
     for idx, line in enumerate(lines):
         s = line.strip()
@@ -161,12 +146,14 @@ def check_frontmatter_and_sections(rule_text: str) -> list[str]:
         if not body_bullets:
             errs.append(f"no substantive bullet under {h}")
 
-    # Required bans under ## Never
     for b in REQUIRED_BANS:
         if b not in rule_text:
             errs.append(f"missing ban {b}")
-    if "spacing" not in rule_text.lower() and "theme-only" not in rule_text.lower():
-        errs.append("missing spacing/radius/font-size prohibition (or theme-only scope)")
+    low = rule_text.lower()
+    if "theme-only" not in low:
+        missing_lit = [w for w in ("spacing", "radius", "font") if w not in low]
+        if missing_lit:
+            errs.append(f"missing literal prohibition terms: {', '.join(missing_lit)}")
     if "\u2014" in rule_text or "\u2013" in rule_text:
         errs.append("contains em/en dash")
     return errs
@@ -184,7 +171,6 @@ def check_rule_paths_at_commit(
     if not paths:
         errors.append("no file paths extracted")
 
-    # Read sdk.json from the recorded commit (never from the live working tree)
     sdk_commit: str | None = None
     rc_sdk, raw_sdk = git_show_bytes(project_root, commit, "sdk.json", posix)
     if rc_sdk == 0 and raw_sdk:
@@ -201,6 +187,15 @@ def check_rule_paths_at_commit(
                 errors.append("sdk/DESIGN.md cited without pinned sdk.json commit and provider")
             elif not git_path_exists_at_commit(provider_root, sdk_commit, "DESIGN.md"):
                 errors.append(f"provider DESIGN.md missing at {sdk_commit[:8]}")
+            continue
+        if rel == "DESIGN.md" and provider_root is not None:
+            # Consumers citing provider DESIGN.md via sdk.json must prove it exists in the provider at sdk_commit too.
+            if not sdk_commit:
+                errors.append("provider DESIGN.md cited without pinned sdk.json commit")
+            elif not git_path_exists_at_commit(provider_root, sdk_commit, "DESIGN.md"):
+                errors.append(f"provider DESIGN.md missing at {sdk_commit[:8]}")
+            if not git_path_exists_at_commit(project_root, commit, "DESIGN.md", posix):
+                errors.append(f"missing local path at {commit[:8]}: DESIGN.md")
             continue
         if rel.startswith(PROVIDER_PREFIXES) and provider_root is not None:
             if not sdk_commit:
@@ -229,7 +224,6 @@ def verify_project(
     p_errs, p_list = check_rule_paths_at_commit(rule_txt, project_root, commit, posix, provider_root)
     errs.extend(p_errs)
 
-    # Determine mirror applicability at the recorded commit (not live directory)
     has_claude_rules_at_commit = git_path_exists_at_commit(project_root, commit, ".claude/rules", posix)
     if has_claude_rules_at_commit:
         rc_mir, mir_bytes = git_show_bytes(project_root, commit, ".claude/rules/design-contract.md", posix)
@@ -238,7 +232,6 @@ def verify_project(
         elif mir_bytes != rule_bytes:
             errs.append("claude mirror raw bytes differ from .agents/rules/design-contract.md at commit")
 
-    # Verify AGENTS.md at recorded commit cites rule, contract, and lint/planned lint
     rc_ag, ag_bytes = git_show_bytes(project_root, commit, "AGENTS.md", posix)
     if rc_ag != 0:
         errs.append("AGENTS.md missing at commit")
@@ -246,7 +239,15 @@ def verify_project(
         ag_txt = ag_bytes.decode("utf-8", errors="replace")
         if ".agents/rules/design-contract.md" not in ag_txt:
             errs.append("AGENTS.md missing .agents/rules/design-contract.md citation at commit")
-        if not re.search(r"SPEC\.md|DESIGN\.md|design-contract|docs/design/|Design fidelity contract|gostore-child", ag_txt, re.I):
+        # Strip the rule links themselves so they cannot falsely satisfy the authoritative contract reference check
+        ag_without_rule_links = ag_txt.replace(".agents/rules/design-contract.md", "").replace(
+            ".claude/rules/design-contract.md", ""
+        )
+        if not re.search(
+            r"SPEC\.md|DESIGN\.md|docs/design-contract\.md|standards/design-contract\.md|docs/design/|Design fidelity contract|gostore-child|design/inventory/REFERENCE\.md|docs/product-principles\.md",
+            ag_without_rule_links,
+            re.I,
+        ):
             errs.append("AGENTS.md missing authoritative contract reference at commit")
         if not re.search(r"design-lint\.py|build-theme\.py|static design lint is planned", ag_txt, re.I):
             errs.append("AGENTS.md missing static lint reference at commit")
@@ -261,8 +262,9 @@ def verify_project(
     return errs, len(p_list)
 
 
-def parse_fleet_table(run_file: pathlib.Path) -> list[tuple[str, str]]:
-    rows: list[tuple[str, str]] = []
+def parse_fleet_table(run_file: pathlib.Path) -> list[tuple[str, str, str]]:
+    """Return list of (project_alias, sha_or_ref, disposition) from the fleet table."""
+    rows: list[tuple[str, str, str]] = []
     in_table = False
     for line in run_file.read_text(encoding="utf-8").splitlines():
         if line.startswith("| Project | SHA / Ref |"):
@@ -274,8 +276,8 @@ def parse_fleet_table(run_file: pathlib.Path) -> list[tuple[str, str]]:
             if line.startswith("| ---"):
                 continue
             cols = [c.strip().strip("`") for c in line.strip().strip("|").split("|")]
-            if len(cols) >= 2:
-                rows.append((cols[0], cols[1]))
+            if len(cols) >= 6:
+                rows.append((cols[0], cols[1], cols[5]))
     return rows
 
 
@@ -283,8 +285,7 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
     cfg = tomllib.loads((sdk_root / ".conclave" / "local.toml").read_text(encoding="utf-8"))
     proj_map: dict[str, dict] = {}
     for proj in cfg.get("projects", []):
-        name = proj["name"]
-        alias = "wsl-site-1" if name == "redfernshop-coza" else ("wsl-site-2" if name == "swisshotelschool-coza" else name)
+        alias = proj.get("alias") or proj["name"]
         proj_map[alias] = proj
 
     rsdk_root = pathlib.Path(proj_map["Resolute-SDK"]["windows"])
@@ -299,28 +300,47 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
         print(f"FAIL fleet coverage mismatch: missing={sorted(expected_set - actual_set)} extra={sorted(actual_set - expected_set)}")
         return 1
 
-    # Read D00 T03 §16 dependencies once
     r16 = subprocess.run(["python", "scripts/todo-graph.py", "resolve", "D00 T03 §16"], cwd=str(sdk_root), capture_output=True, text=True)
     if r16.returncode not in (0, 4):
         print(f"FAIL resolve D00 T03 §16 (rc={r16.returncode})")
         return 1
     s16_deps = set(json.loads(r16.stdout).get("depends", []))
 
+    seen_retry_refs: dict[str, str] = {}
     all_ok = True
-    for alias, sha_or_ref in table_rows:
+    for alias, sha_or_ref, disp in table_rows:
         proj = proj_map[alias]
         win = pathlib.Path(proj["windows"])
         posix = proj.get("posix", "")
-        if "§" in sha_or_ref:
+        if "held" in disp.lower() or "§" in sha_or_ref:
+            if "§" not in sha_or_ref:
+                print(f"FAIL {alias:16} held disposition lacks retry ref ({sha_or_ref})")
+                all_ok = False
+                continue
+            if sha_or_ref in seen_retry_refs:
+                print(f"FAIL {alias:16} duplicate retry ref {sha_or_ref} already owned by {seen_retry_refs[sha_or_ref]}")
+                all_ok = False
+                continue
+            seen_retry_refs[sha_or_ref] = alias
             r_ref = subprocess.run(["python", "scripts/todo-graph.py", "resolve", sha_or_ref], cwd=str(sdk_root), capture_output=True, text=True)
             if r_ref.returncode not in (0, 4):
                 print(f"FAIL {alias:16} held retry {sha_or_ref} did not resolve (rc={r_ref.returncode})")
                 all_ok = False
-            elif sha_or_ref not in s16_deps:
-                print(f"FAIL {alias:16} held retry {sha_or_ref} is not in D00 T03 §16 depends ({sorted(s16_deps)})")
+                continue
+            resolved = json.loads(r_ref.stdout)
+            if sha_or_ref not in s16_deps:
+                print(f"FAIL {alias:16} held retry {sha_or_ref} is not in D00 T03 §16 depends")
+                all_ok = False
+            elif alias not in resolved.get("title", "") and alias not in resolved.get("body", ""):
+                print(f"FAIL {alias:16} held retry {sha_or_ref} does not name {alias}")
                 all_ok = False
             else:
-                print(f"OK   {alias:16} HELD -> {sha_or_ref} resolves and blocks D00 T03 §16")
+                print(f"OK   {alias:16} HELD -> {sha_or_ref} resolves, names {alias}, and blocks D00 T03 §16")
+            continue
+
+        if not HEX_SHA_RE.match(sha_or_ref):
+            print(f"FAIL {alias:16} delivered row revision is not a pinned hex SHA: {sha_or_ref!r}")
+            all_ok = False
             continue
         provider = rsdk_root if alias in ("Busview", "Resolute") else None
         errs, p_count = verify_project(win, sha_or_ref, posix, provider, check_clean=check_clean)
@@ -331,8 +351,7 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
             print(f"OK   {alias:16} sha={sha_or_ref} paths={p_count}")
 
     if negative_test:
-        # Prove missing-path rejection on a scratch copy of Berth's rule at its recorded SHA
-        berth_sha = dict(table_rows)["Berth"]
+        berth_sha = next(r[1] for r in table_rows if r[0] == "Berth")
         berth_root = pathlib.Path(proj_map["Berth"]["windows"])
         _, raw_b = git_show_bytes(berth_root, berth_sha, ".agents/rules/design-contract.md")
         bad = raw_b.decode("utf-8").replace("design/SPEC.md", "design/DOES-NOT-EXIST-NEGATIVE.md", 1)
@@ -347,8 +366,8 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Verify design-contract rules, raw-byte mirrors, and AGENTS.md at recorded commits.")
-    ap.add_argument("--fleet", action="store_true", help="Verify all 24 projects from .conclave/local.toml and --run-file.")
-    ap.add_argument("--run-file", default="", help="Phase run Markdown file holding the 24-row fleet table (for --fleet).")
+    ap.add_argument("--fleet", action="store_true", help="Verify all projects from .conclave/local.toml and --run-file.")
+    ap.add_argument("--run-file", default="", help="Phase run Markdown file holding the fleet table (for --fleet).")
     ap.add_argument("--sdk-root", default=".", help="Conclave-SDK root (default: .).")
     ap.add_argument("--project", default="", help="Single target project checkout path.")
     ap.add_argument("--commit", default="HEAD", help="Commit SHA to inspect (default: HEAD).")
