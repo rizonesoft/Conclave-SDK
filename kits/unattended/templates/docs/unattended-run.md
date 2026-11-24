@@ -56,7 +56,7 @@ python3 scripts/unattended-run.py attach
 python3 scripts/unattended-run.py attach --watch
 ```
 
-`status` says whether the run and its heartbeat are live, the run's session and start, its guard, the heartbeat's state, the health file (`build/unattended-health.json`: alive, sections shipped, the ship limit, the last ship and the hours since it) and any stall notice. `attach` gives you the run's terminal with keyboard and mouse: type to the agent, scroll its history with the mouse wheel (or Ctrl-b, then [, and q to leave), and drag to select. `attach --watch` attaches read-only: you can neither type into the run nor scroll its history, with keys or the mouse. Detach with tmux's prefix and `d` (Ctrl-b, then d): the run goes on.
+`status` says whether the run and its heartbeat are live, the run's session and start, its guard, the heartbeat's state, the health file (`build/unattended-health.json`: alive, sections shipped, the ship limit, the last ship and the hours since it) and any stall notice. `attach` gives you the run's terminal with keyboard and mouse: type to the agent, scroll its history with the mouse wheel (or Ctrl-b, then [, and q to leave), and drag to select. A right click opens no tmux menu there, so no slip of the mouse kills the run; your other tmux sessions keep the menu. `attach --watch` attaches read-only: you can neither type into the run nor scroll its history, with keys or the mouse. Detach with tmux's prefix and `d` (Ctrl-b, then d): the run goes on.
 
 ## Attach and stop it
 

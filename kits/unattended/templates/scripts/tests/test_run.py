@@ -637,6 +637,72 @@ class RunTest(unittest.TestCase):
         check_pid, child_pid = (int(p) for p in pids.read_text().split())
         self.assertTrue(self.wait_gone(check_pid), "the detached profile check outlived its preflight")
         self.assertTrue(self.wait_gone(child_pid), "the profile check's child outlived its preflight")
+    def test_a_right_click_in_the_runs_window_cannot_end_the_run(self):
+        # 2026-11-24: a right click made to paste opened tmux's pane menu, and its Kill row ended a six-hour run.
+        import fcntl, pty, select, struct, termios  # POSIX only, as this class's tmux is
+        self.assertEqual(self.launcher("start").returncode, 0)
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.environ.update(TERM="xterm-256color")
+            os.execvp("tmux", ["tmux", "attach-session", "-t", "=demo-run"])
+        shown = b""
+
+        def read(seconds):
+            nonlocal shown
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                if select.select([fd], [], [], 0.05)[0]:
+                    try:
+                        shown += os.read(fd, 65536)
+                    except OSError:
+                        return
+        try:
+            fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+            deadline = time.monotonic() + 15
+            while b"\x1b[?1006h" not in shown and time.monotonic() < deadline:
+                read(0.2)
+            self.assertIn(b"\x1b[?1006h", shown, "the client did not attach with the mouse on")
+            os.write(fd, b"\x1b[<2;20;10M")  # the right button pressed, and held while X picks the menu's Kill
+            read(0.5)
+            os.write(fd, b"X")
+            read(1)
+            self.assertTrue(self.tmux_has("demo-run"), "a right click and X ended the run")
+            self.assertNotIn(b"Kill", shown)
+        finally:
+            os.kill(pid, signal.SIGKILL)
+            os.waitpid(pid, 0)
+            os.close(fd)
+
+    def test_start_hung_up_ends_the_preflight_and_its_detached_children(self):
+        pids = Path(self._tmp.name) / "hup.pids"
+        check = ("import os, subprocess, sys, time; "
+                 "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(300)']); "
+                 f"open({str(pids)!r}, 'w').write(f'{{os.getpid()}} {{c.pid}}'); time.sleep(300)")
+        self.write_profile(preflight=[{"name": "build", "command": [sys.executable, "-c", check],
+                                       "timeout_seconds": 120}])
+        git(self.root, "commit", "-qam", "a slow check")
+        proc = subprocess.Popen([sys.executable, str(self.root / "scripts" / "unattended-run.py"), "start"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=self.env,
+                                creationflags=windowless())
+        try:
+            deadline = time.monotonic() + 30
+            while not (pids.exists() and len(pids.read_text().split()) == 2) and time.monotonic() < deadline:
+                time.sleep(0.1)
+            self.assertTrue(pids.exists(), "the preflight check did not start")
+            proc.send_signal(signal.SIGHUP)
+            proc.wait(timeout=30)
+            for child in pids.read_text().split():
+                self.assertTrue(self.wait_gone(int(child)), "a preflight check outlived the hung-up start")
+        finally:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            for child in pids.read_text().split() if pids.exists() else []:
+                try:
+                    os.kill(int(child), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass  # ended, as it should be
+
     def test_an_agent_that_exits_at_once_is_reported_and_leaves_nothing(self):
         done = self.launcher("start", env={**self.env, "STUB_EXIT": "1"})
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)

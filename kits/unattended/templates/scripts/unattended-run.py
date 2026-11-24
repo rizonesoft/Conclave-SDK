@@ -37,6 +37,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -256,6 +257,10 @@ def run_preflight(root: Path, resume_session: str | None, profile: dict, out) ->
     limit = PREFLIGHT_SLACK_SECONDS + sum(check["timeout_seconds"] for check in profile["preflight"])
     # Its profile checks run in sessions of their own, outside its group: the tag reaches them all.
     tag = f"preflight-{uuid.uuid4()}"
+    hung = []  # the launcher's window closed: the checks run in sessions its hangup does not reach, so they are ended here
+    previous = signal.getsignal(signal.SIGHUP)
+    if previous == signal.SIG_DFL:
+        signal.signal(signal.SIGHUP, lambda *_: hung.append(True))
     proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                             start_new_session=True, env={**os.environ, TAG: tag}, creationflags=lib.windowless())
     deadline = time.monotonic() + limit
@@ -265,9 +270,13 @@ def run_preflight(root: Path, resume_session: str | None, profile: dict, out) ->
         with proc.stdout as pipe:
             while True:
                 left = deadline - time.monotonic()  # read each time: a pipe that always has more holds no one past it
-                if left <= 0 or not select.select([pipe], [], [], left)[0]:
+                if left <= 0:
                     overran = True
                     break
+                if hung:
+                    raise SystemExit(129)
+                if not select.select([pipe], [], [], min(left, 0.5))[0]:
+                    continue
                 chunk = os.read(pipe.fileno(), 65536)
                 if not chunk:
                     break
@@ -284,8 +293,14 @@ def run_preflight(root: Path, resume_session: str | None, profile: dict, out) ->
     except BaseException:
         _end_preflight(proc, tag)
         raise
-    if overran:
+    finally:
+        if previous == signal.SIG_DFL:
+            signal.signal(signal.SIGHUP, previous)
+    if overran or hung:
         _end_preflight(proc, tag)
+    if hung:  # it arrived as the preflight ended: the operator who closed the window starts nothing
+        raise SystemExit(129)
+    if overran:
         print(f"FAIL preflight: ran past {limit}s; it and its checks were ended", file=out, flush=True)
         return 1
     return proc.returncode
@@ -373,6 +388,22 @@ def end_run_processes(session: str, pgid: int | None, grace: float = STOP_GRACE_
     return tagged(session) + ([pgid] if pgid and _group_alive(pgid) else [])
 
 
+def _without_menus(run_session: str) -> None:
+    """Give the run's session a key table of its own: the server's root table without its mouse menus, whose Kill and
+    Respawn rows ended a run of six hours from a right click made to paste (2026-11-24). The operator's other sessions
+    keep the menus, and the prefix keys still detach. A copy left by an earlier run is replaced."""
+    table = f"{run_session}-keys"  # this session's own: a second run's start never touches a live run's table
+    keys = tmux("list-keys", "-T", "root", check=True).stdout.splitlines()
+    kept = [line.replace("-T root", f"-T {table}", 1) for line in keys
+            if not ("display-menu" in line and re.search(r"-T root\s+\S*Mouse", line))]
+    tmux("unbind-key", "-a", "-q", "-T", table)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".tmux") as source:
+        source.write("\n".join(kept) + "\n")
+        source.flush()
+        tmux("source-file", source.name, check=True)
+    tmux("set-option", "-t", f"={run_session}:", "key-table", table, check=True)
+
+
 def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
     """Start `argv` as the only window of the detached tmux session `run_session`, with a 50,000-line history (tmux
     applies history-limit to new windows only, so a placeholder window is replaced), inside the repository and with
@@ -386,6 +417,7 @@ def _launch(root: Path, run_session: str, argv: list[str], session: str) -> int:
         tmux("set-option", "-t", f"={run_session}:", "history-limit", str(HISTORY_LIMIT), check=True)
         # The mouse on, so an attached window scrolls the history with the wheel and selects with a drag.
         tmux("set-option", "-t", f"={run_session}:", "mouse", "on", check=True)
+        _without_menus(run_session)
         # The agent's window opens on a placeholder, keeps its pane on exit, and only then is the agent respawned into
         # it: an agent that exits at once is still there to read, not a window that vanished before the option was set.
         tmux("new-window", "-d", "-t", f"={run_session}:", "-n", "agent", "-c", str(root), "sleep 30", check=True)
