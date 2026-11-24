@@ -58,10 +58,25 @@ if (-not (Test-Path -LiteralPath $shellLink -PathType Leaf)) {
 Add-Type -LiteralPath $shellLink
 
 # --- the project's identity ---------------------------------------------------------------------------------------
+function Get-IdentityKey([string]$id) {
+  $h = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    return -join ($h.ComputeHash([Text.Encoding]::UTF8.GetBytes($id))[0..3] | ForEach-Object { $_.ToString('x2') })
+  } finally {
+    $h.Dispose()
+  }
+}
+
+function Get-CanonicalPath([string]$p) {
+  if (-not $p) { return '' }
+  try { return [Conclave.ShellPath]::Long($p).TrimEnd('\').ToLowerInvariant() }
+  catch { return $p.TrimEnd('\').ToLowerInvariant() }
+}
+
 $linux = $null
-$legacyMark = $null
-$legacyKey = $null
-$legacyDefaultIconDir = $null
+$projectExists = $false
+$legacyKeys = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+$legacyIconDirs = [Collections.Generic.List[string]]::new()
 $iconDirDefaulted = -not [bool]$IconDir
 if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\?(.*)$') {
   if (-not $Distro) { $Distro = $Matches[1] }
@@ -80,21 +95,18 @@ if ($null -ne $linux) {
 } else {
   $found = Resolve-Path -LiteralPath $Project -ErrorAction Ignore
   if ($found) {
-    # ProviderPath strips PowerShell's provider prefix; ShellPath.Long expands 8.3 short names so short and long
-    # spellings of one Windows folder share one identity.
+    $projectExists = $true
+    # ProviderPath strips PowerShell's provider prefix; ShellPath.Long expands 8.3 short names so short, mixed, and
+    # long spellings of one Windows folder share one identity.
     $rawPath = $found.ProviderPath.TrimEnd('\')
     $Project = [Conclave.ShellPath]::Long($rawPath).TrimEnd('\')
     $shortPath = [Conclave.ShellPath]::Short($Project).TrimEnd('\')
-    if (-not [String]::Equals($shortPath, $Project, [StringComparison]::OrdinalIgnoreCase)) {
-      $legacyIdentity = $shortPath.ToLowerInvariant()
-      $legacyMark = "conclave-launcher: $legacyIdentity"
-      $legacySha = [System.Security.Cryptography.SHA256]::Create()
-      $legacyKey = -join ($legacySha.ComputeHash([Text.Encoding]::UTF8.GetBytes($legacyIdentity))[0..3] | ForEach-Object { $_.ToString('x2') })
-      if ($iconDirDefaulted) {
-        $legacyName = Split-Path $shortPath -Leaf
-        $candidateDir = Join-Path $env:LOCALAPPDATA $legacyName
-        if (-not [String]::Equals($candidateDir, (Join-Path $env:LOCALAPPDATA (Split-Path $Project -Leaf)), [StringComparison]::OrdinalIgnoreCase)) {
-          $legacyDefaultIconDir = $candidateDir
+    foreach ($alt in @($rawPath, $shortPath)) {
+      if ($alt -and -not [String]::Equals($alt, $Project, [StringComparison]::OrdinalIgnoreCase)) {
+        [void]$legacyKeys.Add((Get-IdentityKey $alt.ToLowerInvariant()))
+        if ($iconDirDefaulted) {
+          $altName = Split-Path $alt -Leaf
+          if ($altName) { $legacyIconDirs.Add((Join-Path $env:LOCALAPPDATA $altName)) }
         }
       }
     }
@@ -108,15 +120,60 @@ if ($null -ne $linux) {
 }
 if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
 $mark = "conclave-launcher: $identity"
-$sha = [System.Security.Cryptography.SHA256]::Create()
-$key = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))[0..3] | ForEach-Object { $_.ToString('x2') })
+$key = Get-IdentityKey $identity
 
 # Exact code-unit comparison: PowerShell's -ceq/-cne fold canonical Unicode equivalence (composed vs decomposed).
+# For an existing Windows directory, also recognize any pre-change short or mixed 8.3 spelling that expands to $Project.
 function Test-OwnedMark([string]$desc) {
   if ($null -eq $desc) { return $false }
   if ([String]::Equals($desc, $mark, [StringComparison]::Ordinal)) { return $true }
-  if ($legacyMark -and [String]::Equals($desc, $legacyMark, [StringComparison]::Ordinal)) { return $true }
+  if ($null -eq $linux -and $projectExists -and $desc.StartsWith('conclave-launcher: ', [StringComparison]::Ordinal)) {
+    $stored = $desc.Substring('conclave-launcher: '.Length)
+    if ($stored -and -not $stored.StartsWith('wsl:', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $stored -PathType Container)) {
+      $expanded = [Conclave.ShellPath]::Long($stored).TrimEnd('\')
+      if ([String]::Equals($expanded, $Project, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+  }
   return $false
+}
+
+# Legacy 8.3 / mixed-spelling icons: deduplicate directories and files by canonical long path so an 8.3 alias of
+# $IconDir never enumerates, deletes, or moves the same file twice.
+function Get-LegacyIcons([object[]]$ownedLinks) {
+  $keys = [Collections.Generic.HashSet[string]]::new($legacyKeys, [StringComparer]::Ordinal)
+  $dirs = [Collections.Generic.List[string]]::new()
+  $dirs.Add($IconDir)
+  foreach ($d in $legacyIconDirs) { $dirs.Add($d) }
+  foreach ($link in $ownedLinks) {
+    try { $d = [Conclave.ShellLink]::Read($link.FullName) } catch { continue }
+    if ($d.Description -and -not [String]::Equals($d.Description, $mark, [StringComparison]::Ordinal) -and $d.Description.StartsWith('conclave-launcher: ', [StringComparison]::Ordinal)) {
+      $storedId = $d.Description.Substring('conclave-launcher: '.Length)
+      $k = Get-IdentityKey $storedId
+      if ($k -ne $key) {
+        [void]$keys.Add($k)
+        if ($d.IconPath) {
+          $parent = Split-Path $d.IconPath -Parent
+          if ($parent) { $dirs.Add($parent) }
+        }
+      }
+    }
+  }
+  if ($keys.Count -eq 0) { return @() }
+  $seenDirs = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  $seenFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  $found = [Collections.Generic.List[object]]::new()
+  foreach ($dir in $dirs) {
+    if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+    $canonDir = Get-CanonicalPath $dir
+    if (-not $seenDirs.Add($canonDir)) { continue }
+    foreach ($k in $keys) {
+      if ($k -eq $key) { continue }
+      foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter "launcher-*-$k.ico" -File -ErrorAction Ignore)) {
+        if ($seenFiles.Add((Get-CanonicalPath $f.FullName))) { $found.Add($f) }
+      }
+    }
+  }
+  return @($found)
 }
 
 # --- inspection: reads owned links through ShellLink.cs without launching any of them ----------------------------
@@ -195,14 +252,16 @@ if ($Remove) {
   if ($unreadableLinks.Count -gt 0) {
     Refuse "could not read '$($unreadableLinks -join "', '")' to check ownership (close whatever holds it and retry)"
   }
-  foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName -Force; "removed: $($link.FullName)" }
-  $icons = @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore)
-  if ($legacyKey) {
-    $icons += @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore)
-    if ($legacyDefaultIconDir -and (Test-Path -LiteralPath $legacyDefaultIconDir -PathType Container)) {
-      $icons += @(Get-ChildItem -LiteralPath $legacyDefaultIconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore)
-    }
+  $icons = [Collections.Generic.List[object]]::new()
+  $seenIcons = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+  foreach ($file in @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore)) {
+    if ($seenIcons.Add((Get-CanonicalPath $file.FullName))) { $icons.Add($file) }
   }
+  # Read legacy marks/icon paths from owned links before deleting the links.
+  foreach ($file in @(Get-LegacyIcons $links)) {
+    if ($seenIcons.Add((Get-CanonicalPath $file.FullName))) { $icons.Add($file) }
+  }
+  foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName -Force; "removed: $($link.FullName)" }
   foreach ($file in $icons) { Remove-Item -LiteralPath $file.FullName -Force; "removed: $($file.FullName)" }
   "project-shortcuts: $($links.Count) link(s) and $($icons.Count) icon(s) of $identity removed"
   exit 0
@@ -381,16 +440,15 @@ $moved = [System.Collections.Generic.List[object]]::new()   # (destination, back
 $written = @($plan | ForEach-Object { Split-Path $_.Link -Leaf }) + @($staged | ForEach-Object { Split-Path $_.Temp -Leaf })
 $kept = @($plan | ForEach-Object { Split-Path $_.Icon -Leaf })
 $staleLinks = @($ownedBefore | Where-Object { $written -notcontains $_.Name } | ForEach-Object { $_.FullName })
-$staleIcons = @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore |
-                Where-Object { $kept -notcontains $_.Name } | ForEach-Object { $_.FullName })
-if ($legacyKey) {
-  $staleIcons += @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore |
-                   ForEach-Object { $_.FullName })
-  if ($legacyDefaultIconDir -and (Test-Path -LiteralPath $legacyDefaultIconDir -PathType Container)) {
-    $staleIcons += @(Get-ChildItem -LiteralPath $legacyDefaultIconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore |
-                     ForEach-Object { $_.FullName })
-  }
+$staleIconList = [Collections.Generic.List[string]]::new()
+$seenStaleIcons = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+foreach ($f in @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore | Where-Object { $kept -notcontains $_.Name })) {
+  if ($seenStaleIcons.Add((Get-CanonicalPath $f.FullName))) { $staleIconList.Add($f.FullName) }
 }
+foreach ($f in @(Get-LegacyIcons $ownedBefore)) {
+  if ($seenStaleIcons.Add((Get-CanonicalPath $f.FullName))) { $staleIconList.Add($f.FullName) }
+}
+$staleIcons = @($staleIconList)
 $stale = $staleLinks + $staleIcons
 try {
   foreach ($s in $staged) {

@@ -375,7 +375,7 @@ Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T01 §8` (`docs/re
 - [x] Start `_page`'s cleanup `try:` immediately at `tempfile.mkstemp` acquisition in `kits/wordpress/templates/scripts/open-dashboard.py:233-247`, append only the published `page` pathname to `created` before `os.replace`, and update `_page`'s docstring at `:220`. Done when: `kits/wordpress/templates/scripts/tests/test_open_dashboard.py` passes both a new regression asserting `created` holds only `page` after `_page()` returns and `test_linux_open_browser_removes_only_its_own_redirect_page_on_failure_and_interrupt`.
 - [ ] Commit: `launchers: shadow-audit repairs for project-shortcuts.ps1 and tests (D07 T01 §10)`
 
-**Test checkpoint:** on Windows, `python forge.py check-all --only kit-launchers`, `python -m unittest tests.test_forge -k launchers_page -k markdown_table`, and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p test_open_dashboard.py -k "redirect_page or _page"` pass; reverting ordinal comparison, 8.3 expansion, or `Format-List` continuation joining makes its test fail.
+**Test checkpoint:** on Windows, `python forge.py check-all --only kit-launchers`, `python -m unittest tests.test_forge -k launchers_page -k markdown_table`, and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p test_open_dashboard.py -k redirect_page -k test_page_records_only` pass; reverting ordinal comparison, 8.3 expansion, or `Format-List` continuation joining makes its test fail.
 
 ## Verification
 

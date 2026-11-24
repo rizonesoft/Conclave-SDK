@@ -1304,6 +1304,58 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(self.links(), [])
         self.assertFalse(legacy_icon.exists(), "legacy 8.3 icon must be removed by -Remove")
         self.assertEqual(list(expected_long_icon_dir.glob("*.ico")), [])
+        # 4. Mixed short-parent + long-leaf legacy mark (e.g. C:\...\TMPXXX~1\Long Example Project Name) and
+        #    8.3-aliased localappdata directory (where long leaf and short leaf resolve to the same physical folder).
+        mixed_parent = str(Path(short_path).parent)
+        mixed_path = f"{mixed_parent}\\{long_leaf}"
+        if mixed_path.lower() != long_path.lower() and mixed_path.lower() != short_path.lower():
+            mixed_id = mixed_path.lower()
+            mixed_mark = f"conclave-launcher: {mixed_id}"
+            mixed_key = hashlib.sha256(mixed_id.encode("utf-8")).hexdigest()[:8]
+            # Put localappdata on the same 8.3-enabled volume as proj so expected_long_icon_dir gets an 8.3 alias.
+            same_vol_appdata = proj.parent / "appdata_83"
+            same_vol_long_dir = same_vol_appdata / long_leaf
+            same_vol_long_dir.mkdir(parents=True, exist_ok=True)
+            mixed_icon = same_vol_long_dir / f"launcher-claude-{mixed_key}.ico"
+            mixed_icon.write_bytes(b"mixed-legacy-ico")
+            self._write_shell_link(
+                legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
+                description=mixed_mark, icon=str(mixed_icon),
+            )
+            insp_mix = run_tree(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                 "-Project", long_path, "-ShortcutDir", str(self.desk), "-Inspect",
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+            )
+            self.assertEqual(insp_mix.returncode, 0, insp_mix.stdout + insp_mix.stderr)
+            self.assertIn("Short Path App (Claude).lnk", insp_mix.stdout)
+            self.assertIn(mixed_mark, insp_mix.stdout)
+            # Upgrade must not fail with duplicate-icon move when long and short icon dirs alias the same folder.
+            up_mix = run_tree(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                 "-Project", long_path, "-ShortcutDir", str(self.desk),
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                timeout=180, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+            )
+            self.assertEqual(up_mix.returncode, 0, up_mix.stdout + up_mix.stderr)
+            self.assertFalse(mixed_icon.exists(), "mixed-spelling legacy icon must be swept after upgrade")
+            # Re-seed mixed icon + link in the aliased folder and verify -Remove does not delete the same file twice.
+            mixed_icon.write_bytes(b"mixed-legacy-ico-2")
+            self._write_shell_link(
+                legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
+                description=mixed_mark, icon=str(mixed_icon),
+            )
+            rem_mix = run_tree(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                 "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+            )
+            self.assertEqual(rem_mix.returncode, 0, rem_mix.stdout + rem_mix.stderr)
+            self.assertEqual(self.links(), [])
+            self.assertFalse(mixed_icon.exists())
+            self.assertEqual(list(same_vol_long_dir.glob("*.ico")), [])
 
 
 

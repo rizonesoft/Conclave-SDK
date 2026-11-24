@@ -4391,9 +4391,13 @@ class LaunchersPageTests(unittest.TestCase):
                 ran = self._run_tree(["bash", "-lc", run_cmd], cwd=target, timeout=30)
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
             self.assertIn("laravel-ok", ran.stdout)
-            # Both slug refusal examples (reserved agent icon slug and empty punctuation-only slug) are documented.
-            self.assertIn("Claude!", text)
-            self.assertIn("!!!", text)
+            # Both slug refusal examples (reserved agent icon slug and empty punctuation-only slug) are documented
+            # in both the link-declaration reference and the troubleshooting section.
+            declare_sec = text.split("## How do I declare a run or url link?", 1)[1].split("## How do I write", 1)[0]
+            refusal_sec = text.split("## What does each refusal mean?", 1)[1]
+            for sec_name, sec_body in (("declare", declare_sec), ("refusal", refusal_sec)):
+                self.assertIn("Claude!", sec_body, f"missing reserved slug example in {sec_name} section")
+                self.assertIn("!!!", sec_body, f"missing empty slug example in {sec_name} section")
 
             # Installed project-launchers skill in all three agent directories.
             for agent_dir in (".agents", ".claude", ".codex"):
@@ -4456,21 +4460,22 @@ class LaunchersPageTests(unittest.TestCase):
         }
         if os.name != "nt":
             kwargs["start_new_session"] = True
-        proc = subprocess.Popen(argv, **kwargs)
-        try:
-            out, err = proc.communicate(timeout=timeout)
-            return subprocess.CompletedProcess(argv, proc.returncode, out, err)
-        except subprocess.TimeoutExpired:
-            if os.name == "nt":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=no_win)
-            else:
-                try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            proc.wait()
-            raise
+        with subprocess.Popen(argv, **kwargs) as proc:
+            try:
+                out, err = proc.communicate(timeout=timeout)
+                return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+            except BaseException:
+                if proc.poll() is None:
+                    if os.name == "nt":
+                        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=no_win)
+                    else:
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                proc.wait()
+                raise
 
     @staticmethod
     def _parse_format_list(output):
@@ -4478,28 +4483,32 @@ class LaunchersPageTests(unittest.TestCase):
         records = []
         current = {}
         last_key = None
+        val_col = 0
         for line in clean.splitlines():
             if not line.strip():
                 if current:
-                    records.append(current)
+                    records.append({k: v.rstrip() for k, v in current.items()})
                     current = {}
                     last_key = None
+                    val_col = 0
                 continue
-            m = re.match(r"^(\w+)\s*:\s*(.*)$", line)
+            m = re.match(r"^(\w+)\s*:\s*", line)
             if m:
                 last_key = m.group(1)
-                current[last_key] = m.group(2).strip()
+                val_col = m.end()
+                current[last_key] = line[val_col:]
             elif last_key and line[:1].isspace():
-                current[last_key] += line.strip()
+                current[last_key] += line[val_col:] if len(line) >= val_col else line.lstrip()
         if current:
-            records.append(current)
+            records.append({k: v.rstrip() for k, v in current.items()})
         return {r["Link"]: r for r in records if "Link" in r}
 
     def test_launchers_page_format_list_joins_wrapped_continuation_lines(self):
         wrapped = (
             "Link        : Shop App (Claude).lnk\n"
             "Target      : C:\\Program Files\\WindowsApps\\wt.exe\n"
-            "IconPath    : C:\\Users\\example\\AppData\\Local\\VeryLongProjectFolderName\\\n"
+            "IconPath    : C:\\Users\\Long \n"
+            "              Profile Name\\VeryLongProjectFolderName\\\n"
             "              launcher-claude-1234abcd.ico\n"
             "Description : conclave-launcher: c:\\work\\shop\n"
         )
@@ -4507,10 +4516,34 @@ class LaunchersPageTests(unittest.TestCase):
         self.assertIn("Shop App (Claude).lnk", parsed)
         self.assertEqual(
             parsed["Shop App (Claude).lnk"]["IconPath"],
-            "C:\\Users\\example\\AppData\\Local\\VeryLongProjectFolderName\\launcher-claude-1234abcd.ico",
+            "C:\\Users\\Long Profile Name\\VeryLongProjectFolderName\\launcher-claude-1234abcd.ico",
         )
 
-    def test_launchers_page_run_tree_kills_child_process_tree_on_timeout(self):
+    def _assert_pid_gone(self, child_pid, deadline_s=3.0):
+        deadline = time.monotonic() + deadline_s
+        while time.monotonic() < deadline:
+            if os.name == "nt":
+                check = subprocess.run(
+                    ["tasklist", "/FI", f"PID eq {child_pid}", "/NH"],
+                    capture_output=True, text=True, errors="replace",
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if str(child_pid) not in (check.stdout or ""):
+                    return
+            else:
+                try:
+                    os.kill(child_pid, 0)
+                except ProcessLookupError:
+                    return
+                stat_file = pathlib.Path(f"/proc/{child_pid}/stat")
+                if stat_file.is_file():
+                    parts = stat_file.read_text(encoding="utf-8", errors="ignore").rsplit(")", 1)[-1].split()
+                    if parts and parts[0] == "Z":
+                        return
+            time.sleep(0.05)
+        self.fail(f"grandchild process {child_pid} still alive after _run_tree cleanup")
+
+    def test_launchers_page_run_tree_kills_child_process_tree_on_timeout_and_interrupt(self):
         with tempfile.TemporaryDirectory() as tmp:
             pid_file = pathlib.Path(tmp) / "child.pid"
             # Parent spawns a sleeping grandchild, writes its PID, and waits.
@@ -4522,24 +4555,30 @@ class LaunchersPageTests(unittest.TestCase):
                 "time.sleep(60)"
             )
             with self.assertRaises(subprocess.TimeoutExpired):
-                self._run_tree([sys.executable, "-c", parent_code], cwd=tmp, timeout=1.5)
-            deadline = time.monotonic() + 3.0
-            child_pid = None
-            while time.monotonic() < deadline and not pid_file.exists():
-                time.sleep(0.05)
-            if pid_file.exists():
-                child_pid = int(pid_file.read_text(encoding="utf-8").strip())
-                # Confirm the grandchild process was terminated by process-tree cleanup.
-                if os.name == "nt":
-                    check = subprocess.run(
-                        ["tasklist", "/FI", f"PID eq {child_pid}", "/NH"],
-                        capture_output=True, text=True,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    )
-                    self.assertNotIn(str(child_pid), check.stdout)
-                else:
-                    with self.assertRaises(ProcessLookupError):
-                        os.kill(child_pid, 0)
+                self._run_tree([sys.executable, "-c", parent_code], cwd=tmp, timeout=3.0)
+            self.assertTrue(pid_file.is_file(), "parent must publish grandchild PID before timeout")
+            child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+            self._assert_pid_gone(child_pid)
+            # KeyboardInterrupt during communicate() must also terminate the child process tree.
+            pid_file.unlink()
+            real_comm = subprocess.Popen.communicate
+            raised_once = [False]
+
+            def interrupt_after_pid(proc_self, *args, **kwargs):
+                if not raised_once[0]:
+                    raised_once[0] = True
+                    deadline = time.monotonic() + 5.0
+                    while time.monotonic() < deadline and not pid_file.is_file():
+                        time.sleep(0.05)
+                    raise KeyboardInterrupt()
+                return real_comm(proc_self, *args, **kwargs)
+
+            with unittest.mock.patch.object(subprocess.Popen, "communicate", interrupt_after_pid):
+                with self.assertRaises(KeyboardInterrupt):
+                    self._run_tree([sys.executable, "-c", parent_code], cwd=tmp, timeout=10.0)
+            self.assertTrue(pid_file.is_file(), "parent must publish grandchild PID before interrupt")
+            child_pid_int = int(pid_file.read_text(encoding="utf-8").strip())
+            self._assert_pid_gone(child_pid_int)
 
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
