@@ -179,7 +179,7 @@ Sections: 16 | Checklist items: 143
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 27 | Checklist items: 172
+Sections: 28 | Checklist items: 176
 
 | Status | Reference   | Deliverable                                                   | Needs        | Items |
 | ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
@@ -203,8 +203,9 @@ Sections: 27 | Checklist items: 172
 | [ ]    | D00 T03 §13 | Concurrency and Lifetime Checks in the Clang-Tidy Ratchet     | windows-host | 6     |
 | [ ]    | D00 T03 §14 | Sanitizer Test Configuration                                  | windows-host | 5     |
 | [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                    | windows-host | 5     |
-| [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                    | windows-host | 7     |
 | [x]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review       | none         | 8     |
+| [ ]    | D00 T03 §18 | Retry Held Projects for §3 and §5 (`Updates`, `RasterFold`)   | windows-host | 4     |
+| [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                    | windows-host | 7     |
 | [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops    | windows-host | 11    |
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
@@ -245,6 +246,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 122/155 verified sections, 12 ready to run now.
+Progress: 122/156 verified sections, 12 ready to run now.
 
-Checklist: 986/1171 items completed (includes Commit items).
+Checklist: 992/1175 items completed (includes Commit items).
