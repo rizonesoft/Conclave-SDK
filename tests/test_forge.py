@@ -4477,9 +4477,14 @@ class LaunchersPageTests(unittest.TestCase):
             ntdll = ctypes.WinDLL("ntdll")
             ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
             job = k32.CreateJobObjectW(None, None)
+            if not job:
+                raise ctypes.WinError(ctypes.get_last_error())
             limits = _ExtLimit()
             limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-            k32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits))
+            if not k32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)):
+                err_code = ctypes.get_last_error()
+                k32.CloseHandle(job)
+                raise ctypes.WinError(err_code)
             try:
                 with subprocess.Popen(
                     argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -4494,6 +4499,8 @@ class LaunchersPageTests(unittest.TestCase):
                         return subprocess.CompletedProcess(argv, proc.returncode, out, err)
                     finally:
                         k32.TerminateJobObject(job, 1)
+                        if proc.poll() is None:
+                            proc.kill()
                         proc.wait()
             finally:
                 k32.CloseHandle(job)

@@ -119,6 +119,7 @@ if ($null -ne $linux) {
   $name = Split-Path $Project -Leaf
 }
 if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
+else { $IconDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IconDir) }
 $mark = "conclave-launcher: $identity"
 $key = Get-IdentityKey $identity
 
@@ -166,13 +167,15 @@ function Get-LegacyIcons([object[]]$ownedLinks) {
   $seenFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   $found = [Collections.Generic.List[object]]::new()
   foreach ($dir in $dirs) {
-    if (-not $dir -or -not [IO.Directory]::Exists($dir)) { continue }
+    if (-not $dir) { continue }
     $canonDir = Get-CanonicalPath $dir
     if (-not $seenDirs.Add($canonDir)) { continue }
     foreach ($k in $keys) {
       if ($k -eq $key) { continue }
       try {
         $matches = @([IO.Directory]::GetFiles($dir, "launcher-*-$k.ico"))
+      } catch [IO.DirectoryNotFoundException] {
+        break
       } catch {
         $script:iconScanError = "the icon folder cannot be read: '$dir' ($($_.Exception.Message))"
         return @()
@@ -263,15 +266,15 @@ if ($Remove) {
   }
   $icons = [Collections.Generic.List[object]]::new()
   $seenIcons = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-  if ([IO.Directory]::Exists($IconDir)) {
-    try {
-      $primaryIcons = @([IO.Directory]::GetFiles($IconDir, "launcher-*-$key.ico"))
-    } catch {
-      Refuse "the icon folder cannot be read: '$IconDir' ($($_.Exception.Message))"
-    }
-    foreach ($file in $primaryIcons) {
-      if ($seenIcons.Add((Get-CanonicalPath $file))) { $icons.Add([IO.FileInfo]::new($file)) }
-    }
+  try {
+    $primaryIcons = @([IO.Directory]::GetFiles($IconDir, "launcher-*-$key.ico"))
+  } catch [IO.DirectoryNotFoundException] {
+    $primaryIcons = @()
+  } catch {
+    Refuse "the icon folder cannot be read: '$IconDir' ($($_.Exception.Message))"
+  }
+  foreach ($file in $primaryIcons) {
+    if ($seenIcons.Add((Get-CanonicalPath $file))) { $icons.Add([IO.FileInfo]::new($file)) }
   }
   # Read legacy marks/icon paths from owned links before deleting the links.
   $legacyFound = @(Get-LegacyIcons $links)

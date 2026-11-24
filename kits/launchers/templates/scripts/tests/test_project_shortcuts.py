@@ -1340,16 +1340,20 @@ class ProjectShortcutsTest(unittest.TestCase):
             )
             self.assertEqual(up_mix.returncode, 0, up_mix.stdout + up_mix.stderr)
             self.assertFalse(mixed_icon.exists(), "mixed-spelling legacy icon must be swept after upgrade")
-            # Re-seed mixed icon + link in the aliased folder; verify denied enumeration refuses -Remove before
-            # deleting any link, and restoring access lets -Remove clean up both link and icon.
-            mixed_icon.write_bytes(b"mixed-legacy-ico-2")
+            # Re-seed mixed icon + link in a separate legacy folder (distinct from primary IconDir); verify denied
+            # enumeration on the separate legacy folder refuses -Remove before deleting any link, and restoring access
+            # lets -Remove clean up both link and icon.
+            sep_legacy_dir = proj.parent / "separate_legacy_icons"
+            sep_legacy_dir.mkdir(parents=True, exist_ok=True)
+            sep_mixed_icon = sep_legacy_dir / f"launcher-claude-{mixed_key}.ico"
+            sep_mixed_icon.write_bytes(b"mixed-legacy-ico-2")
             self._write_shell_link(
                 legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
-                description=mixed_mark, icon=str(mixed_icon),
+                description=mixed_mark, icon=str(sep_mixed_icon),
             )
             user = os.environ.get("USERNAME", "")
             if user:
-                deny = run_tree(["icacls", str(same_vol_long_dir), "/deny", f"{user}:(RD)"], timeout=30)
+                deny = run_tree(["icacls", str(sep_legacy_dir), "/deny", f"{user}:(RD)"], timeout=30)
                 self.assertEqual(deny.returncode, 0, deny.stdout + deny.stderr)
                 try:
                     denied = run_tree(
@@ -1362,7 +1366,7 @@ class ProjectShortcutsTest(unittest.TestCase):
                     self.assertIn("the icon folder cannot be read", denied.stdout)
                     self.assertEqual(self.links(), ["Short Path App (Claude).lnk"])
                 finally:
-                    run_tree(["icacls", str(same_vol_long_dir), "/remove:d", user], timeout=30)
+                    run_tree(["icacls", str(sep_legacy_dir), "/remove:d", user], timeout=30)
             rem_mix = run_tree(
                 [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
                  "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
@@ -1371,8 +1375,24 @@ class ProjectShortcutsTest(unittest.TestCase):
             )
             self.assertEqual(rem_mix.returncode, 0, rem_mix.stdout + rem_mix.stderr)
             self.assertEqual(self.links(), [])
-            self.assertFalse(mixed_icon.exists())
+            self.assertFalse(sep_mixed_icon.exists())
             self.assertEqual(list(same_vol_long_dir.glob("*.ico")), [])
+            # Verify relative -IconDir resolves against PowerShell's current location (Set-Location), not .NET CWD.
+            rel_base = self.base / "rel_location"
+            rel_icons = rel_base / "rel-icons"
+            rel_icons.mkdir(parents=True, exist_ok=True)
+            long_key = hashlib.sha256(long_path.lower().encode("utf-8")).hexdigest()[:8]
+            rel_ico = rel_icons / f"launcher-claude-{long_key}.ico"
+            rel_ico.write_bytes(b"rel-ico")
+            ps_rel = (
+                f"Set-Location -LiteralPath '{rel_base}'; "
+                f"& '{proj / 'scripts/project-shortcuts.ps1'}' -Project '{long_path}' "
+                f"-ShortcutDir '{self.desk}' -IconDir 'rel-icons' -Remove "
+                f"-Wsl '{self.wsl}' -Python '{sys.executable}'"
+            )
+            rem_rel = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", ps_rel], timeout=120, env=self.env())
+            self.assertEqual(rem_rel.returncode, 0, rem_rel.stdout + rem_rel.stderr)
+            self.assertFalse(rel_ico.exists(), "relative -IconDir must resolve against PowerShell Set-Location")
 
 
 
