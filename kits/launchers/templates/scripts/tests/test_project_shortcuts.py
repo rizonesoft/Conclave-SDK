@@ -1340,12 +1340,29 @@ class ProjectShortcutsTest(unittest.TestCase):
             )
             self.assertEqual(up_mix.returncode, 0, up_mix.stdout + up_mix.stderr)
             self.assertFalse(mixed_icon.exists(), "mixed-spelling legacy icon must be swept after upgrade")
-            # Re-seed mixed icon + link in the aliased folder and verify -Remove does not delete the same file twice.
+            # Re-seed mixed icon + link in the aliased folder; verify denied enumeration refuses -Remove before
+            # deleting any link, and restoring access lets -Remove clean up both link and icon.
             mixed_icon.write_bytes(b"mixed-legacy-ico-2")
             self._write_shell_link(
                 legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
                 description=mixed_mark, icon=str(mixed_icon),
             )
+            user = os.environ.get("USERNAME", "")
+            if user:
+                deny = run_tree(["icacls", str(same_vol_long_dir), "/deny", f"{user}:(RD)"], timeout=30)
+                self.assertEqual(deny.returncode, 0, deny.stdout + deny.stderr)
+                try:
+                    denied = run_tree(
+                        [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                         "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+                         "-Wsl", str(self.wsl), "-Python", sys.executable],
+                        timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+                    )
+                    self.assertEqual(denied.returncode, 1, denied.stdout + denied.stderr)
+                    self.assertIn("the icon folder cannot be read", denied.stdout)
+                    self.assertEqual(self.links(), ["Short Path App (Claude).lnk"])
+                finally:
+                    run_tree(["icacls", str(same_vol_long_dir), "/remove:d", user], timeout=30)
             rem_mix = run_tree(
                 [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
                  "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",

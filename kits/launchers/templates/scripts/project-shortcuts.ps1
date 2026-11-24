@@ -138,8 +138,11 @@ function Test-OwnedMark([string]$desc) {
 }
 
 # Legacy 8.3 / mixed-spelling icons: deduplicate directories and files by canonical long path so an 8.3 alias of
-# $IconDir never enumerates, deletes, or moves the same file twice.
+# $IconDir never enumerates, deletes, or moves the same file twice. Fail closed if an existing icon folder cannot
+# be enumerated so -Remove never deletes an ownership link before its icons can be inventoried.
+$iconScanError = ''
 function Get-LegacyIcons([object[]]$ownedLinks) {
+  $script:iconScanError = ''
   $keys = [Collections.Generic.HashSet[string]]::new($legacyKeys, [StringComparer]::Ordinal)
   $dirs = [Collections.Generic.List[string]]::new()
   $dirs.Add($IconDir)
@@ -163,13 +166,19 @@ function Get-LegacyIcons([object[]]$ownedLinks) {
   $seenFiles = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
   $found = [Collections.Generic.List[object]]::new()
   foreach ($dir in $dirs) {
-    if (-not $dir -or -not (Test-Path -LiteralPath $dir -PathType Container)) { continue }
+    if (-not $dir -or -not [IO.Directory]::Exists($dir)) { continue }
     $canonDir = Get-CanonicalPath $dir
     if (-not $seenDirs.Add($canonDir)) { continue }
     foreach ($k in $keys) {
       if ($k -eq $key) { continue }
-      foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter "launcher-*-$k.ico" -File -ErrorAction Ignore)) {
-        if ($seenFiles.Add((Get-CanonicalPath $f.FullName))) { $found.Add($f) }
+      try {
+        $matches = @([IO.Directory]::GetFiles($dir, "launcher-*-$k.ico"))
+      } catch {
+        $script:iconScanError = "the icon folder cannot be read: '$dir' ($($_.Exception.Message))"
+        return @()
+      }
+      foreach ($f in $matches) {
+        if ($seenFiles.Add((Get-CanonicalPath $f))) { $found.Add([IO.FileInfo]::new($f)) }
       }
     }
   }
@@ -254,11 +263,20 @@ if ($Remove) {
   }
   $icons = [Collections.Generic.List[object]]::new()
   $seenIcons = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-  foreach ($file in @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore)) {
-    if ($seenIcons.Add((Get-CanonicalPath $file.FullName))) { $icons.Add($file) }
+  if ([IO.Directory]::Exists($IconDir)) {
+    try {
+      $primaryIcons = @([IO.Directory]::GetFiles($IconDir, "launcher-*-$key.ico"))
+    } catch {
+      Refuse "the icon folder cannot be read: '$IconDir' ($($_.Exception.Message))"
+    }
+    foreach ($file in $primaryIcons) {
+      if ($seenIcons.Add((Get-CanonicalPath $file))) { $icons.Add([IO.FileInfo]::new($file)) }
+    }
   }
   # Read legacy marks/icon paths from owned links before deleting the links.
-  foreach ($file in @(Get-LegacyIcons $links)) {
+  $legacyFound = @(Get-LegacyIcons $links)
+  if ($iconScanError) { Refuse $iconScanError }
+  foreach ($file in $legacyFound) {
     if ($seenIcons.Add((Get-CanonicalPath $file.FullName))) { $icons.Add($file) }
   }
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName -Force; "removed: $($link.FullName)" }
@@ -445,7 +463,13 @@ $seenStaleIcons = [Collections.Generic.HashSet[string]]::new([StringComparer]::O
 foreach ($f in @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore | Where-Object { $kept -notcontains $_.Name })) {
   if ($seenStaleIcons.Add((Get-CanonicalPath $f.FullName))) { $staleIconList.Add($f.FullName) }
 }
-foreach ($f in @(Get-LegacyIcons $ownedBefore)) {
+$staleLegacy = @(Get-LegacyIcons $ownedBefore)
+if ($iconScanError) {
+  Unstage
+  "project-shortcuts: $iconScanError; every earlier link and icon is kept"
+  exit 1
+}
+foreach ($f in $staleLegacy) {
   if ($seenStaleIcons.Add((Get-CanonicalPath $f.FullName))) { $staleIconList.Add($f.FullName) }
 }
 $staleIcons = @($staleIconList)

@@ -1,5 +1,6 @@
 """Tests for forge.py template provisioning, 3-agent isolation, stack kits, and prose hygiene."""
 import contextlib
+import ctypes
 import importlib.util
 import io
 import json
@@ -4449,31 +4450,66 @@ class LaunchersPageTests(unittest.TestCase):
 
     def _run_tree(self, argv, cwd, timeout=60, env=None):
         no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        kwargs = {
-            "cwd": cwd,
-            "stdin": subprocess.DEVNULL,
-            "stdout": subprocess.PIPE,
-            "stderr": subprocess.PIPE,
-            "text": True,
-            "env": env,
-            "creationflags": no_win,
-        }
-        if os.name != "nt":
-            kwargs["start_new_session"] = True
-        with subprocess.Popen(argv, **kwargs) as proc:
+        if os.name == "nt":
+            # Kill-on-close Windows Job Object retains control of every descendant even if the immediate parent exits.
+            class _BasicLimit(ctypes.Structure):
+                _fields_ = [
+                    ("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", ctypes.c_uint32), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", ctypes.c_uint32),
+                    ("Affinity", ctypes.c_size_t), ("PriorityClass", ctypes.c_uint32),
+                    ("SchedulingClass", ctypes.c_uint32),
+                ]
+
+            class _ExtLimit(ctypes.Structure):
+                _fields_ = [
+                    ("BasicLimitInformation", _BasicLimit), ("IoInfo", ctypes.c_uint64 * 6),
+                    ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t),
+                ]
+
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CreateJobObjectW.restype = ctypes.c_void_p
+            k32.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+            k32.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            k32.TerminateJobObject.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+            k32.CloseHandle.argtypes = [ctypes.c_void_p]
+            ntdll = ctypes.WinDLL("ntdll")
+            ntdll.NtResumeProcess.argtypes = [ctypes.c_void_p]
+            job = k32.CreateJobObjectW(None, None)
+            limits = _ExtLimit()
+            limits.BasicLimitInformation.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            k32.SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits))
+            try:
+                with subprocess.Popen(
+                    argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, env=env, creationflags=no_win | 0x4,  # CREATE_SUSPENDED
+                ) as proc:
+                    try:
+                        handle = ctypes.c_void_p(int(proc._handle))
+                        if not k32.AssignProcessToJobObject(job, handle):
+                            raise ctypes.WinError(ctypes.get_last_error())
+                        ntdll.NtResumeProcess(handle)
+                        out, err = proc.communicate(timeout=timeout)
+                        return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+                    finally:
+                        k32.TerminateJobObject(job, 1)
+                        proc.wait()
+            finally:
+                k32.CloseHandle(job)
+        with subprocess.Popen(
+            argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=env, start_new_session=True, creationflags=no_win,
+        ) as proc:
             try:
                 out, err = proc.communicate(timeout=timeout)
                 return subprocess.CompletedProcess(argv, proc.returncode, out, err)
             except BaseException:
-                if proc.poll() is None:
-                    if os.name == "nt":
-                        subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=no_win)
-                    else:
-                        try:
-                            os.killpg(proc.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+                # Always kill the whole POSIX process group even if the leader already exited while a child holds stdout.
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
                 proc.wait()
                 raise
 
@@ -4579,6 +4615,20 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertTrue(pid_file.is_file(), "parent must publish grandchild PID before interrupt")
             child_pid_int = int(pid_file.read_text(encoding="utf-8").strip())
             self._assert_pid_gone(child_pid_int)
+            # Parent exits immediately while grandchild inherits stdout pipe and keeps communicate() waiting until timeout.
+            pid_file.unlink()
+            exiting_parent_code = (
+                "import pathlib, subprocess, sys; "
+                "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
+                "stdout=sys.stdout, stderr=sys.stderr, "
+                "creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)); "
+                f"pathlib.Path({str(pid_file)!r}).write_text(str(c.pid), encoding='utf-8')"
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self._run_tree([sys.executable, "-c", exiting_parent_code], cwd=tmp, timeout=2.5)
+            self.assertTrue(pid_file.is_file(), "exiting parent must publish grandchild PID before timeout")
+            child_pid_orphan = int(pid_file.read_text(encoding="utf-8").strip())
+            self._assert_pid_gone(child_pid_orphan)
 
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
