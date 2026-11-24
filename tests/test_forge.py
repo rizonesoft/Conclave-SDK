@@ -13,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import unittest.mock
@@ -4665,12 +4666,29 @@ class LaunchersPageTests(unittest.TestCase):
                 dll = real_windll(name, *args, **kwargs)
                 return _FailingKernel32(dll) if name.lower() == "kernel32" else dll
 
-            started = time.monotonic()
+            outcome = {}
+
+            def _run_worker():
+                try:
+                    self._run_tree([sys.executable, "-c", "import time; time.sleep(60)"], cwd=tmp, timeout=5.0)
+                except BaseException as exc:
+                    outcome["exc"] = exc
+
             with unittest.mock.patch.object(ctypes, "WinDLL", side_effect=_fake_windll), \
                     unittest.mock.patch.object(subprocess, "Popen", _TrackedPopen):
-                with self.assertRaises(OSError):
-                    self._run_tree([sys.executable, "-c", "import time; time.sleep(60)"], cwd=tmp, timeout=5.0)
-            self.assertLess(time.monotonic() - started, 5.0, "_run_tree must not hang when job assignment fails")
+                worker = threading.Thread(target=_run_worker, daemon=True)
+                worker.start()
+                worker.join(timeout=5.0)
+                if worker.is_alive():
+                    for pid in list(spawned):
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(pid)],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                        )
+                    worker.join(timeout=5.0)
+                    self.fail("_run_tree hung when AssignProcessToJobObject failed")
+            self.assertIsInstance(outcome.get("exc"), OSError, f"expected OSError, got {outcome!r}")
             self.assertEqual(len(spawned), 1)
             self._assert_pid_gone(spawned[0])
 

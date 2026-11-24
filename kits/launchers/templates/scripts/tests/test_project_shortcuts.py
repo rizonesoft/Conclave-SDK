@@ -1357,9 +1357,8 @@ class ProjectShortcutsTest(unittest.TestCase):
             self.assertEqual(self.links(), [])
             self.assertFalse(mixed_icon.exists())
             self.assertEqual(list(same_vol_long_dir.glob("*.ico")), [])
-            # 4c. Separate legacy folder (distinct from primary IconDir): verify both ACL (RD) denial and a
-            #     Directory.Exists==False non-directory path refuse -Remove before deleting any link, and restoring
-            #     access lets -Remove clean up both link and icon.
+            # 4c. Separate legacy folder (distinct from primary IconDir): verify ACL (RD,RA) denial refuses
+            #     -Remove before deleting any link, and restoring access lets -Remove clean up both link and icon.
             sep_legacy_dir = proj.parent / "separate_legacy_icons"
             sep_legacy_dir.mkdir(parents=True, exist_ok=True)
             sep_mixed_icon = sep_legacy_dir / f"launcher-claude-{mixed_key}.ico"
@@ -1369,21 +1368,21 @@ class ProjectShortcutsTest(unittest.TestCase):
                 description=mixed_mark, icon=str(sep_mixed_icon),
             )
             user = os.environ.get("USERNAME", "")
-            if user:
-                deny = run_tree(["icacls", str(sep_legacy_dir), "/deny", f"{user}:(RD)"], timeout=30)
-                self.assertEqual(deny.returncode, 0, deny.stdout + deny.stderr)
-                try:
-                    denied = run_tree(
-                        [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
-                         "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
-                         "-Wsl", str(self.wsl), "-Python", sys.executable],
-                        timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
-                    )
-                    self.assertEqual(denied.returncode, 1, denied.stdout + denied.stderr)
-                    self.assertIn("the icon folder cannot be read", denied.stdout)
-                    self.assertEqual(self.links(), ["Short Path App (Claude).lnk"])
-                finally:
-                    run_tree(["icacls", str(sep_legacy_dir), "/remove:d", user], timeout=30)
+            self.assertTrue(user, "USERNAME must be set on Windows")
+            deny = run_tree(["icacls", str(sep_legacy_dir), "/deny", f"{user}:(RD,RA)"], timeout=30)
+            self.assertEqual(deny.returncode, 0, deny.stdout + deny.stderr)
+            try:
+                denied = run_tree(
+                    [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                     "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+                     "-Wsl", str(self.wsl), "-Python", sys.executable],
+                    timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+                )
+                self.assertEqual(denied.returncode, 1, denied.stdout + denied.stderr)
+                self.assertIn("the icon folder cannot be read", denied.stdout)
+                self.assertEqual(self.links(), ["Short Path App (Claude).lnk"])
+            finally:
+                run_tree(["icacls", str(sep_legacy_dir), "/remove:d", user], timeout=30)
             rem_mix = run_tree(
                 [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
                  "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
@@ -1393,31 +1392,39 @@ class ProjectShortcutsTest(unittest.TestCase):
             self.assertEqual(rem_mix.returncode, 0, rem_mix.stdout + rem_mix.stderr)
             self.assertEqual(self.links(), [])
             self.assertFalse(sep_mixed_icon.exists())
-            # 4d. Non-directory blocking legacy icon folder (Directory.Exists returns false, GetFiles throws IOException).
-            blocked_file = proj.parent / "blocked_legacy_path"
-            blocked_file.write_text("not a dir", encoding="utf-8")
-            self._write_shell_link(
-                legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
-                description=mixed_mark, icon=str(blocked_file / f"launcher-claude-{mixed_key}.ico"),
-            )
-            blocked_rem = run_tree(
-                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
-                 "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
-                 "-Wsl", str(self.wsl), "-Python", sys.executable],
-                timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
-            )
-            self.assertEqual(blocked_rem.returncode, 1, blocked_rem.stdout + blocked_rem.stderr)
-            self.assertIn("the icon folder cannot be read", blocked_rem.stdout)
-            self.assertEqual(self.links(), ["Short Path App (Claude).lnk"])
-            blocked_file.unlink()
-            rem_after = run_tree(
-                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
-                 "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
-                 "-Wsl", str(self.wsl), "-Python", sys.executable],
-                timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
-            )
-            self.assertEqual(rem_after.returncode, 0, rem_after.stdout + rem_after.stderr)
-            self.assertEqual(self.links(), [])
+
+    def test_remove_refuses_when_icon_folder_denies_read_and_attributes_and_recovers_on_restore(self):
+        # Independent of 8.3 availability: denying both RD (list) and RA (read attributes) on the icon directory
+        # must refuse -Remove before deleting any link, and restoring access must let -Remove finish cleanly.
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        self.assertEqual(len(list(self.icons.iterdir())), 1)
+        user = os.environ.get("USERNAME", "")
+        self.assertTrue(user, "USERNAME must be set on Windows")
+        deny = run_tree(["icacls", str(self.icons), "/deny", f"{user}:(RD,RA)"], timeout=30)
+        self.assertEqual(deny.returncode, 0, deny.stdout + deny.stderr)
+        try:
+            denied = self.run_script("-Remove")
+            self.assertEqual(denied.returncode, 1, denied.stdout + denied.stderr)
+            self.assertIn("the icon folder cannot be read", denied.stdout)
+            self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        finally:
+            run_tree(["icacls", str(self.icons), "/remove:d", user], timeout=30)
+        restored = self.run_script("-Remove")
+        self.assertEqual(restored.returncode, 0, restored.stdout + restored.stderr)
+        self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
+        # Also verify a non-directory path at -IconDir (where Directory.Exists returns false and GetFiles throws IOException).
+        self.assertEqual(self.run_script().returncode, 0)
+        blocked_file = self.base / "blocked_icon_path"
+        blocked_file.write_text("not a dir", encoding="utf-8")
+        blocked = self.run_script("-Remove", icons=blocked_file)
+        self.assertEqual(blocked.returncode, 1, blocked.stdout + blocked.stderr)
+        self.assertIn("the icon folder cannot be read", blocked.stdout)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        blocked_file.unlink()
+        self.assertEqual(self.run_script("-Remove").returncode, 0)
+        self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
 
     def test_relative_icon_dir_resolves_against_powershell_location(self):
         # Independent of 8.3 availability: relative -IconDir must resolve against PowerShell's Set-Location, not .NET CWD.
