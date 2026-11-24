@@ -116,10 +116,13 @@ def extract_referenced_paths(rule_text: str) -> list[str]:
                 continue
             if tok in NON_PATH_TOKENS:
                 continue
-            if "/" in tok or tok.endswith(ROOT_FILE_EXTS):
-                if tok not in seen:
-                    seen.add(tok)
-                    paths.append(tok)
+            if "/" in tok or "\\" in tok or tok.endswith(ROOT_FILE_EXTS):
+                norm = tok.replace("\\", "/")
+                while norm.startswith("./"):
+                    norm = norm[2:]
+                if norm and norm not in seen:
+                    seen.add(norm)
+                    paths.append(norm)
     return paths
 
 
@@ -222,7 +225,7 @@ def check_agents_md_against_rule(ag_txt: str, rule_txt: str, has_provider: bool)
         ".claude/rules/design-contract.md", ""
     )
 
-    # Check authoritative contract citation derived from the rule's own ## Contract section
+    # Check authoritative primary contract citation derived from the rule's own ## Contract section
     contract_body = extract_section_body(rule_txt, "## Contract") or ""
     contract_paths = [p for p in extract_referenced_paths(contract_body) if p != "AGENTS.md"]
     if has_provider:
@@ -233,20 +236,21 @@ def check_agents_md_against_rule(ag_txt: str, rule_txt: str, has_provider: bool)
     else:
         auth_candidates = contract_paths
     if auth_candidates:
-        if not any(c in ag_no_rule_links for c in auth_candidates):
-            # Allow directory prefix match for docs/design/ when rule cites docs/design/README.md etc.
-            dir_prefixes = {c.rsplit("/", 1)[0] + "/" for c in auth_candidates if "/" in c}
-            if not any(dp in ag_no_rule_links for dp in dir_prefixes):
-                errs.append(f"AGENTS.md missing authoritative contract reference ({auth_candidates[0]}) at commit")
+        primary = auth_candidates[0]
+        if primary not in ag_no_rule_links:
+            # Allow docs/design/ directory citation only when primary is docs/design/README.md (e.g. Gemail)
+            if not (primary == "docs/design/README.md" and "docs/design/" in ag_no_rule_links):
+                errs.append(f"AGENTS.md missing authoritative contract reference ({primary}) at commit")
     elif "Design fidelity contract" not in ag_no_rule_links and "gostore-child" not in ag_no_rule_links:
         errs.append("AGENTS.md missing authoritative contract reference at commit")
 
-    # Check static lint citation derived from the rule's own ## Static lint section
+    # Check ALL installed static lint scripts derived from the rule's own ## Static lint section
     lint_body = extract_section_body(rule_txt, "## Static lint") or ""
     lint_scripts = [p for p in extract_referenced_paths(lint_body) if p.endswith((".py", ".ps1", ".mjs"))]
     if lint_scripts:
-        if not any(s in ag_txt for s in lint_scripts):
-            errs.append(f"AGENTS.md missing installed static lint reference ({lint_scripts[0]}) at commit")
+        missing_lint = [s for s in lint_scripts if s not in ag_txt]
+        if missing_lint:
+            errs.append(f"AGENTS.md missing installed static lint reference ({', '.join(missing_lint)}) at commit")
     else:
         if "static design lint is planned" not in ag_txt.lower():
             errs.append("AGENTS.md missing planned static lint note at commit")
@@ -321,8 +325,8 @@ def validate_held_retry(alias: str, ref: str, resolved: dict, s16_deps: set[str]
         errs.append(f"{ref} does not depend on D00 T03 §5")
     title = resolved.get("title", "")
     body = resolved.get("body", "")
-    if alias not in title and alias not in body:
-        errs.append(f"{ref} does not name {alias}")
+    if alias not in title:
+        errs.append(f"{ref} title does not name {alias}")
     if ".agents/rules/design-contract.md" not in body:
         errs.append(f"{ref} does not deliver .agents/rules/design-contract.md")
     return errs
@@ -359,7 +363,7 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
         proj = proj_map[alias]
         win = pathlib.Path(proj["windows"])
         posix = proj.get("posix", "")
-        if "held" in disp.lower() or "§" in sha_or_ref:
+        if "held" in disp.lower():
             if "§" not in sha_or_ref:
                 print(f"FAIL {alias:16} held disposition lacks retry ref ({sha_or_ref})")
                 all_ok = False
@@ -396,15 +400,38 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
             print(f"OK   {alias:16} sha={sha_or_ref} paths={p_count}")
 
     if negative_test:
-        berth_sha = next(r[1] for r in table_rows if r[0] == "Berth")
-        berth_root = pathlib.Path(proj_map["Berth"]["windows"])
-        _, raw_b = git_show_bytes(berth_root, berth_sha, ".agents/rules/design-contract.md")
-        bad = raw_b.decode("utf-8").replace("design/SPEC.md", "design/DOES-NOT-EXIST-NEGATIVE.md", 1)
-        neg_errs, _ = check_rule_paths_at_commit(bad, berth_root, berth_sha)
-        if any("design/DOES-NOT-EXIST-NEGATIVE.md" in e for e in neg_errs):
-            print(f"OK   NEGATIVE-PATH   flagged {neg_errs[0]}")
-        else:
-            print(f"FAIL NEGATIVE-PATH   not flagged: {neg_errs}")
+        delivered_candidates = [
+            (a, s) for a, s, d in table_rows if "held" not in d.lower() and HEX_SHA_RE.match(s)
+        ]
+        neg_ran = False
+        for neg_alias, neg_sha in delivered_candidates:
+            neg_proj = proj_map[neg_alias]
+            neg_root = pathlib.Path(neg_proj["windows"])
+            neg_posix = neg_proj.get("posix", "")
+            rc_n, raw_n = git_show_bytes(neg_root, neg_sha, ".agents/rules/design-contract.md", neg_posix)
+            if rc_n != 0:
+                continue
+            rule_n = raw_n.decode("utf-8", errors="replace")
+            paths_n = extract_referenced_paths(rule_n)
+            target_p = next(
+                (p for p in paths_n if p not in RUNTIME_OUTPUT_DIRS and not p.startswith(PROVIDER_PREFIXES) and p != "sdk/DESIGN.md"),
+                None,
+            )
+            if not target_p:
+                continue
+            bad = rule_n.replace(target_p, "design/DOES-NOT-EXIST-NEGATIVE.md", 1)
+            neg_provider = rsdk_root if neg_alias in ("Busview", "Resolute") else None
+            neg_errs, _ = check_rule_paths_at_commit(bad, neg_root, neg_sha, neg_posix, neg_provider)
+            if any("design/DOES-NOT-EXIST-NEGATIVE.md" in e for e in neg_errs):
+                print(f"OK   NEGATIVE-PATH   ({neg_alias}) flagged {neg_errs[0]}")
+                neg_ran = True
+            else:
+                print(f"FAIL NEGATIVE-PATH   ({neg_alias}) not flagged: {neg_errs}")
+                all_ok = False
+                neg_ran = True
+            break
+        if not neg_ran:
+            print("FAIL NEGATIVE-PATH   no delivered project with a local path available")
             all_ok = False
     return 0 if all_ok else 1
 

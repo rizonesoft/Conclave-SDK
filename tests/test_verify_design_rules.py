@@ -156,13 +156,30 @@ class TestVerifyDesignRules(unittest.TestCase):
         self.assertTrue(any("missing authoritative contract reference" in e for e in errs_ptr), errs_ptr)
 
     def test_extracts_root_level_scripts_and_tokens_and_checks_all_literal_bans(self) -> None:
-        extracted = self.mod.extract_referenced_paths("Use `tokens.json` and run `pwsh render.ps1` or `python lint.py`.")
+        extracted = self.mod.extract_referenced_paths(
+            "Use `tokens.json` and `assets\\tokens.rs` and run `pwsh .\\scripts\\render-window.ps1` or `python lint.py`."
+        )
         self.assertIn("tokens.json", extracted)
-        self.assertIn("render.ps1", extracted)
+        self.assertIn("assets/tokens.rs", extracted)
+        self.assertIn("scripts/render-window.ps1", extracted)
         self.assertIn("lint.py", extracted)
         partial_ban = VALID_RULE.replace("spacing, radius, or font size", "spacing only")
         errs = self.mod.check_frontmatter_and_sections(partial_ban)
         self.assertTrue(any("radius" in e and "font" in e for e in errs), errs)
+
+    def test_requires_primary_contract_and_all_installed_lint_scripts(self) -> None:
+        multi_rule = VALID_RULE.replace(
+            "- Authoritative UI contract: `design/SPEC.md`.",
+            "- Authoritative UI contract: `design/SPEC.md` (wins over `design/mockups/panel.html`).",
+        ).replace(
+            "- Run `python scripts/design-lint.py` from the repository root.",
+            "- Verify with `python scripts/build-theme.py --check` and `python scripts/build-icons.py --check`.",
+        )
+        # Citing only the mockup and only one of the two lint scripts must fail both checks
+        bad_agents = "# AGENTS.md\nSee `.agents/rules/design-contract.md`, `design/mockups/panel.html`, and `scripts/build-theme.py`.\n"
+        errs = self.mod.check_agents_md_against_rule(bad_agents, multi_rule, has_provider=False)
+        self.assertTrue(any("design/SPEC.md" in e for e in errs), errs)
+        self.assertTrue(any("scripts/build-icons.py" in e for e in errs), errs)
 
     def test_wsl_git_preserves_argv_boundaries_without_shell_interpolation(self) -> None:
         fake_proc = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"ok", stderr=b"")
@@ -179,7 +196,7 @@ class TestVerifyDesignRules(unittest.TestCase):
             self.assertEqual(cmd[:4], ["wsl.exe", "--exec", "python3", "-c"])
             self.assertEqual(cmd[5:], ["~/example-site", "show", "$(id):x"])
 
-    def test_validate_held_retry_rejects_unrelated_section(self) -> None:
+    def test_validate_held_retry_rejects_unrelated_or_body_only_mention(self) -> None:
         unrelated = {
             "title": "Reviewer Scripts Current in ExampleProj",
             "depends": ["D00 T03 §3"],
@@ -188,6 +205,14 @@ class TestVerifyDesignRules(unittest.TestCase):
         errs = self.mod.validate_held_retry("ExampleProj", "D00 T03 §10", unrelated, {"D00 T03 §10"})
         self.assertTrue(any("does not depend on D00 T03 §5" in e for e in errs), errs)
         self.assertTrue(any("does not deliver .agents/rules/design-contract.md" in e for e in errs), errs)
+
+        body_only = {
+            "title": "Retry Held Project OtherProj for §5",
+            "depends": ["D00 T03 §5"],
+            "body": "Delivers .agents/rules/design-contract.md for OtherProj independently of ExampleProj.",
+        }
+        errs2 = self.mod.validate_held_retry("ExampleProj", "D00 T03 §19", body_only, {"D00 T03 §19"})
+        self.assertTrue(any("title does not name ExampleProj" in e for e in errs2), errs2)
 
 
 if __name__ == "__main__":
