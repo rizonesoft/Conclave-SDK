@@ -51,9 +51,10 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [ ] |
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
-| 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11, §18 | [ ] |
+| 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11, §18, §19 | [ ] |
 | 17 | §17 | One Opus design check before a surface section's review | -- | [x] |
-| 18 | §18 | Retry held projects for §3 and §5 (`Updates`, `RasterFold`) | §5 | [ ] |
+| 18 | §18 | Retry held project `Updates` for §3 and §5 | §5 | [ ] |
+| 19 | §19 | Retry held project `RasterFold` for §5 | §5 | [ ] |
 
 ## 1. Design Lens by Path and Fidelity on Every Prompt
 
@@ -473,9 +474,9 @@ Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and 
 > **Verified:** 2026-11-20 | §17 | e0f50c2ec7d9d59c1ce8a184493b0e3875649726
 > **Review:** `docs/reviews/d00-t03-s17.json`
 
-## 18. Retry Held Projects for §3 and §5 (`Updates`, `RasterFold`)
+## 18. Retry Held Project `Updates` for §3 and §5
 
-`Updates` (`M docs/reviews/00-service/D00-T04-s5.md`, `M src/publish/release.ts`) and `RasterFold` (14 dirty `converter/` files) were held by active edits during `§5`, so neither checkout could be written to safely. This section retries the outstanding `§3` kit refresh (`Updates` `scripts/lib/todo_graph.py`) and `§5` design-contract rule, `.claude/rules/` mirror, `AGENTS.md` citation, and rendered-check filing for both projects once their working trees and run guards are free, blocking `§16` until verified.
+`Updates` (`M docs/reviews/00-service/D00-T04-s5.md`, `M src/publish/release.ts`) was held by an active campaign during `§5`. This section retries the outstanding `§3` kit refresh (`scripts/lib/todo_graph.py`) and `§5` design-contract rule, `.claude/rules/` mirror, `AGENTS.md` citation, and built-app rendered-check filing for `Updates` independently as soon as its checkout and campaign guard are free, blocking `§16` until verified.
 
 **Phase:** 9
 **Needs:** windows-host
@@ -483,15 +484,34 @@ Filed 2026-11-19 at the owner's request. Opus 5.5 is the strongest designer and 
 
 **Build order:**
 
-1. Confirm `Updates` and `RasterFold` have clean working trees and no active run guard, and refresh `Updates` via kit-scoped `forge.py update` before taking its §5 inventory. Done when: `Updates` passes §3 verification (`review_pin.py --check --all`, 4-kind Fidelity rendering, temporary conditional-pin `--no-surface` proof, and `todo-graph.py validate`).
-2. Write `.agents/rules/design-contract.md` (with `trigger: always_on`, under 40 lines, all five parts), mirror byte-equally to `.claude/rules/design-contract.md` where `.claude/rules/` exists, file a built-app rendered-check section where none exists, update `AGENTS.md`, and commit locally in both projects. Done when: both projects pass the §5 fleet verifier at their recorded commit SHAs with clean trees.
+1. Confirm `Updates` has an empty `git status --short` and no live campaign guard (`build/claude-campaign-guard.json`, `.git/run-guard/state.json`, `build/unattended-launch.lock`, and `python scripts/campaign_guard.py whoami` printing `NO GUARD`), then refresh `Updates` via kit-scoped `forge.py update` before taking its §5 inventory. Done when: `Updates` passes §3 verification (`review_pin.py --check --all`, 4-kind Fidelity rendering, temporary conditional-pin `--no-surface` proof, and `todo-graph.py validate`).
+2. Write `.agents/rules/design-contract.md` (`trigger: always_on`, under 40 lines, all five parts), mirror byte-equally to `.claude/rules/design-contract.md`, file a built-app rendered-check section if none exists, update `AGENTS.md`, and verify with `python tools/verify-design-rules.py --project <Updates> --commit HEAD --negative-test`. Done when: the verifier exits 0 with a clean working tree.
 
-- [ ] Verify `Updates` and `RasterFold` have empty `git status --short` and no active `.git/run-guard/state.json`. Done when: both checkouts are free before any write.
-- [ ] Refresh `Updates` via kit-scoped `python forge.py update <Updates> todo --only scripts/lib/todo_graph.py` (and resolve any `base`/`reviewer` drift without overwriting project edits), then run its §3 verification (`review_pin.py --check --all`, 4-kind Fidelity rendering, temporary conditional-pin `--no-surface` proof, and `todo-graph.py validate`) and commit locally. Done when: `Updates` passes all §3 proofs with a clean tree before §5 inventory begins.
-- [ ] Write `.agents/rules/design-contract.md` (`trigger: always_on`, under 40 lines, all five parts) and mirror to `.claude/rules/design-contract.md` (where `.claude/rules/` exists) in `Updates` and `RasterFold`, filing a built-app rendered-check section via each project's `add-todo` if none exists, and update each `AGENTS.md` to cite `.agents/rules/design-contract.md`. Done when: every path cited in both rules exists and both projects commit `rules: the design contract, always on` cleanly. Cheaper substitute: copying another project's rule without reading `Updates` and `RasterFold` directly.
-- [ ] Commit: `docs: retry held projects Updates and RasterFold (D00 T03 §18)`
+- [ ] Confirm `Updates` has empty `git status --short` and no active campaign guard or lock (`build/claude-campaign-guard.json`, `.git/run-guard/state.json`, `build/unattended-launch.lock`, and `python scripts/campaign_guard.py whoami` printing `NO GUARD`). Done when: all guard/lock checks confirm no live writer holds `Updates` before any write.
+- [ ] Refresh `Updates` via kit-scoped `python forge.py update <Updates> todo --only scripts/lib/todo_graph.py` (resolving any `base`/`reviewer` drift without overwriting project edits), run its §3 verification (`review_pin.py --check --all`, 4-kind Fidelity rendering, temporary conditional-pin `--no-surface` proof, and `todo-graph.py validate`), and commit locally. Done when: `Updates` passes all §3 proofs with a clean tree before §5 inventory begins.
+- [ ] Write `.agents/rules/design-contract.md` (`trigger: always_on`, under 40 lines, all five parts) and byte-equal `.claude/rules/design-contract.md` in `Updates`, file a built-app rendered-check section via its `add-todo` if none exists, update `AGENTS.md` to cite `.agents/rules/design-contract.md`, and commit `rules: the design contract, always on` locally. Done when: `python tools/verify-design-rules.py --project <Updates> --commit HEAD --negative-test` exits 0. Cheaper substitute: checking only `git status --short` without checking `build/claude-campaign-guard.json`.
+- [ ] Commit: `docs: retry held project Updates (D00 T03 §18)`
 
-**Test checkpoint:** in `Updates` and `RasterFold`, `.agents/rules/design-contract.md` has `trigger: always_on`, is under 40 lines, passes path verification and scratch missing-path negative check, `AGENTS.md` cites it, `Updates` passes §3 proofs, and both trees have empty `git status --short`.
+**Test checkpoint:** `python tools/verify-design-rules.py --project <Updates> --commit HEAD --negative-test` exits 0, `Updates` passes §3 proofs (`review_pin.py --check --all`, 4-kind Fidelity, `--no-surface` conditional proof, `todo-graph.py validate`), and `git status --short` is empty.
+
+## 19. Retry Held Project `RasterFold` for §5
+
+`RasterFold` (14 dirty `converter/` files) was held by active edits during `§5`. This section delivers `RasterFold`'s `§5` design-contract rule, `AGENTS.md` citation, and built-app rendered-check filing independently as soon as `RasterFold` is free (without waiting on `Updates`), blocking `§16` until verified.
+
+**Phase:** 9
+**Needs:** windows-host
+**Surface:** no
+
+**Build order:**
+
+1. Confirm `RasterFold` has empty `git status --short` and no live guard or lock (`build/unattended-launch.lock`, `.git/run-guard/state.json`, `build/claude-campaign-guard.json`). Done when: no live writer holds `RasterFold`.
+2. Write `.agents/rules/design-contract.md` (`trigger: always_on`, under 40 lines, all five parts), mirror to `.claude/rules/design-contract.md` if `.claude/rules/` exists, file a built-app rendered-check section if none exists, update `AGENTS.md` to cite `.agents/rules/design-contract.md`, commit locally, and verify with `python tools/verify-design-rules.py --project <RasterFold> --posix ~/projects/RasterFold --commit HEAD --negative-test`. Done when: the verifier exits 0 with a clean working tree.
+
+- [ ] Confirm `RasterFold` has empty `git status --short` and no active guard or lock (`build/unattended-launch.lock`, `.git/run-guard/state.json`, `build/claude-campaign-guard.json`). Done when: all guard/lock checks confirm no live writer holds `RasterFold` before any write.
+- [ ] Write `.agents/rules/design-contract.md` (`trigger: always_on`, under 40 lines, all five parts) in `RasterFold` from its own files (mirroring to `.claude/rules/design-contract.md` if `.claude/rules/` exists), file a built-app rendered-check section via its `add-todo` if none exists, update `AGENTS.md` to cite `.agents/rules/design-contract.md`, and commit `rules: the design contract, always on` locally. Done when: `python tools/verify-design-rules.py --project <RasterFold> --posix ~/projects/RasterFold --commit HEAD --negative-test` exits 0. Cheaper substitute: copying another project's rule without reading `RasterFold`'s files.
+- [ ] Commit: `docs: retry held project RasterFold (D00 T03 §19)`
+
+**Test checkpoint:** `python tools/verify-design-rules.py --project <RasterFold> --posix ~/projects/RasterFold --commit HEAD --negative-test` exits 0 and `RasterFold` has empty `git status --short`.
 
 ## Verification
 
