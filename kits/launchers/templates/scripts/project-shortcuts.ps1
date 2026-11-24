@@ -149,14 +149,15 @@ function Get-LegacyIcons([object[]]$ownedLinks) {
   $dirs.Add($IconDir)
   foreach ($d in $legacyIconDirs) { $dirs.Add($d) }
   foreach ($link in $ownedLinks) {
-    try { $d = [Conclave.ShellLink]::Read($link.FullName) } catch { continue }
-    if ($d.Description -and -not [String]::Equals($d.Description, $mark, [StringComparison]::Ordinal) -and $d.Description.StartsWith('conclave-launcher: ', [StringComparison]::Ordinal)) {
-      $storedId = $d.Description.Substring('conclave-launcher: '.Length)
+    $desc = $link.Description
+    $iconPath = $link.IconPath
+    if ($desc -and -not [String]::Equals($desc, $mark, [StringComparison]::Ordinal) -and $desc.StartsWith('conclave-launcher: ', [StringComparison]::Ordinal)) {
+      $storedId = $desc.Substring('conclave-launcher: '.Length)
       $k = Get-IdentityKey $storedId
       if ($k -ne $key) {
         [void]$keys.Add($k)
-        if ($d.IconPath) {
-          $parent = Split-Path $d.IconPath -Parent
+        if ($iconPath) {
+          $parent = Split-Path $iconPath -Parent
           if ($parent) { $dirs.Add($parent) }
         }
       }
@@ -253,7 +254,14 @@ function Get-Owned {
       }
       continue
     }
-    if (Test-OwnedMark $data.Description) { $file }
+    if (Test-OwnedMark $data.Description) {
+      [pscustomobject]@{
+        FullName    = $file.FullName
+        Name        = $file.Name
+        Description = $data.Description
+        IconPath    = $data.IconPath
+      }
+    }
   }
 }
 

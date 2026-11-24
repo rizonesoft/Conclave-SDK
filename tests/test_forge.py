@@ -4637,6 +4637,43 @@ class LaunchersPageTests(unittest.TestCase):
             child_pid_orphan = int(pid_file.read_text(encoding="utf-8").strip())
             self._assert_pid_gone(child_pid_orphan)
 
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object assignment failure runs on Windows")
+    def test_launchers_page_run_tree_kills_suspended_child_if_job_assignment_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real_windll = ctypes.WinDLL
+            spawned = []
+            real_popen = subprocess.Popen
+
+            class _TrackedPopen(real_popen):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, **kwargs)
+                    spawned.append(self.pid)
+
+            class _FailingKernel32:
+                def __init__(self, real):
+                    self._real = real
+
+                def __getattr__(self, name):
+                    if name == "AssignProcessToJobObject":
+                        def _fail(_job, _proc):
+                            ctypes.set_last_error(5)  # ERROR_ACCESS_DENIED
+                            return 0
+                        return _fail
+                    return getattr(self._real, name)
+
+            def _fake_windll(name, *args, **kwargs):
+                dll = real_windll(name, *args, **kwargs)
+                return _FailingKernel32(dll) if name.lower() == "kernel32" else dll
+
+            started = time.monotonic()
+            with unittest.mock.patch.object(ctypes, "WinDLL", side_effect=_fake_windll), \
+                    unittest.mock.patch.object(subprocess, "Popen", _TrackedPopen):
+                with self.assertRaises(OSError):
+                    self._run_tree([sys.executable, "-c", "import time; time.sleep(60)"], cwd=tmp, timeout=5.0)
+            self.assertLess(time.monotonic() - started, 5.0, "_run_tree must not hang when job assignment fails")
+            self.assertEqual(len(spawned), 1)
+            self._assert_pid_gone(spawned[0])
+
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
         pwsh = shutil.which("pwsh")

@@ -1340,13 +1340,30 @@ class ProjectShortcutsTest(unittest.TestCase):
             )
             self.assertEqual(up_mix.returncode, 0, up_mix.stdout + up_mix.stderr)
             self.assertFalse(mixed_icon.exists(), "mixed-spelling legacy icon must be swept after upgrade")
-            # Re-seed mixed icon + link in a separate legacy folder (distinct from primary IconDir); verify denied
-            # enumeration on the separate legacy folder refuses -Remove before deleting any link, and restoring access
-            # lets -Remove clean up both link and icon.
+            # 4b. Re-seed mixed icon + link in the aliased folder (same_vol_long_dir, where long and short names
+            #     alias the same physical directory) and verify -Remove does not delete the same file twice.
+            mixed_icon.write_bytes(b"mixed-legacy-ico-2")
+            self._write_shell_link(
+                legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
+                description=mixed_mark, icon=str(mixed_icon),
+            )
+            rem_alias = run_tree(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                 "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+            )
+            self.assertEqual(rem_alias.returncode, 0, rem_alias.stdout + rem_alias.stderr)
+            self.assertEqual(self.links(), [])
+            self.assertFalse(mixed_icon.exists())
+            self.assertEqual(list(same_vol_long_dir.glob("*.ico")), [])
+            # 4c. Separate legacy folder (distinct from primary IconDir): verify both ACL (RD) denial and a
+            #     Directory.Exists==False non-directory path refuse -Remove before deleting any link, and restoring
+            #     access lets -Remove clean up both link and icon.
             sep_legacy_dir = proj.parent / "separate_legacy_icons"
             sep_legacy_dir.mkdir(parents=True, exist_ok=True)
             sep_mixed_icon = sep_legacy_dir / f"launcher-claude-{mixed_key}.ico"
-            sep_mixed_icon.write_bytes(b"mixed-legacy-ico-2")
+            sep_mixed_icon.write_bytes(b"mixed-legacy-ico-3")
             self._write_shell_link(
                 legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
                 description=mixed_mark, icon=str(sep_mixed_icon),
@@ -1376,23 +1393,54 @@ class ProjectShortcutsTest(unittest.TestCase):
             self.assertEqual(rem_mix.returncode, 0, rem_mix.stdout + rem_mix.stderr)
             self.assertEqual(self.links(), [])
             self.assertFalse(sep_mixed_icon.exists())
-            self.assertEqual(list(same_vol_long_dir.glob("*.ico")), [])
-            # Verify relative -IconDir resolves against PowerShell's current location (Set-Location), not .NET CWD.
-            rel_base = self.base / "rel_location"
-            rel_icons = rel_base / "rel-icons"
-            rel_icons.mkdir(parents=True, exist_ok=True)
-            long_key = hashlib.sha256(long_path.lower().encode("utf-8")).hexdigest()[:8]
-            rel_ico = rel_icons / f"launcher-claude-{long_key}.ico"
-            rel_ico.write_bytes(b"rel-ico")
-            ps_rel = (
-                f"Set-Location -LiteralPath '{rel_base}'; "
-                f"& '{proj / 'scripts/project-shortcuts.ps1'}' -Project '{long_path}' "
-                f"-ShortcutDir '{self.desk}' -IconDir 'rel-icons' -Remove "
-                f"-Wsl '{self.wsl}' -Python '{sys.executable}'"
+            # 4d. Non-directory blocking legacy icon folder (Directory.Exists returns false, GetFiles throws IOException).
+            blocked_file = proj.parent / "blocked_legacy_path"
+            blocked_file.write_text("not a dir", encoding="utf-8")
+            self._write_shell_link(
+                legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=mixed_path,
+                description=mixed_mark, icon=str(blocked_file / f"launcher-claude-{mixed_key}.ico"),
             )
-            rem_rel = run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", ps_rel], timeout=120, env=self.env())
-            self.assertEqual(rem_rel.returncode, 0, rem_rel.stdout + rem_rel.stderr)
-            self.assertFalse(rel_ico.exists(), "relative -IconDir must resolve against PowerShell Set-Location")
+            blocked_rem = run_tree(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                 "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+            )
+            self.assertEqual(blocked_rem.returncode, 1, blocked_rem.stdout + blocked_rem.stderr)
+            self.assertIn("the icon folder cannot be read", blocked_rem.stdout)
+            self.assertEqual(self.links(), ["Short Path App (Claude).lnk"])
+            blocked_file.unlink()
+            rem_after = run_tree(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                 "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                timeout=120, env=self.env(LOCALAPPDATA=str(same_vol_appdata)),
+            )
+            self.assertEqual(rem_after.returncode, 0, rem_after.stdout + rem_after.stderr)
+            self.assertEqual(self.links(), [])
+
+    def test_relative_icon_dir_resolves_against_powershell_location(self):
+        # Independent of 8.3 availability: relative -IconDir must resolve against PowerShell's Set-Location, not .NET CWD.
+        rel_base = self.base / "rel_location"
+        rel_icons = rel_base / "rel-icons"
+        rel_icons.mkdir(parents=True, exist_ok=True)
+        long_path = str(self.project.resolve()).rstrip("\\")
+        long_key = hashlib.sha256(long_path.lower().encode("utf-8")).hexdigest()[:8]
+        rel_ico = rel_icons / f"launcher-claude-{long_key}.ico"
+        rel_ico.write_bytes(b"rel-ico")
+        ps_rel = (
+            "Set-Location -LiteralPath $env:REL_BASE; "
+            "& $env:REL_SCRIPT -Project $env:REL_PROJ "
+            "-ShortcutDir $env:REL_DESK -IconDir 'rel-icons' -Remove "
+            "-Wsl $env:REL_WSL -Python $env:REL_PY"
+        )
+        rem_rel = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-Command", ps_rel], timeout=120,
+            env=self.env(REL_BASE=str(rel_base), REL_SCRIPT=str(self.project / "scripts/project-shortcuts.ps1"),
+                         REL_PROJ=long_path, REL_DESK=str(self.desk), REL_WSL=str(self.wsl), REL_PY=sys.executable),
+        )
+        self.assertEqual(rem_rel.returncode, 0, rem_rel.stdout + rem_rel.stderr)
+        self.assertFalse(rel_ico.exists(), "relative -IconDir must resolve against PowerShell Set-Location")
 
 
 
