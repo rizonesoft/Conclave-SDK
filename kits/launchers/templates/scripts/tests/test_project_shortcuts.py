@@ -1071,6 +1071,240 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(wsl_calls[0][7], declared_bash("WordPress"))
         self.assertEqual(wsl_calls[0][8:], ["bash", "python3 scripts/open-dashboard.py"])
 
+    def _write_shell_link(self, link_path, *, target, arguments="", workdir="", description="", icon="", icon_index=0):
+        """Write a real .lnk through scripts/lib/ShellLink.cs for seeding legacy or foreign-mark test fixtures."""
+        cs = str(self.project / "scripts/lib/ShellLink.cs")
+        script = (
+            "$ErrorActionPreference = 'Stop'; "
+            "Add-Type -LiteralPath $env:SL_CS; "
+            "$d = [Conclave.ShellLinkData]::new(); "
+            "$d.Target = $env:SL_TARGET; $d.Arguments = $env:SL_ARGS; $d.WorkingDirectory = $env:SL_WORKDIR; "
+            "$d.Description = $env:SL_DESC; $d.IconPath = $env:SL_ICON; $d.IconIndex = [int]$env:SL_ICON_IDX; "
+            "[Conclave.ShellLink]::Write($env:SL_PATH, $d)"
+        )
+        done = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-Command", script],
+            timeout=60,
+            env={
+                **os.environ,
+                "SL_CS": cs,
+                "SL_PATH": str(link_path),
+                "SL_TARGET": str(target),
+                "SL_ARGS": arguments,
+                "SL_WORKDIR": str(workdir),
+                "SL_DESC": description,
+                "SL_ICON": str(icon),
+                "SL_ICON_IDX": str(icon_index),
+            },
+        )
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+
+    def test_composed_and_decomposed_unicode_wsl_paths_stay_distinct_across_all_checks(self):
+        nfc_path = "/srv/caf\u00e9"
+        nfd_path = "/srv/cafe\u0301"
+        nfc_proj = self.make_project("proj-nfc", dict(PROFILE, title="Cafe NFC"))
+        nfd_proj = self.make_project("proj-nfd", dict(PROFILE, title="Cafe NFD"))
+        # Create links for both canonically equivalent WSL paths in the same shortcut/icon folders.
+        for proj, wsl_path in ((nfc_proj, nfc_path), (nfd_proj, nfd_path)):
+            done = self.run_script("-Distro", "Ubuntu", "-Project", wsl_path, project=proj)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.links(), ["Cafe NFC (Claude).lnk", "Cafe NFD (Claude).lnk"])
+        # -Inspect must keep NFC and NFD distinct (ordinal mark comparison).
+        insp_nfc = self.run_script("-Distro", "Ubuntu", "-Project", nfc_path, "-Inspect", project=nfc_proj)
+        self.assertEqual(insp_nfc.returncode, 0, insp_nfc.stdout + insp_nfc.stderr)
+        self.assertIn("Cafe NFC (Claude).lnk", insp_nfc.stdout)
+        self.assertNotIn("Cafe NFD (Claude).lnk", insp_nfc.stdout)
+        insp_nfd = self.run_script("-Distro", "Ubuntu", "-Project", nfd_path, "-Inspect", project=nfd_proj)
+        self.assertEqual(insp_nfd.returncode, 0, insp_nfd.stdout + insp_nfd.stderr)
+        self.assertIn("Cafe NFD (Claude).lnk", insp_nfd.stdout)
+        self.assertNotIn("Cafe NFC (Claude).lnk", insp_nfd.stdout)
+        # Rerunning NFC must not touch NFD's link (Get-Owned + stale sweep).
+        rerun_nfc = self.run_script("-Distro", "Ubuntu", "-Project", nfc_path, project=nfc_proj)
+        self.assertEqual(rerun_nfc.returncode, 0, rerun_nfc.stdout + rerun_nfc.stderr)
+        self.assertEqual(self.links(), ["Cafe NFC (Claude).lnk", "Cafe NFD (Claude).lnk"])
+        # Staging-race (replacement & stale-link backup checks) with a canonically equivalent foreign Unicode mark.
+        foreign_lnk = self.base / "foreign-nfd.lnk"
+        self._write_shell_link(
+            foreign_lnk,
+            target=str(self.wt_dir / "wt.exe"),
+            description=f"conclave-launcher: wsl:ubuntu:{nfd_path}",
+        )
+        foreign_bytes = foreign_lnk.read_bytes()
+        wrapper_py = self.base / "inject_unicode_race.py"
+        wrapper_py.write_text(
+            "import os, runpy, shutil, sys\n"
+            "args = sys.argv[1:]\n"
+            "if args and args[0] == '-B':\n"
+            "    args = args[1:]\n"
+            "sys.argv = args\n"
+            "try:\n"
+            "    runpy.run_path(args[0], run_name='__main__')\n"
+            "except SystemExit as exc:\n"
+            "    code = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)\n"
+            "else:\n"
+            "    code = 0\n"
+            "if code == 0 and 'overlay' in args:\n"
+            "    shutil.copyfile(os.environ['RACE_SRC'], os.environ['RACE_DST'])\n"
+            "sys.exit(code)\n",
+            encoding="utf-8",
+        )
+        wrapper_cmd = self.base / "inject_unicode_race.cmd"
+        wrapper_cmd.write_text(f'@"{sys.executable}" "{wrapper_py}" %*\r\n', encoding="utf-8")
+        # 1. Replacement backup check: foreign NFD link placed at NFC's destination during staging.
+        nfc_link = self.desk / "Cafe NFC (Claude).lnk"
+        race_rep = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(nfc_proj / "scripts/project-shortcuts.ps1"),
+             "-Distro", "Ubuntu", "-Project", nfc_path, "-ShortcutDir", str(self.desk), "-IconDir", str(self.icons),
+             "-Wsl", str(self.wsl), "-Python", str(wrapper_cmd)],
+            timeout=120,
+            env=self.env(RACE_SRC=str(foreign_lnk), RACE_DST=str(nfc_link)),
+        )
+        self.assertEqual(race_rep.returncode, 1, race_rep.stdout + race_rep.stderr)
+        self.assertIn("changed during the run and is no longer this project's link", race_rep.stdout)
+        self.assertEqual(nfc_link.read_bytes(), foreign_bytes)
+        self.assertEqual(self.leftovers(), [])
+        # Restore NFC link before testing the stale-link backup check.
+        nfc_link.unlink()
+        self.assertEqual(self.run_script("-Distro", "Ubuntu", "-Project", nfc_path, project=nfc_proj).returncode, 0)
+        # 2. Stale-link backup check: rename NFC title so Cafe NFC (Claude).lnk becomes stale, then swap it with NFD.
+        self.write_profile(nfc_proj, dict(PROFILE, title="Cafe NFC Renamed"))
+        race_stale = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(nfc_proj / "scripts/project-shortcuts.ps1"),
+             "-Distro", "Ubuntu", "-Project", nfc_path, "-ShortcutDir", str(self.desk), "-IconDir", str(self.icons),
+             "-Wsl", str(self.wsl), "-Python", str(wrapper_cmd)],
+            timeout=120,
+            env=self.env(RACE_SRC=str(foreign_lnk), RACE_DST=str(nfc_link)),
+        )
+        self.assertEqual(race_stale.returncode, 1, race_stale.stdout + race_stale.stderr)
+        self.assertIn("changed during the run and is no longer this project's link", race_stale.stdout)
+        self.assertEqual(nfc_link.read_bytes(), foreign_bytes)
+        self.assertNotIn("Cafe NFC Renamed (Claude).lnk", self.links())
+        self.assertEqual(self.leftovers(), [])
+        # Restore clean NFC link and verify -Remove removes only NFC, leaving NFD intact.
+        nfc_link.unlink()
+        self.write_profile(nfc_proj, dict(PROFILE, title="Cafe NFC"))
+        self.assertEqual(self.run_script("-Distro", "Ubuntu", "-Project", nfc_path, project=nfc_proj).returncode, 0)
+        rem_nfc = self.run_script("-Distro", "Ubuntu", "-Project", nfc_path, "-Remove", project=nfc_proj)
+        self.assertEqual(rem_nfc.returncode, 0, rem_nfc.stdout + rem_nfc.stderr)
+        self.assertEqual(self.links(), ["Cafe NFD (Claude).lnk"])
+        self.assertEqual(len(list(self.icons.iterdir())), 1)
+        rem_nfd = self.run_script("-Distro", "Ubuntu", "-Project", nfd_path, "-Remove", project=nfd_proj)
+        self.assertEqual(rem_nfd.returncode, 0, rem_nfd.stdout + rem_nfd.stderr)
+        self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
+
+    def test_windows_8_3_short_path_shares_identity_and_upgrades_legacy_short_marks(self):
+        long_leaf = "Long Example Project Name"
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.GetShortPathNameW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32]
+        kernel32.GetShortPathNameW.restype = ctypes.c_uint32
+
+        def short_of(path):
+            buf = ctypes.create_unicode_buffer(1024)
+            n = kernel32.GetShortPathNameW(str(path), buf, len(buf))
+            self.assertGreater(n, 0)
+            return buf.value.rstrip("\\")
+
+        proj = self.make_project(long_leaf, dict(PROFILE, title="Short Path App"))
+        short_path = short_of(proj)
+        long_path = str(proj.resolve()).rstrip("\\")
+        if short_path.lower() == long_path.lower():
+            # Default TEMP may sit on a secondary volume with 8.3 disabled; try the system-drive temp folder.
+            sys_temp = Path(os.environ.get("LOCALAPPDATA", "")) / "Temp"
+            if sys_temp.is_dir():
+                c_tmp = tempfile.TemporaryDirectory(dir=str(sys_temp))
+                self.addCleanup(c_tmp.cleanup)
+                c_proj = Path(c_tmp.name) / long_leaf
+                shutil.copytree(proj, c_proj)
+                proj = c_proj
+                short_path = short_of(proj)
+                long_path = str(proj.resolve()).rstrip("\\")
+        if short_path.lower() == long_path.lower():
+            self.skipTest("no writable volume on this host has 8.3 short names enabled")
+        short_leaf = Path(short_path).name
+        local_appdata = self.base / "localappdata"
+        local_appdata.mkdir()
+        # 1. Create using 8.3 short path with default IconDir (omitting -IconDir): icon lands under long leaf folder.
+        cmd_short = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                     "-Project", short_path, "-ShortcutDir", str(self.desk),
+                     "-Wsl", str(self.wsl), "-Python", sys.executable]
+        done = run_tree(cmd_short, timeout=180, env=self.env(LOCALAPPDATA=str(local_appdata)))
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        link = self.read_named("Short Path App (Claude)")
+        self.assertEqual(link["description"], f"conclave-launcher: {long_path.lower()}")
+        expected_long_icon_dir = local_appdata / long_leaf
+        self.assertTrue(expected_long_icon_dir.is_dir(), list(local_appdata.iterdir()))
+        self.assertEqual(Path(link["icon"]).parent.resolve(), expected_long_icon_dir.resolve())
+        # -Inspect from both long and short spellings sees the same link.
+        for spelling in (long_path, short_path):
+            insp = run_tree(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+                 "-Project", spelling, "-ShortcutDir", str(self.desk), "-Inspect",
+                 "-Wsl", str(self.wsl), "-Python", sys.executable],
+                timeout=120, env=self.env(LOCALAPPDATA=str(local_appdata)),
+            )
+            self.assertEqual(insp.returncode, 0, insp.stdout + insp.stderr)
+            self.assertIn("Short Path App (Claude).lnk", insp.stdout)
+        # Clean up before seeding pre-change 8.3 legacy state.
+        rem0 = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+             "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+             "-Wsl", str(self.wsl), "-Python", sys.executable],
+            timeout=120, env=self.env(LOCALAPPDATA=str(local_appdata)),
+        )
+        self.assertEqual(rem0.returncode, 0, rem0.stdout + rem0.stderr)
+        self.assertEqual(self.links(), [])
+        self.assertEqual(list(expected_long_icon_dir.glob("*.ico")), [])
+        # 2. Seed pre-change 8.3 short-path mark + legacy icon under short-leaf folder; test -Inspect, upgrade, -Remove.
+        legacy_identity = short_path.lower()
+        legacy_mark = f"conclave-launcher: {legacy_identity}"
+        legacy_key = hashlib.sha256(legacy_identity.encode("utf-8")).hexdigest()[:8]
+        legacy_icon_dir = local_appdata / short_leaf
+        legacy_icon_dir.mkdir(parents=True, exist_ok=True)
+        legacy_icon = legacy_icon_dir / f"launcher-claude-{legacy_key}.ico"
+        legacy_icon.write_bytes(b"legacy-ico")
+        legacy_lnk = self.desk / "Short Path App (Claude).lnk"
+        self._write_shell_link(
+            legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=short_path,
+            description=legacy_mark, icon=str(legacy_icon),
+        )
+        insp_leg = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+             "-Project", long_path, "-ShortcutDir", str(self.desk), "-Inspect",
+             "-Wsl", str(self.wsl), "-Python", sys.executable],
+            timeout=120, env=self.env(LOCALAPPDATA=str(local_appdata)),
+        )
+        self.assertEqual(insp_leg.returncode, 0, insp_leg.stdout + insp_leg.stderr)
+        self.assertIn("Short Path App (Claude).lnk", insp_leg.stdout)
+        self.assertIn(legacy_mark, insp_leg.stdout)
+        # Rerun upgrades mark to canonical long path and sweeps legacy short-key icon.
+        upgrade = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+             "-Project", long_path, "-ShortcutDir", str(self.desk),
+             "-Wsl", str(self.wsl), "-Python", sys.executable],
+            timeout=180, env=self.env(LOCALAPPDATA=str(local_appdata)),
+        )
+        self.assertEqual(upgrade.returncode, 0, upgrade.stdout + upgrade.stderr)
+        upgraded = self.read_named("Short Path App (Claude)")
+        self.assertEqual(upgraded["description"], f"conclave-launcher: {long_path.lower()}")
+        self.assertFalse(legacy_icon.exists(), "legacy 8.3 icon must be swept after upgrade")
+        # 3. Re-seed pre-change 8.3 link + legacy icon and verify -Remove removes both cleanly.
+        legacy_icon_dir.mkdir(parents=True, exist_ok=True)
+        legacy_icon.write_bytes(b"legacy-ico-2")
+        self._write_shell_link(
+            legacy_lnk, target=str(self.wt_dir / "wt.exe"), workdir=short_path,
+            description=legacy_mark, icon=str(legacy_icon),
+        )
+        rem_leg = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(proj / "scripts/project-shortcuts.ps1"),
+             "-Project", long_path, "-ShortcutDir", str(self.desk), "-Remove",
+             "-Wsl", str(self.wsl), "-Python", sys.executable],
+            timeout=120, env=self.env(LOCALAPPDATA=str(local_appdata)),
+        )
+        self.assertEqual(rem_leg.returncode, 0, rem_leg.stdout + rem_leg.stderr)
+        self.assertEqual(self.links(), [])
+        self.assertFalse(legacy_icon.exists(), "legacy 8.3 icon must be removed by -Remove")
+        self.assertEqual(list(expected_long_icon_dir.glob("*.ico")), [])
+
 
 
 @unittest.skipUnless(BASH, "the shell tests need a real bash (Git's on Windows)")

@@ -1594,6 +1594,13 @@ class BrowserTest(unittest.TestCase):
         self.assertEqual(list(self.pages.glob(".open-*.tmp")), [])
         self.assertEqual(concurrent_page.read_text(encoding="utf-8"), "concurrent launch")
 
+    def test_page_records_only_published_page_in_created_list(self):
+        created = []
+        page = od._page("https://example.com/?conclave_ticket=" + "ab" * 32, created=created)
+        self.assertEqual(created, [page])
+        self.assertTrue(page.is_file())
+        self.assertEqual(list(self.pages.glob(".open-*.tmp")), [])
+
 
 class CommandLineTest(unittest.TestCase):
 

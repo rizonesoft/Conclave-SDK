@@ -47,8 +47,22 @@ if (-not $Project) { $Project = $root }
 
 function Refuse([string]$why) { "project-shortcuts: $why; nothing was written"; exit 1 }
 
+if ($Remove -and $Inspect) { Refuse 'pass either -Remove or -Inspect, not both' }
+
+# Links are written and read through IShellLinkW (scripts/lib/ShellLink.cs), which also supplies ShellPath.Long so
+# existing Windows paths normalize before identity derivation across create, -Remove, and -Inspect.
+$shellLink = Join-Path $here 'lib\ShellLink.cs'
+if (-not (Test-Path -LiteralPath $shellLink -PathType Leaf)) {
+  Refuse "missing $shellLink (python forge.py kit <project> launchers installs it)"
+}
+Add-Type -LiteralPath $shellLink
+
 # --- the project's identity ---------------------------------------------------------------------------------------
 $linux = $null
+$legacyMark = $null
+$legacyKey = $null
+$legacyDefaultIconDir = $null
+$iconDirDefaulted = -not [bool]$IconDir
 if ($Project -match '^\\\\wsl(?:\.localhost|\$)\\([^\\]+)\\?(.*)$') {
   if (-not $Distro) { $Distro = $Matches[1] }
   elseif ($Matches[1] -ne $Distro) { Refuse "the project is in distro '$($Matches[1])', not '$Distro'" }
@@ -66,8 +80,24 @@ if ($null -ne $linux) {
 } else {
   $found = Resolve-Path -LiteralPath $Project -ErrorAction Ignore
   if ($found) {
-    # ProviderPath: .Path keeps PowerShell's provider prefix on some paths, which no other program reads.
-    $Project = $found.ProviderPath.TrimEnd('\')
+    # ProviderPath strips PowerShell's provider prefix; ShellPath.Long expands 8.3 short names so short and long
+    # spellings of one Windows folder share one identity.
+    $rawPath = $found.ProviderPath.TrimEnd('\')
+    $Project = [Conclave.ShellPath]::Long($rawPath).TrimEnd('\')
+    $shortPath = [Conclave.ShellPath]::Short($Project).TrimEnd('\')
+    if (-not [String]::Equals($shortPath, $Project, [StringComparison]::OrdinalIgnoreCase)) {
+      $legacyIdentity = $shortPath.ToLowerInvariant()
+      $legacyMark = "conclave-launcher: $legacyIdentity"
+      $legacySha = [System.Security.Cryptography.SHA256]::Create()
+      $legacyKey = -join ($legacySha.ComputeHash([Text.Encoding]::UTF8.GetBytes($legacyIdentity))[0..3] | ForEach-Object { $_.ToString('x2') })
+      if ($iconDirDefaulted) {
+        $legacyName = Split-Path $shortPath -Leaf
+        $candidateDir = Join-Path $env:LOCALAPPDATA $legacyName
+        if (-not [String]::Equals($candidateDir, (Join-Path $env:LOCALAPPDATA (Split-Path $Project -Leaf)), [StringComparison]::OrdinalIgnoreCase)) {
+          $legacyDefaultIconDir = $candidateDir
+        }
+      }
+    }
   } elseif ($Remove -or $Inspect) {
     $Project = [IO.Path]::GetFullPath($Project).TrimEnd('\')   # removal/inspection work when the folder is gone
   } else {
@@ -79,18 +109,15 @@ if ($null -ne $linux) {
 if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
 $mark = "conclave-launcher: $identity"
 $sha = [System.Security.Cryptography.SHA256]::Create()
-# Every comparison of an identity below is exact (-ceq): PowerShell's -eq ignores case.
 $key = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity))[0..3] | ForEach-Object { $_.ToString('x2') })
 
-if ($Remove -and $Inspect) { Refuse 'pass either -Remove or -Inspect, not both' }
-
-# Links are written and read through IShellLinkW (scripts/lib/ShellLink.cs), which keeps every field in Unicode at its
-# full length across create, -Remove, and -Inspect.
-$shellLink = Join-Path $here 'lib\ShellLink.cs'
-if (-not (Test-Path -LiteralPath $shellLink -PathType Leaf)) {
-  Refuse "missing $shellLink (python forge.py kit <project> launchers installs it)"
+# Exact code-unit comparison: PowerShell's -ceq/-cne fold canonical Unicode equivalence (composed vs decomposed).
+function Test-OwnedMark([string]$desc) {
+  if ($null -eq $desc) { return $false }
+  if ([String]::Equals($desc, $mark, [StringComparison]::Ordinal)) { return $true }
+  if ($legacyMark -and [String]::Equals($desc, $legacyMark, [StringComparison]::Ordinal)) { return $true }
+  return $false
 }
-Add-Type -LiteralPath $shellLink
 
 # --- inspection: reads owned links through ShellLink.cs without launching any of them ----------------------------
 if ($Inspect) {
@@ -106,7 +133,7 @@ if ($Inspect) {
     $f = $_
     try {
       $l = [Conclave.ShellLink]::Read($f.FullName)
-      if ($l.Description -ceq $mark) {
+      if (Test-OwnedMark $l.Description) {
         [pscustomobject]@{
           Link        = $f.Name
           Target      = $l.Target
@@ -157,7 +184,7 @@ function Get-Owned {
       }
       continue
     }
-    if ($data.Description -ceq $mark) { $file }
+    if (Test-OwnedMark $data.Description) { $file }
   }
 }
 
@@ -170,6 +197,12 @@ if ($Remove) {
   }
   foreach ($link in $links) { Remove-Item -LiteralPath $link.FullName -Force; "removed: $($link.FullName)" }
   $icons = @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore)
+  if ($legacyKey) {
+    $icons += @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore)
+    if ($legacyDefaultIconDir -and (Test-Path -LiteralPath $legacyDefaultIconDir -PathType Container)) {
+      $icons += @(Get-ChildItem -LiteralPath $legacyDefaultIconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore)
+    }
+  }
   foreach ($file in $icons) { Remove-Item -LiteralPath $file.FullName -Force; "removed: $($file.FullName)" }
   "project-shortcuts: $($links.Count) link(s) and $($icons.Count) icon(s) of $identity removed"
   exit 0
@@ -350,6 +383,14 @@ $kept = @($plan | ForEach-Object { Split-Path $_.Icon -Leaf })
 $staleLinks = @($ownedBefore | Where-Object { $written -notcontains $_.Name } | ForEach-Object { $_.FullName })
 $staleIcons = @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$key.ico" -File -ErrorAction Ignore |
                 Where-Object { $kept -notcontains $_.Name } | ForEach-Object { $_.FullName })
+if ($legacyKey) {
+  $staleIcons += @(Get-ChildItem -LiteralPath $IconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore |
+                   ForEach-Object { $_.FullName })
+  if ($legacyDefaultIconDir -and (Test-Path -LiteralPath $legacyDefaultIconDir -PathType Container)) {
+    $staleIcons += @(Get-ChildItem -LiteralPath $legacyDefaultIconDir -Filter "launcher-*-$legacyKey.ico" -File -ErrorAction Ignore |
+                     ForEach-Object { $_.FullName })
+  }
+}
 $stale = $staleLinks + $staleIcons
 try {
   foreach ($s in $staged) {
@@ -361,7 +402,7 @@ try {
     $entry = [pscustomobject]@{ Dest = $s.Dest; Backup = $backup; Placed = $false }
     $moved.Add($entry)
     # Verify ownership of any link that appeared or changed at a planned destination during staging.
-    if ($s.IsLink -and $backup -and (Get-Mark $backup) -cne $mark) {
+    if ($s.IsLink -and $backup -and -not (Test-OwnedMark (Get-Mark $backup))) {
       throw "'$($s.Dest)' changed during the run and is no longer this project's link"
     }
     Move-Item -LiteralPath $s.Temp -Destination $s.Dest
@@ -372,7 +413,7 @@ try {
     Move-Item -LiteralPath $old -Destination $backup
     $moved.Add([pscustomobject]@{ Dest = $old; Backup = $backup; Placed = $false })
     # Verify ownership of the file actually moved aside before committing its deletion.
-    if ((Get-Mark $backup) -cne $mark) {
+    if (-not (Test-OwnedMark (Get-Mark $backup))) {
       throw "'$old' changed during the run and is no longer this project's link"
     }
   }

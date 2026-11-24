@@ -217,8 +217,9 @@ def _redirect_html(url):
 
 def _page(url, created=None):
     """A redirect page of this launch's own, in a folder only this user reads; the pages of earlier launches older
-    than the ticket's lifetime (dead tickets) are removed. When `created` is given, this launch's temporary and target
-    paths are recorded before `os.replace` so caller-side cancellation cleanup covers the return handoff too."""
+    than the ticket's lifetime (dead tickets) are removed. Temporary-file cleanup stays inside `_page` from acquisition;
+    when `created` is given, only the published `page` pathname is appended before `os.replace` so caller-side
+    cancellation cleanup covers the return handoff without retaining the freed temporary pathname."""
     try:
         PAGES.mkdir(mode=0o700, parents=True, exist_ok=True)
         os.chmod(PAGES, 0o700)
@@ -230,16 +231,20 @@ def _page(url, created=None):
                 except OSError:
                     pass   # a stale file that cannot go holds a dead ticket only; the next launch tries again
         text = _redirect_html(url)
-        fd, temporary = tempfile.mkstemp(prefix=".open-", suffix=".tmp", dir=PAGES)   # mode 0600
-        page = PAGES / ("open-" + Path(temporary).name[len(".open-"):-len(".tmp")] + ".html")
-        if created is not None:
-            created.extend((temporary, page))
+        temporary = None
+        page = None
         try:
+            fd, temporary = tempfile.mkstemp(prefix=".open-", suffix=".tmp", dir=PAGES)   # mode 0600
+            page = PAGES / ("open-" + Path(temporary).name[len(".open-"):-len(".tmp")] + ".html")
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 handle.write(text)
+            if created is not None:
+                created.append(page)
             os.replace(temporary, page)
         except BaseException:
             for cleanup in (temporary, page):
+                if cleanup is None:
+                    continue
                 try:
                     os.unlink(cleanup)
                 except OSError:

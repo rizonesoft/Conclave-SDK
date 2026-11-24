@@ -52,6 +52,9 @@ namespace Conclave
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern int GetLongPathNameW(string shortPath, StringBuilder longPath, int size);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int GetShortPathNameW(string longPath, StringBuilder shortPath, int size);
+
         // The long spelling of an existing path (C:\Users\RUNNER~1 is C:\Users\runneradmin), so one folder has one
         // name whichever spelling it was handed in; a path that does not exist, or that the call cannot expand, is
         // returned as it came.
@@ -59,6 +62,15 @@ namespace Conclave
         {
             var text = new StringBuilder(32768);
             int length = GetLongPathNameW(path, text, text.Capacity);
+            return length > 0 && length < text.Capacity ? text.ToString() : path;
+        }
+
+        // The 8.3 short spelling of an existing path, used only to recognize and upgrade or remove legacy pre-normalization
+        // shortcuts; returns the input unchanged when the volume has no 8.3 name or the path does not exist.
+        public static string Short(string path)
+        {
+            var text = new StringBuilder(32768);
+            int length = GetShortPathNameW(path, text, text.Capacity);
             return length > 0 && length < text.Capacity ? text.ToString() : path;
         }
     }

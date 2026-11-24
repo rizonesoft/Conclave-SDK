@@ -7,6 +7,7 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -4385,14 +4386,14 @@ class LaunchersPageTests(unittest.TestCase):
             if os.name == "nt":
                 pwsh = shutil.which("pwsh")
                 self.assertIsNotNone(pwsh, "pwsh required on Windows")
-                ran = subprocess.run([pwsh, "-NoProfile", "-Command", run_cmd], cwd=target,
-                                     capture_output=True, text=True, timeout=30,
-                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                ran = self._run_tree([pwsh, "-NoProfile", "-Command", run_cmd], cwd=target, timeout=30)
             else:
-                ran = subprocess.run(["bash", "-lc", run_cmd], cwd=target, capture_output=True, text=True, timeout=30,
-                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                ran = self._run_tree(["bash", "-lc", run_cmd], cwd=target, timeout=30)
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
             self.assertIn("laravel-ok", ran.stdout)
+            # Both slug refusal examples (reserved agent icon slug and empty punctuation-only slug) are documented.
+            self.assertIn("Claude!", text)
+            self.assertIn("!!!", text)
 
             # Installed project-launchers skill in all three agent directories.
             for agent_dir in (".agents", ".claude", ".codex"):
@@ -4444,9 +4445,18 @@ class LaunchersPageTests(unittest.TestCase):
 
     def _run_tree(self, argv, cwd, timeout=60, env=None):
         no_win = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL,
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                                env=env, creationflags=no_win)
+        kwargs = {
+            "cwd": cwd,
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "env": env,
+            "creationflags": no_win,
+        }
+        if os.name != "nt":
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen(argv, **kwargs)
         try:
             out, err = proc.communicate(timeout=timeout)
             return subprocess.CompletedProcess(argv, proc.returncode, out, err)
@@ -4455,7 +4465,10 @@ class LaunchersPageTests(unittest.TestCase):
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=no_win)
             else:
-                proc.kill()
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
             proc.wait()
             raise
 
@@ -4464,18 +4477,69 @@ class LaunchersPageTests(unittest.TestCase):
         clean = re.sub(r"\x1b\[[0-9;]*m", "", output)
         records = []
         current = {}
+        last_key = None
         for line in clean.splitlines():
             if not line.strip():
                 if current:
                     records.append(current)
                     current = {}
+                    last_key = None
                 continue
             m = re.match(r"^(\w+)\s*:\s*(.*)$", line)
             if m:
-                current[m.group(1)] = m.group(2).strip()
+                last_key = m.group(1)
+                current[last_key] = m.group(2).strip()
+            elif last_key and line[:1].isspace():
+                current[last_key] += line.strip()
         if current:
             records.append(current)
         return {r["Link"]: r for r in records if "Link" in r}
+
+    def test_launchers_page_format_list_joins_wrapped_continuation_lines(self):
+        wrapped = (
+            "Link        : Shop App (Claude).lnk\n"
+            "Target      : C:\\Program Files\\WindowsApps\\wt.exe\n"
+            "IconPath    : C:\\Users\\example\\AppData\\Local\\VeryLongProjectFolderName\\\n"
+            "              launcher-claude-1234abcd.ico\n"
+            "Description : conclave-launcher: c:\\work\\shop\n"
+        )
+        parsed = self._parse_format_list(wrapped)
+        self.assertIn("Shop App (Claude).lnk", parsed)
+        self.assertEqual(
+            parsed["Shop App (Claude).lnk"]["IconPath"],
+            "C:\\Users\\example\\AppData\\Local\\VeryLongProjectFolderName\\launcher-claude-1234abcd.ico",
+        )
+
+    def test_launchers_page_run_tree_kills_child_process_tree_on_timeout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pid_file = pathlib.Path(tmp) / "child.pid"
+            # Parent spawns a sleeping grandchild, writes its PID, and waits.
+            parent_code = (
+                "import pathlib, subprocess, sys, time; "
+                "c = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
+                "creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)); "
+                f"pathlib.Path({str(pid_file)!r}).write_text(str(c.pid), encoding='utf-8'); "
+                "time.sleep(60)"
+            )
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self._run_tree([sys.executable, "-c", parent_code], cwd=tmp, timeout=1.5)
+            deadline = time.monotonic() + 3.0
+            child_pid = None
+            while time.monotonic() < deadline and not pid_file.exists():
+                time.sleep(0.05)
+            if pid_file.exists():
+                child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+                # Confirm the grandchild process was terminated by process-tree cleanup.
+                if os.name == "nt":
+                    check = subprocess.run(
+                        ["tasklist", "/FI", f"PID eq {child_pid}", "/NH"],
+                        capture_output=True, text=True,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                    self.assertNotIn(str(child_pid), check.stdout)
+                else:
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(child_pid, 0)
 
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
