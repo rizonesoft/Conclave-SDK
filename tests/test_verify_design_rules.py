@@ -7,6 +7,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "tools" / "verify-design-rules.py"
@@ -85,7 +86,6 @@ class TestVerifyDesignRules(unittest.TestCase):
             errs, count = self.mod.verify_project(root, sha, check_clean=True)
             self.assertEqual(errs, [])
             self.assertGreaterEqual(count, 4)
-            # Mutate working tree (delete file on disk) and confirm --content-only still verifies recorded SHA
             (root / "design" / "SPEC.md").unlink()
             errs_content, _ = self.mod.verify_project(root, sha, check_clean=False)
             self.assertEqual(errs_content, [])
@@ -101,7 +101,7 @@ class TestVerifyDesignRules(unittest.TestCase):
             errs, _ = self.mod.verify_project(root, sha, check_clean=False)
             self.assertTrue(any("raw bytes differ" in e for e in errs), errs)
 
-    def test_rejects_missing_command_script_at_commit(self) -> None:
+    def test_rejects_missing_command_script_and_missing_source_paths(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
             files = self._base_files()
@@ -109,36 +109,85 @@ class TestVerifyDesignRules(unittest.TestCase):
             sha = init_git_repo(root, files)
             errs, _ = self.mod.verify_project(root, sha, check_clean=False)
             self.assertTrue(any("scripts/render-window.ps1" in e for e in errs), errs)
+            # No source path like src/ui/theme.rs is unconditionally exempted
+            bad_rule = VALID_RULE.replace("design/tokens.json", "src/ui/theme.rs")
+            p_errs, _ = self.mod.check_rule_paths_at_commit(bad_rule, root, sha)
+            self.assertTrue(any("src/ui/theme.rs" in e for e in p_errs), p_errs)
 
-    def test_rejects_unclosed_frontmatter_empty_section_and_incomplete_agents(self) -> None:
+    def test_rejects_unclosed_frontmatter_and_empty_sections(self) -> None:
         bad_rule = "---\ntrigger: always_on\n# No close\n## Contract\n## Tokens and icons\n- `design/tokens.json`\n## Never\n- No `#RRGGBB`\n## Static lint\n- ok\n## Rendered check\n- ok\n"
         errs = self.mod.check_frontmatter_and_sections(bad_rule)
         self.assertTrue(any("unclosed YAML frontmatter" in e for e in errs), errs)
         self.assertTrue(any("no substantive bullet under ## Contract" in e for e in errs), errs)
         self.assertTrue(any("missing literal prohibition terms" in e for e in errs), errs)
 
-        with tempfile.TemporaryDirectory() as td:
-            root = pathlib.Path(td)
-            files = self._base_files()
-            files["AGENTS.md"] = b"# AGENTS.md\nSee `.agents/rules/design-contract.md` and `python scripts/design-lint.py`.\n"
-            sha = init_git_repo(root, files)
-            errs_ag, _ = self.mod.verify_project(root, sha, check_clean=False)
-            self.assertTrue(any("missing authoritative contract reference" in e for e in errs_ag), errs_ag)
+    def test_rejects_missing_or_wrong_contract_and_missing_or_planned_lint_in_agents_md(self) -> None:
+        # Missing contract when rule link and lint are present
+        errs_no_contract = self.mod.check_agents_md_against_rule(
+            "# AGENTS.md\nSee `.agents/rules/design-contract.md` and `python scripts/design-lint.py`.\n",
+            VALID_RULE,
+            has_provider=False,
+        )
+        self.assertTrue(any("missing authoritative contract reference" in e for e in errs_no_contract), errs_no_contract)
 
-    def test_extracts_root_level_filename_and_checks_all_literal_bans(self) -> None:
-        self.assertIn("tokens.json", self.mod.extract_referenced_paths("Use `tokens.json` for colours."))
+        # Missing installed lint citation
+        errs_no_lint = self.mod.check_agents_md_against_rule(
+            "# AGENTS.md\nSee `design/SPEC.md` and `.agents/rules/design-contract.md`.\n",
+            VALID_RULE,
+            has_provider=False,
+        )
+        self.assertTrue(any("missing installed static lint reference" in e for e in errs_no_lint), errs_no_lint)
+
+        # Planned lint text rejected when rule declares an installed lint script
+        errs_planned = self.mod.check_agents_md_against_rule(
+            "# AGENTS.md\nSee `design/SPEC.md` and `.agents/rules/design-contract.md`; static design lint is planned.\n",
+            VALID_RULE,
+            has_provider=False,
+        )
+        self.assertTrue(any("missing installed static lint reference" in e for e in errs_planned), errs_planned)
+
+        # Local pointer DESIGN.md alone rejected for a consumer with a provider
+        provider_rule = VALID_RULE.replace("`design/SPEC.md`", "`DESIGN.md` at `sdk.json` (`sdk/DESIGN.md`)")
+        errs_ptr = self.mod.check_agents_md_against_rule(
+            "# AGENTS.md\nSee `DESIGN.md`, `.agents/rules/design-contract.md`, and `scripts/design-lint.py`.\n",
+            provider_rule,
+            has_provider=True,
+        )
+        self.assertTrue(any("missing authoritative contract reference" in e for e in errs_ptr), errs_ptr)
+
+    def test_extracts_root_level_scripts_and_tokens_and_checks_all_literal_bans(self) -> None:
+        extracted = self.mod.extract_referenced_paths("Use `tokens.json` and run `pwsh render.ps1` or `python lint.py`.")
+        self.assertIn("tokens.json", extracted)
+        self.assertIn("render.ps1", extracted)
+        self.assertIn("lint.py", extracted)
         partial_ban = VALID_RULE.replace("spacing, radius, or font size", "spacing only")
         errs = self.mod.check_frontmatter_and_sections(partial_ban)
         self.assertTrue(any("radius" in e and "font" in e for e in errs), errs)
 
-    def test_wsl_git_uses_positional_args_without_shell_interpolation(self) -> None:
-        # Verify no client identifiers exist in tools/verify-design-rules.py
-        src = SCRIPT.read_text(encoding="utf-8")
-        self.assertNotIn("redfern", src.lower())
-        self.assertNotIn("swiss", src.lower())
-        self.assertIn("wsl.exe", src)
-        self.assertNotIn("bash -lc", src)
-        self.assertIn("os.path.expanduser(sys.argv[1])", src)
+    def test_wsl_git_preserves_argv_boundaries_without_shell_interpolation(self) -> None:
+        fake_proc = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"ok", stderr=b"")
+        with mock.patch.object(self.mod.subprocess, "run", return_value=fake_proc) as m_run:
+            self.mod.run_git_bytes(
+                pathlib.Path(r"\\wsl.localhost\Ubuntu\home\user\example-site"),
+                ["show", "$(id):x"],
+                "~/example-site",
+            )
+            self.assertEqual(m_run.call_count, 1)
+            cmd = m_run.call_args.args[0]
+            kwargs = m_run.call_args.kwargs
+            self.assertFalse(kwargs.get("shell", False))
+            self.assertEqual(cmd[:4], ["wsl.exe", "--exec", "python3", "-c"])
+            self.assertEqual(cmd[5:], ["~/example-site", "show", "$(id):x"])
+
+    def test_validate_held_retry_rejects_unrelated_section(self) -> None:
+        unrelated = {
+            "title": "Reviewer Scripts Current in ExampleProj",
+            "depends": ["D00 T03 §3"],
+            "body": "Refreshes reviewer scripts in ExampleProj.",
+        }
+        errs = self.mod.validate_held_retry("ExampleProj", "D00 T03 §10", unrelated, {"D00 T03 §10"})
+        self.assertTrue(any("does not depend on D00 T03 §5" in e for e in errs), errs)
+        self.assertTrue(any("does not deliver .agents/rules/design-contract.md" in e for e in errs), errs)
 
 
 if __name__ == "__main__":

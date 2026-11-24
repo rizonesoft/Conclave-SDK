@@ -19,12 +19,8 @@ REQUIRED_HEADINGS = (
 
 REQUIRED_BANS = ("#RRGGBB", "0xRRGGBB", "rgb()", "ColorF", "SVG", "emoji", "backdrop")
 PROVIDER_PREFIXES = ("shared/resolute-ui/", "shared/lucide/")
-# Only genuinely untracked runtime output or explicitly planned future paths
-NON_TRACKED_EXACT = {
-    "build/renders/",
-    "src/ui/theme.rs",
-    "src/res",
-}
+# Only the standard runtime render output directory is not tracked in Git.
+RUNTIME_OUTPUT_DIRS = {"build/renders/"}
 NON_PATH_TOKENS = {
     "strict",
     "theme-only",
@@ -39,7 +35,10 @@ NON_PATH_TOKENS = {
     "Resolute-SDK",
     "always_on",
 }
-ROOT_FILE_EXTS = (".md", ".json", ".toml", ".xaml", ".css", ".html", ".svg", ".png", ".ico")
+ROOT_FILE_EXTS = (
+    ".md", ".json", ".toml", ".xaml", ".css", ".html", ".svg", ".png", ".ico",
+    ".ps1", ".py", ".mjs", ".cs", ".h",
+)
 HEX_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 _TREE_CACHE: dict[tuple[str, str], set[str]] = {}
@@ -85,6 +84,23 @@ def git_path_exists_at_commit(root: pathlib.Path, commit: str, rel_path: str, po
     return rel_path.rstrip("/") in git_tree_paths_at_commit(root, commit, posix)
 
 
+def extract_section_body(rule_text: str, heading: str) -> str | None:
+    lines = rule_text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == heading:
+            start = i + 1
+            break
+    if start is None:
+        return None
+    out = []
+    for line in lines[start:]:
+        if line.startswith("## "):
+            break
+        out.append(line)
+    return "\n".join(out)
+
+
 def extract_referenced_paths(rule_text: str) -> list[str]:
     """Extract direct file-path spans, root-level file names, and script paths inside command spans."""
     paths: list[str] = []
@@ -127,22 +143,12 @@ def check_frontmatter_and_sections(rule_text: str) -> list[str]:
             if "trigger: always_on" not in fm_lines:
                 errs.append("missing trigger: always_on in frontmatter")
 
-    heading_positions: dict[str, int] = {}
-    for idx, line in enumerate(lines):
-        s = line.strip()
-        if s in REQUIRED_HEADINGS:
-            heading_positions[s] = idx
     for h in REQUIRED_HEADINGS:
-        if h not in heading_positions:
+        body = extract_section_body(rule_text, h)
+        if body is None:
             errs.append(f"missing heading {h}")
             continue
-        start = heading_positions[h] + 1
-        end = len(lines)
-        for j in range(start, len(lines)):
-            if lines[j].startswith("## "):
-                end = j
-                break
-        body_bullets = [l for l in lines[start:end] if l.strip().startswith("- ") and len(l.strip()) > 10]
+        body_bullets = [l for l in body.splitlines() if l.strip().startswith("- ") and len(l.strip()) > 10]
         if not body_bullets:
             errs.append(f"no substantive bullet under {h}")
 
@@ -180,7 +186,7 @@ def check_rule_paths_at_commit(
             sdk_commit = None
 
     for rel in paths:
-        if rel in NON_TRACKED_EXACT:
+        if rel in RUNTIME_OUTPUT_DIRS:
             continue
         if rel == "sdk/DESIGN.md":
             if not sdk_commit or provider_root is None:
@@ -189,7 +195,6 @@ def check_rule_paths_at_commit(
                 errors.append(f"provider DESIGN.md missing at {sdk_commit[:8]}")
             continue
         if rel == "DESIGN.md" and provider_root is not None:
-            # Consumers citing provider DESIGN.md via sdk.json must prove it exists in the provider at sdk_commit too.
             if not sdk_commit:
                 errors.append("provider DESIGN.md cited without pinned sdk.json commit")
             elif not git_path_exists_at_commit(provider_root, sdk_commit, "DESIGN.md"):
@@ -206,6 +211,46 @@ def check_rule_paths_at_commit(
         if not git_path_exists_at_commit(project_root, commit, rel, posix):
             errors.append(f"missing path at {commit[:8]}: {rel}")
     return errors, paths
+
+
+def check_agents_md_against_rule(ag_txt: str, rule_txt: str, has_provider: bool) -> list[str]:
+    errs: list[str] = []
+    if ".agents/rules/design-contract.md" not in ag_txt:
+        errs.append("AGENTS.md missing .agents/rules/design-contract.md citation at commit")
+
+    ag_no_rule_links = ag_txt.replace(".agents/rules/design-contract.md", "").replace(
+        ".claude/rules/design-contract.md", ""
+    )
+
+    # Check authoritative contract citation derived from the rule's own ## Contract section
+    contract_body = extract_section_body(rule_txt, "## Contract") or ""
+    contract_paths = [p for p in extract_referenced_paths(contract_body) if p != "AGENTS.md"]
+    if has_provider:
+        # Exclude bare local pointer DESIGN.md so a consumer must cite its real contract or sdk.json/sdk/DESIGN.md
+        auth_candidates = [p for p in contract_paths if p != "DESIGN.md"]
+        if not auth_candidates:
+            auth_candidates = ["sdk.json", "sdk/DESIGN.md"]
+    else:
+        auth_candidates = contract_paths
+    if auth_candidates:
+        if not any(c in ag_no_rule_links for c in auth_candidates):
+            # Allow directory prefix match for docs/design/ when rule cites docs/design/README.md etc.
+            dir_prefixes = {c.rsplit("/", 1)[0] + "/" for c in auth_candidates if "/" in c}
+            if not any(dp in ag_no_rule_links for dp in dir_prefixes):
+                errs.append(f"AGENTS.md missing authoritative contract reference ({auth_candidates[0]}) at commit")
+    elif "Design fidelity contract" not in ag_no_rule_links and "gostore-child" not in ag_no_rule_links:
+        errs.append("AGENTS.md missing authoritative contract reference at commit")
+
+    # Check static lint citation derived from the rule's own ## Static lint section
+    lint_body = extract_section_body(rule_txt, "## Static lint") or ""
+    lint_scripts = [p for p in extract_referenced_paths(lint_body) if p.endswith((".py", ".ps1", ".mjs"))]
+    if lint_scripts:
+        if not any(s in ag_txt for s in lint_scripts):
+            errs.append(f"AGENTS.md missing installed static lint reference ({lint_scripts[0]}) at commit")
+    else:
+        if "static design lint is planned" not in ag_txt.lower():
+            errs.append("AGENTS.md missing planned static lint note at commit")
+    return errs
 
 
 def verify_project(
@@ -237,20 +282,7 @@ def verify_project(
         errs.append("AGENTS.md missing at commit")
     else:
         ag_txt = ag_bytes.decode("utf-8", errors="replace")
-        if ".agents/rules/design-contract.md" not in ag_txt:
-            errs.append("AGENTS.md missing .agents/rules/design-contract.md citation at commit")
-        # Strip the rule links themselves so they cannot falsely satisfy the authoritative contract reference check
-        ag_without_rule_links = ag_txt.replace(".agents/rules/design-contract.md", "").replace(
-            ".claude/rules/design-contract.md", ""
-        )
-        if not re.search(
-            r"SPEC\.md|DESIGN\.md|docs/design-contract\.md|standards/design-contract\.md|docs/design/|Design fidelity contract|gostore-child|design/inventory/REFERENCE\.md|docs/product-principles\.md",
-            ag_without_rule_links,
-            re.I,
-        ):
-            errs.append("AGENTS.md missing authoritative contract reference at commit")
-        if not re.search(r"design-lint\.py|build-theme\.py|static design lint is planned", ag_txt, re.I):
-            errs.append("AGENTS.md missing static lint reference at commit")
+        errs.extend(check_agents_md_against_rule(ag_txt, rule_txt, has_provider=provider_root is not None))
 
     if check_clean:
         r_st = run_git_bytes(project_root, ["status", "--short"], posix)
@@ -279,6 +311,21 @@ def parse_fleet_table(run_file: pathlib.Path) -> list[tuple[str, str, str]]:
             if len(cols) >= 6:
                 rows.append((cols[0], cols[1], cols[5]))
     return rows
+
+
+def validate_held_retry(alias: str, ref: str, resolved: dict, s16_deps: set[str]) -> list[str]:
+    errs: list[str] = []
+    if ref not in s16_deps:
+        errs.append(f"{ref} is not in D00 T03 §16 depends")
+    if "D00 T03 §5" not in set(resolved.get("depends", [])):
+        errs.append(f"{ref} does not depend on D00 T03 §5")
+    title = resolved.get("title", "")
+    body = resolved.get("body", "")
+    if alias not in title and alias not in body:
+        errs.append(f"{ref} does not name {alias}")
+    if ".agents/rules/design-contract.md" not in body:
+        errs.append(f"{ref} does not deliver .agents/rules/design-contract.md")
+    return errs
 
 
 def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: bool, negative_test: bool) -> int:
@@ -328,14 +375,12 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
                 all_ok = False
                 continue
             resolved = json.loads(r_ref.stdout)
-            if sha_or_ref not in s16_deps:
-                print(f"FAIL {alias:16} held retry {sha_or_ref} is not in D00 T03 §16 depends")
-                all_ok = False
-            elif alias not in resolved.get("title", "") and alias not in resolved.get("body", ""):
-                print(f"FAIL {alias:16} held retry {sha_or_ref} does not name {alias}")
+            h_errs = validate_held_retry(alias, sha_or_ref, resolved, s16_deps)
+            if h_errs:
+                print(f"FAIL {alias:16} held retry {sha_or_ref} errs={h_errs}")
                 all_ok = False
             else:
-                print(f"OK   {alias:16} HELD -> {sha_or_ref} resolves, names {alias}, and blocks D00 T03 §16")
+                print(f"OK   {alias:16} HELD -> {sha_or_ref} owns §5 retry for {alias} and blocks D00 T03 §16")
             continue
 
         if not HEX_SHA_RE.match(sha_or_ref):
@@ -397,7 +442,7 @@ def main(argv: list[str] | None = None) -> int:
         _, raw = git_show_bytes(root, args.commit, ".agents/rules/design-contract.md", args.posix)
         rule_txt = raw.decode("utf-8", errors="replace")
         paths = extract_referenced_paths(rule_txt)
-        target_path = next((p for p in paths if p not in NON_TRACKED_EXACT and not p.startswith(PROVIDER_PREFIXES) and p != "sdk/DESIGN.md"), None)
+        target_path = next((p for p in paths if p not in RUNTIME_OUTPUT_DIRS and not p.startswith(PROVIDER_PREFIXES) and p != "sdk/DESIGN.md"), None)
         if not target_path:
             print("FAIL negative-test: no replaceable local path found")
             return 1
