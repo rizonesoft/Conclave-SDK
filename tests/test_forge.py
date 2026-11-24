@@ -4648,7 +4648,7 @@ class LaunchersPageTests(unittest.TestCase):
             class _TrackedPopen(real_popen):
                 def __init__(self, *args, **kwargs):
                     super().__init__(*args, **kwargs)
-                    spawned.append(self.pid)
+                    spawned.append(self)
 
             class _FailingKernel32:
                 def __init__(self, real):
@@ -4680,17 +4680,17 @@ class LaunchersPageTests(unittest.TestCase):
                 worker.start()
                 worker.join(timeout=5.0)
                 if worker.is_alive():
-                    for pid in list(spawned):
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", str(pid)],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                        )
+                    for p in list(spawned):
+                        try:
+                            p.kill()
+                            p.wait(timeout=5.0)
+                        except OSError:
+                            pass
                     worker.join(timeout=5.0)
                     self.fail("_run_tree hung when AssignProcessToJobObject failed")
             self.assertIsInstance(outcome.get("exc"), OSError, f"expected OSError, got {outcome!r}")
             self.assertEqual(len(spawned), 1)
-            self._assert_pid_gone(spawned[0])
+            self._assert_pid_gone(spawned[0].pid)
 
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):

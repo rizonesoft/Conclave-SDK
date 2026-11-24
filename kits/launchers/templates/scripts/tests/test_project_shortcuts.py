@@ -1425,6 +1425,49 @@ class ProjectShortcutsTest(unittest.TestCase):
         blocked_file.unlink()
         self.assertEqual(self.run_script("-Remove").returncode, 0)
         self.assertEqual((self.links(), list(self.icons.iterdir())), ([], []))
+        # Independent of 8.3 availability: exercise Get-LegacyIcons on a separate legacy icon directory (distinct from
+        # readable primary self.icons) using a non-canonical case spelling that expands to self.project.
+        long_path = str(self.project.resolve()).rstrip("\\")
+        alt_id = long_path.upper()
+        alt_mark = f"conclave-launcher: {alt_id}"
+        alt_key = hashlib.sha256(alt_id.encode("utf-8")).hexdigest()[:8]
+        sep_dir = self.base / "separate_legacy_icons_standalone"
+        sep_dir.mkdir(parents=True, exist_ok=True)
+        sep_ico = sep_dir / f"launcher-claude-{alt_key}.ico"
+        sep_ico.write_bytes(b"sep-legacy-ico")
+        sep_lnk = self.desk / "Example Site (Claude).lnk"
+        self._write_shell_link(
+            sep_lnk, target=str(self.wt_dir / "wt.exe"), workdir=long_path,
+            description=alt_mark, icon=str(sep_ico),
+        )
+        deny_sep = run_tree(["icacls", str(sep_dir), "/deny", f"{user}:(RD,RA)"], timeout=30)
+        self.assertEqual(deny_sep.returncode, 0, deny_sep.stdout + deny_sep.stderr)
+        try:
+            denied_sep = self.run_script("-Remove")
+            self.assertEqual(denied_sep.returncode, 1, denied_sep.stdout + denied_sep.stderr)
+            self.assertIn("the icon folder cannot be read", denied_sep.stdout)
+            self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        finally:
+            run_tree(["icacls", str(sep_dir), "/remove:d", user], timeout=30)
+        ok_sep = self.run_script("-Remove")
+        self.assertEqual(ok_sep.returncode, 0, ok_sep.stdout + ok_sep.stderr)
+        self.assertEqual(self.links(), [])
+        self.assertFalse(sep_ico.exists())
+        # Separate legacy non-directory path (Directory.Exists returns false, GetFiles throws IOException in Get-LegacyIcons).
+        blocked_leg = self.base / "blocked_legacy_icon_path"
+        blocked_leg.write_text("not a dir", encoding="utf-8")
+        self._write_shell_link(
+            sep_lnk, target=str(self.wt_dir / "wt.exe"), workdir=long_path,
+            description=alt_mark, icon=str(blocked_leg / f"launcher-claude-{alt_key}.ico"),
+        )
+        denied_leg_file = self.run_script("-Remove")
+        self.assertEqual(denied_leg_file.returncode, 1, denied_leg_file.stdout + denied_leg_file.stderr)
+        self.assertIn("the icon folder cannot be read", denied_leg_file.stdout)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        blocked_leg.unlink()
+        ok_leg_file = self.run_script("-Remove")
+        self.assertEqual(ok_leg_file.returncode, 0, ok_leg_file.stdout + ok_leg_file.stderr)
+        self.assertEqual(self.links(), [])
 
     def test_relative_icon_dir_resolves_against_powershell_location(self):
         # Independent of 8.3 availability: relative -IconDir must resolve against PowerShell's Set-Location, not .NET CWD.
