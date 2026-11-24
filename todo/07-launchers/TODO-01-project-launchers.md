@@ -355,6 +355,8 @@ A person or an agent in a project needs one place that says how to set the title
 
 ## 10. Shadow-audit repairs for `project-shortcuts.ps1` and tests
 
+> **Started:** 2026-11-24T22:22Z
+
 Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T01 §8` (`docs/reviews/07-launchers/audit-d07-t01-s8.md`), which found 1 P1, 6 P2s, and 1 P3 missed by repair-diff at `c9158e4e`. Findings 2 (`Get-Owned` directory enumeration errors), 3 (`Add-Type -LiteralPath`), and 4 (Unicode shortcut writer) were already fixed on HEAD by `D07 T01 §9` (`1a843490`/`7211c4c2`); this section repairs the 4 still-open P2s and 1 P3.
 
 **Phase:** 9
