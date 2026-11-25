@@ -481,6 +481,8 @@ public static class LockDriver {
     private static extern IntPtr OpenEventW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr OpenJobObjectW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
     [DllImport("kernel32.dll")]
@@ -556,13 +558,19 @@ public static class LockDriver {
                 return 0;
             }
             if (cmd == "check-dacl") {
-                if (!DesktopLock.IsValidRecordDirectoryDacl("D:(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;AU)"))
+                if (!DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;AU)"))
                     throw new InvalidOperationException("valid AU Modify inherited DACL rejected");
-                if (DesktopLock.IsValidRecordDirectoryDacl("D:(A;OICI;FR;;;AU)"))
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;FR;;;AU)"))
                     throw new InvalidOperationException("read-only AU DACL accepted");
-                if (DesktopLock.IsValidRecordDirectoryDacl("D:(A;;0x1301bf;;;AU)"))
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICIIO;0x1301bf;;;AU)"))
+                    throw new InvalidOperationException("inherit-only AU DACL accepted");
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;;0x1301bf;;;AU)"))
                     throw new InvalidOperationException("non-inherited AU DACL accepted");
-                if (DesktopLock.IsValidRecordDirectoryDacl("D:(A;OICI;0x1301bf;;;AU)(A;OICI;FW;;;WD)"))
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;0x1301bf;;;AU)(A;OICI;0x2;;;WD)"))
+                    throw new InvalidOperationException("Everyone add-file (0x2/DC) DACL accepted");
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;0x1301bf;;;AU)(A;OICI;0x40;;;WD)"))
+                    throw new InvalidOperationException("Everyone delete-child (0x40/DT) DACL accepted");
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;0x1301bf;;;AU)(A;OICI;FW;;;WD)"))
                     throw new InvalidOperationException("Everyone FW DACL accepted");
                 using (var h = DesktopLock.Acquire(prefix, "lock-driver-dacl")) {
                     IntPtr hm = OpenMutexW(READ_CONTROL, false, h.LockName);
@@ -604,7 +612,7 @@ public static class LockDriver {
             if (cmd == "pause-before-publish") {
                 string resumeFile = args[2];
                 DesktopLock.BeforeWaitForMutexForTest = () => {
-                    Console.WriteLine("WAITING");
+                    Console.WriteLine("WAITING tid=" + GetCurrentThreadId());
                     Console.Out.Flush();
                 };
                 DesktopLock.BeforeRecordPublishForTest = abandoned => {
@@ -715,6 +723,24 @@ public static class LockDriver {
                     }
                 }
                 return 0;
+            }
+            if (cmd == "wait-thread-blocked") {
+                int targetPid = int.Parse(args[1]);
+                int targetTid = int.Parse(args[2]);
+                DateTime dl = DateTime.UtcNow.AddSeconds(10);
+                while (DateTime.UtcNow < dl) {
+                    using (Process tp = Process.GetProcessById(targetPid)) {
+                        foreach (ProcessThread th in tp.Threads) {
+                            if (th.Id == targetTid && th.ThreadState == System.Diagnostics.ThreadState.Wait
+                                && th.WaitReason == ThreadWaitReason.UserRequest) {
+                                Console.WriteLine("BLOCKED_IN_WAIT");
+                                return 0;
+                            }
+                        }
+                    }
+                    Thread.Sleep(20);
+                }
+                return 44;
             }
             if (cmd == "hold-lease-reader") {
                 string leaseEventName = args[2];
@@ -1450,8 +1476,13 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             p2 = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(p1_resume)],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env=env1, creationflags=NO_WINDOW)
-            self.assertEqual(p2.stdout.readline().strip(), "WAITING")
-            time.sleep(0.25)  # Give p2 time to enter WaitForSingleObject on the mutex.
+            wait_line = p2.stdout.readline().strip()
+            self.assertTrue(wait_line.startswith("WAITING "), wait_line)
+            p2_tid = self._parse_kv(wait_line)["tid"]
+            # Observe p2's waiter thread actually blocked in WaitReason.UserRequest inside the kernel BEFORE killing p1!
+            blk = run_cmd([str(self.lock_drv_exe), "wait-thread-blocked", str(p2.pid), p2_tid])
+            self.assertEqual(blk.returncode, 0, blk.stdout + blk.stderr)
+            self.assertIn("BLOCKED_IN_WAIT", blk.stdout)
             t_kill = time.monotonic()
             p1.kill()
             p1.communicate(timeout=10)
@@ -1504,7 +1535,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env=env2, creationflags=NO_WINDOW)
         try:
-            self.assertEqual(p_late.stdout.readline().strip(), "WAITING")
+            self.assertTrue(p_late.stdout.readline().strip().startswith("WAITING "))
             self.assertEqual(p_late.stdout.readline().strip(), "BEFORE_PUBLISH abandoned=False")
             self.assertEqual(kernel32.WaitForSingleObject(h_ch2, 0), 0, "prior desktop job child must have exited before late successor publishes")
         finally:
@@ -1567,7 +1598,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             pb = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(resume_file)],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env={**env4, "DEMO_DESKTOP_WAIT_S": "5"}, creationflags=NO_WINDOW)
-            self.assertEqual(pb.stdout.readline().strip(), "WAITING")
+            self.assertTrue(pb.stdout.readline().strip().startswith("WAITING "))
             self.assertEqual(pb.stdout.readline().strip(), "BEFORE_PUBLISH abandoned=False")
             # Reader 2 (zero-wait Acquire) runs while Reader 1 still holds A's lease handle and A's JSON is on disk.
             r2 = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"],

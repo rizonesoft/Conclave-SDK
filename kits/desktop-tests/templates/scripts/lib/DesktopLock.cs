@@ -935,26 +935,15 @@ namespace Conclave.DesktopTests
 
         private static void ValidateExistingRecordDirectoryDacl(string dir)
         {
-            IntPtr existingSd;
+            IntPtr pDacl, existingSd;
             uint grc = GetNamedSecurityInfoW(dir, 1 /* SE_FILE_OBJECT */, 4 /* DACL_SECURITY_INFORMATION */,
-                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out existingSd);
+                IntPtr.Zero, IntPtr.Zero, out pDacl, IntPtr.Zero, out existingSd);
             if (grc != 0)
                 throw new Win32Exception((int)grc, "GetNamedSecurityInfoW failed while validating DACL for " + dir);
             try
             {
-                IntPtr sddlPtr;
-                if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(existingSd, 1, 4 /* DACL_SECURITY_INFORMATION */, out sddlPtr, IntPtr.Zero))
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "ConvertSecurityDescriptorToStringSecurityDescriptorW failed for " + dir);
-                try
-                {
-                    string sddl = Marshal.PtrToStringUni(sddlPtr) ?? "";
-                    if (!IsValidRecordDirectoryDacl(sddl))
-                        throw new UnauthorizedAccessException("shared desktop-locks directory DACL is invalid: " + sddl);
-                }
-                finally
-                {
-                    LocalFree(sddlPtr);
-                }
+                if (!IsValidRecordDirectoryDaclBinary(pDacl))
+                    throw new UnauthorizedAccessException("shared desktop-locks directory DACL is invalid for " + dir);
             }
             finally
             {
@@ -962,63 +951,77 @@ namespace Conclave.DesktopTests
             }
         }
 
-        internal static bool IsValidRecordDirectoryDacl(string sddl)
+        internal static bool IsValidRecordDirectoryDaclSddlForTest(string sddl)
         {
-            if (string.IsNullOrWhiteSpace(sddl)) return false;
-            bool auModifyInherited = false;
-            foreach (Match m in Regex.Matches(sddl, "\\(([^()]+)\\)"))
+            IntPtr sd;
+            if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl, 1, out sd, IntPtr.Zero))
+                return false;
+            try
             {
-                string[] parts = m.Groups[1].Value.Split(';');
-                if (parts.Length < 6) continue;
-                string aceType = parts[0].Trim().ToUpperInvariant();
-                string aceFlags = parts[1].Trim().ToUpperInvariant();
-                string rightsStr = parts[2].Trim();
-                string trustee = parts[5].Trim().ToUpperInvariant();
-                uint mask = ParseSddlFileRights(rightsStr);
-                if (trustee == "AU")
-                {
-                    if (aceType == "D") return false;
-                    if (aceType == "A" && aceFlags.IndexOf("OI", StringComparison.Ordinal) >= 0
-                        && aceFlags.IndexOf("CI", StringComparison.Ordinal) >= 0
-                        && (mask & 0x001301BFu) == 0x001301BFu)
-                    {
-                        auModifyInherited = true;
-                    }
-                }
-                else if (trustee == "WD" && aceType == "A")
-                {
-                    // Reject any Everyone write, delete, generic-write, generic-all, or DAC/owner-modify grant.
-                    if ((mask & 0x500D0116u) != 0) return false;
-                }
+                bool present, defaulted;
+                IntPtr dacl;
+                if (!GetSecurityDescriptorDacl(sd, out present, out dacl, out defaulted) || !present)
+                    return false;
+                return IsValidRecordDirectoryDaclBinary(dacl);
             }
-            return auModifyInherited;
+            finally
+            {
+                LocalFree(sd);
+            }
         }
 
-        private static uint ParseSddlFileRights(string s)
+        private static bool IsValidRecordDirectoryDaclBinary(IntPtr pDacl)
         {
-            if (string.IsNullOrEmpty(s)) return 0;
-            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            if (pDacl == IntPtr.Zero) return false; // Null DACL grants Everyone full access.
+            ACL_SIZE_INFORMATION info;
+            if (!GetAclInformation(pDacl, out info, (uint)Marshal.SizeOf(typeof(ACL_SIZE_INFORMATION)), 2 /* AclSizeInformation */))
+                return false;
+
+            byte[] auSid = new byte[68];
+            uint auLen = (uint)auSid.Length;
+            byte[] wdSid = new byte[68];
+            uint wdLen = (uint)wdSid.Length;
+            if (!CreateWellKnownSid(17 /* WinAuthenticatedUserSid */, IntPtr.Zero, auSid, ref auLen)) return false;
+            if (!CreateWellKnownSid(1 /* WinWorldSid */, IntPtr.Zero, wdSid, ref wdLen)) return false;
+
+            bool auAppliesToDir = false;
+            bool auAppliesToChildren = false;
+            const uint RequiredModify = 0x001301BFu;
+            const uint GenericAll = 0x10000000u;
+            // Reject Everyone allow ACEs with any write/add-file/add-subdir/delete-child/delete/DAC/owner/generic-write/generic-all bit.
+            const uint ForbiddenWorldMask = 0x500D0156u;
+
+            for (uint i = 0; i < info.AceCount; i++)
             {
-                uint hex;
-                return uint.TryParse(s.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex) ? hex : 0;
+                IntPtr pAce;
+                if (!GetAce(pDacl, i, out pAce) || pAce == IntPtr.Zero) return false;
+                byte aceType = Marshal.ReadByte(pAce, 0);
+                byte aceFlags = Marshal.ReadByte(pAce, 1);
+                uint mask = unchecked((uint)Marshal.ReadInt32(pAce, 4));
+                IntPtr pSid = IntPtr.Add(pAce, 8);
+
+                if (EqualSid(pSid, auSid))
+                {
+                    if (aceType == 1 /* ACCESS_DENIED_ACE_TYPE */) return false;
+                    if (aceType == 0 /* ACCESS_ALLOWED_ACE_TYPE */)
+                    {
+                        bool hasModify = (mask & RequiredModify) == RequiredModify || (mask & GenericAll) != 0;
+                        if (hasModify)
+                        {
+                            bool inheritOnly = (aceFlags & 0x08) != 0;
+                            bool oi = (aceFlags & 0x01) != 0;
+                            bool ci = (aceFlags & 0x02) != 0;
+                            if (!inheritOnly) auAppliesToDir = true;
+                            if (oi && ci) auAppliesToChildren = true;
+                        }
+                    }
+                }
+                else if (EqualSid(pSid, wdSid) && aceType == 0 /* ACCESS_ALLOWED_ACE_TYPE */)
+                {
+                    if ((mask & ForbiddenWorldMask) != 0) return false;
+                }
             }
-            uint mask = 0;
-            for (int i = 0; i + 1 < s.Length; i += 2)
-            {
-                string tok = s.Substring(i, 2).ToUpperInvariant();
-                if (tok == "FA") mask |= 0x001F01FFu;
-                else if (tok == "FR") mask |= 0x00120089u;
-                else if (tok == "FW") mask |= 0x00120116u;
-                else if (tok == "FX") mask |= 0x001200A0u;
-                else if (tok == "GA") mask |= 0x101F01FFu;
-                else if (tok == "GW") mask |= 0x40120116u;
-                else if (tok == "GR") mask |= 0x80120089u;
-                else if (tok == "SD") mask |= 0x00010000u;
-                else if (tok == "RC") mask |= 0x00020000u;
-                else if (tok == "WD") mask |= 0x00040000u;
-                else if (tok == "WO") mask |= 0x00080000u;
-            }
-            return mask;
+            return auAppliesToDir && auAppliesToChildren;
         }
 
         private static SECURITY_ATTRIBUTES MakeSecurityAttributes(string sddl, out IntPtr sd)
@@ -1491,6 +1494,14 @@ namespace Conclave.DesktopTests
             IntPtr pDacl,
             IntPtr pSacl);
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ACL_SIZE_INFORMATION
+        {
+            public uint AceCount;
+            public uint AclBytesInUse;
+            public uint AclBytesFree;
+        }
+
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern uint GetNamedSecurityInfoW(
             string pObjectName,
@@ -1498,16 +1509,24 @@ namespace Conclave.DesktopTests
             uint SecurityInfo,
             IntPtr ppsidOwner,
             IntPtr ppsidGroup,
-            IntPtr ppDacl,
+            out IntPtr ppDacl,
             IntPtr ppSacl,
             out IntPtr ppSecurityDescriptor);
 
-        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
-            IntPtr SecurityDescriptor,
-            uint RequestedStringSDRevision,
-            uint SecurityInformation,
-            out IntPtr StringSecurityDescriptor,
-            IntPtr StringSecurityDescriptorLen);
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool GetAclInformation(
+            IntPtr pAcl,
+            out ACL_SIZE_INFORMATION pAclInformation,
+            uint nAclInformationLength,
+            int dwAclInformationClass);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool GetAce(IntPtr pAcl, uint dwAceIndex, out IntPtr pAce);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool CreateWellKnownSid(int WellKnownSidType, IntPtr DomainSid, byte[] pSid, ref uint cbSid);
+
+        [DllImport("advapi32.dll")]
+        private static extern bool EqualSid(IntPtr pSid1, byte[] pSid2);
     }
 }
