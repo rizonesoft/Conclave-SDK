@@ -148,10 +148,16 @@ public static class FixtureDriver {
     [StructLayout(LayoutKind.Sequential)] struct HARDWAREINPUT { public uint uMsg; public ushort wParamL, wParamH; }
     [StructLayout(LayoutKind.Explicit)] struct InputUnion { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; [FieldOffset(0)] public HARDWAREINPUT hi; }
     [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public InputUnion u; }
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT pt);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint n, INPUT[] inputs, int cbSize);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern IntPtr CreateWindowExW(uint exStyle, string cls, string title, uint style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr inst, IntPtr param);
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);
+    [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern bool DestroyWindow(IntPtr hwnd);
 
     private static AutomationElement WaitForWindow(int pid, int timeoutMs) {
         DateTime end = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -219,7 +225,19 @@ public static class FixtureDriver {
             bool liveDesk = Environment.GetEnvironmentVariable("CONCLAVE_TEST_LIVE_DESK") == "1";
             bool forceActivate = mode == "neg-focus" && liveDesk;
             int pid = 0;
+            IntPtr anchorWin = IntPtr.Zero;
             try {
+                // On an unlocked empty desktop (e.g. Windows CI with no open user window), create a
+                // non-app anchor window in this driver's own PID so Windows has an existing foreground
+                // window to keep in front when FixtureApp launches with SW_SHOWNOACTIVATE.
+                POINT curCheck;
+                if (GetForegroundWindow() == IntPtr.Zero && GetCursorPos(out curCheck)) {
+                    anchorWin = CreateWindowExW(0, "STATIC", "ConclaveOperatorAnchor", 0x10000000u, 10, 10, 120, 60, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                    if (anchorWin != IntPtr.Zero) {
+                        ShowWindow(anchorWin, 5);
+                        SetForegroundWindow(anchorWin);
+                    }
+                }
                 using (DeskObserver obs = new DeskObserver(new int[0])) {
                     pid = obs.LaunchNoActivate(appExe, forceActivate ? "--activate" : "", null);
                     AutomationElement win = WaitForWindow(pid, 10000);
@@ -270,6 +288,7 @@ public static class FixtureDriver {
                 Console.Error.WriteLine("REFUSED: " + ex.Message);
                 return 11;
             } finally {
+                if (anchorWin != IntPtr.Zero) DestroyWindow(anchorWin);
                 if (pid > 0) {
                     try {
                         using (Process p = Process.GetProcessById(pid)) {
