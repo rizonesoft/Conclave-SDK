@@ -1,0 +1,90 @@
+{
+  "ref": "D00 T03 \u00a711",
+  "title": "Surface Validation in the Custom Graphs",
+  "implementation_sha": "40ec50c1aa02ba1ee13a16133d42d81899477fb2",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T03-s11.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml green 7/7 at 40ec50c1 (https://github.com/rizonesoft/Conclave-SDK/actions/runs/45648934457); Resolute fd71b8dc self-test 342/342 validate 0 fatal; ScratchPad f0b2c96 self-test 135/135 validate 0 fatal test_review_prompt 17/17; Gemail 561ffcf self-test 749/749 validate 0 fatal"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T03-s11.md",
+    "verdict": "filed",
+    "candidate": "40ec50c1aa02ba1ee13a16133d42d81899477fb2",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D06 T04 \u00a71"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T03-s11.md",
+    "candidate": "14178c0ef63a4669f58c9e2757aca57f604c40d4",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "14178c0ef63a4669f58c9e2757aca57f604c40d4",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 15,
+  "pass_cap": 33
+}

@@ -46,7 +46,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 8 | §8 | Resolute on three-pass | §3 | [x] |
 | 9 | §9 | C++ lens entries in the C++ projects | §8 | [x] |
 | 10 | §10 | Reviewer scripts current in the WSL project | §3 | [ ] |
-| 11 | §11 | Surface validation in the custom graphs | §3 | [ ] |
+| 11 | §11 | Surface validation in the custom graphs | §3 | [x] |
 | 12 | §12 | Stamp gate planned in each custom graph's project | §11 | [ ] |
 | 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [ ] |
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
@@ -337,6 +337,9 @@ Three projects keep a `scripts/todo-graph.py` of their own that never checks a S
 - [x] Commit: `todo: Surface and its four lines are validated` in each project.
 
 **Test checkpoint:** in each of the three projects, `python scripts/todo-graph.py validate` exits 0 and `python scripts/todo-graph.py self-test` fails when the Surface check is removed.
+
+> **Verified:** 2026-11-25 | §11 | 40ec50c1aa02ba1ee13a16133d42d81899477fb2
+> **Review:** `docs/reviews/d00-t03-s11.json`
 
 ## 12. Stamp Gate Planned in Each Custom Graph's Project
 
