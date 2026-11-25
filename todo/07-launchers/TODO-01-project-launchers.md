@@ -53,7 +53,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [x] |
 | 8 | §8 | Operator page and `project-launchers` skill | §6, §7, §10 | [ ] |
 | 9 | §9 | Agent and declared links named outside the ANSI code page | §6 | [x] |
-| 10 | §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests | §9 | [ ] |
+| 10 | §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests | §9 | [x] |
 
 ## 1. Launchers kit known to `forge.py`
 
@@ -373,9 +373,12 @@ Filed 2026-11-22 from the `D00 T01 §10` shadow audit of `D07 T01 §8` (`docs/re
 - [x] Document reserved agent icon-slug collisions (e.g. `Claude!`) and empty punctuation-only slugs at both `kits/launchers/templates/docs/launchers.md:23` and `:88`, and assert both in `tests/test_forge.py`. Done when: `tests/test_forge.py -k launchers_page` and `markdown_table` pass and fail if either refusal example is removed.
 - [x] Route both Windows and POSIX worked-command runs at `tests/test_forge.py:4388-4392` through `_run_tree` (adding POSIX process-group kill on timeout) and join indented continuation lines in `_parse_format_list` at `tests/test_forge.py:4463-4478`. Done when: unit tests verify a wrapped `IconPath` continuation line parses intact and timeout kills a bounded child process cleanly. Cheaper substitute: calling `subprocess.run` without tree cleanup or ignoring wrapped `Format-List` lines.
 - [x] Start `_page`'s cleanup `try:` immediately at `tempfile.mkstemp` acquisition in `kits/wordpress/templates/scripts/open-dashboard.py:233-247`, append only the published `page` pathname to `created` before `os.replace`, and update `_page`'s docstring at `:220`. Done when: `kits/wordpress/templates/scripts/tests/test_open_dashboard.py` passes both a new regression asserting `created` holds only `page` after `_page()` returns and `test_linux_open_browser_removes_only_its_own_redirect_page_on_failure_and_interrupt`.
-- [ ] Commit: `launchers: shadow-audit repairs for project-shortcuts.ps1 and tests (D07 T01 §10)`
+- [x] Commit: `launchers: shadow-audit repairs for project-shortcuts.ps1 and tests (D07 T01 §10)`
 
 **Test checkpoint:** on Windows, `python forge.py check-all --only kit-launchers`, `python -m unittest tests.test_forge -k launchers_page -k markdown_table`, and `python -m unittest discover -s kits/wordpress/templates/scripts/tests -p test_open_dashboard.py -k redirect_page -k test_page_records_only` pass; reverting ordinal comparison, 8.3 expansion, or `Format-List` continuation joining makes its test fail.
+
+> **Verified:** 2026-11-25 | §10 | a2ec278e3469a66b766804ae73e0ea32ef63bee4
+> **Review:** `docs/reviews/d07-t01-s10.json`
 
 ## Verification
 

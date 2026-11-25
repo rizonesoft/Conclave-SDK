@@ -1,0 +1,90 @@
+{
+  "ref": "D07 T01 \u00a710",
+  "title": "Shadow-audit repairs for `project-shortcuts.ps1` and tests",
+  "implementation_sha": "a2ec278e3469a66b766804ae73e0ea32ef63bee4",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/07-launchers/D07-T01-s10.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml green on a2ec278e3469 https://github.com/rizonesoft/Conclave-SDK/actions/runs/45512656905; kit-launchers 79 tests PASS (314.2s) + non-skipped 8.3/ACL/relative-IconDir + test_forge 6 tests OK + test_open_dashboard 2 tests OK + 3 mutations verified"
+  ],
+  "completion": {
+    "report": "docs/reviews/07-launchers/D07-T01-s10.md",
+    "verdict": "filed",
+    "candidate": "a2ec278e3469a66b766804ae73e0ea32ef63bee4",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D07 T01 \u00a78"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/07-launchers/D07-T01-s10.md",
+    "candidate": "64c51a2265c47d8262b3e197198ab37aab6ee35e",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "64c51a2265c47d8262b3e197198ab37aab6ee35e",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 8,
+  "pass_cap": 33
+}
