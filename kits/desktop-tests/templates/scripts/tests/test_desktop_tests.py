@@ -258,8 +258,24 @@ public static class FixtureDriver {
                     }
                     obs.TrackPid(selfPid);
                     release.Set();
-                    th.Join(2000);
+                    if (!th.Join(2000)) {
+                        throw new InvalidOperationException("secondary thread did not exit");
+                    }
                     obs.InvokeGlobalForegroundCallbackForTest(new IntPtr(0x12340000), secondaryTid);
+                    obs.VerifyClean(mode);
+                }
+                return 0;
+            } catch (RealInputRefusedException ex) {
+                Console.Error.WriteLine("REFUSED: " + ex.Message);
+                return 11;
+            }
+        }
+        if (mode == "neg-focus-pid-hook") {
+            try {
+                int selfPid = Process.GetCurrentProcess().Id;
+                using (DeskObserver obs = new DeskObserver(new[] { selfPid })) {
+                    // Exercise the registered per-PID WinEventDelegate directly with a destroyed HWND and unsnapshotted TID.
+                    obs.InvokePidForegroundCallbackForTest(selfPid, new IntPtr(0x12340000), 0x7FFFFFFEu);
                     obs.VerifyClean(mode);
                 }
                 return 0;
@@ -438,6 +454,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         for neg, expect_detail in (
             ("neg-focus", "took the foreground window"),
             ("neg-focus-destroyed", "took the foreground window"),
+            ("neg-focus-pid-hook", "took the foreground window"),
             ("neg-flush-timeout", "timed out waiting for hook-thread flush acknowledgement"),
             ("neg-pointer", "pointer moved"),
             ("neg-key", "injected keyboard input"),

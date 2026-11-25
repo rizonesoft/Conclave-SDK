@@ -277,21 +277,28 @@ namespace Conclave.DesktopTests
         private const uint WM_HOLD = 0x0402;
         private const uint WM_TRACK_PID = 0x0403;
         private const uint THREAD_QUERY_LIMITED_INFORMATION = 0x0800;
+        private sealed class TrackRequest
+        {
+            public readonly int Pid;
+            public bool Done;
+            public string Error;
+            public TrackRequest(int pid) { Pid = pid; }
+        }
+
         private readonly HashSet<int> _ownedPids = new HashSet<int>();
         private readonly HashSet<uint> _ownedTids = new HashSet<uint>();
+        private readonly Dictionary<int, WinEventDelegate> _pidCallbacks = new Dictionary<int, WinEventDelegate>();
         private readonly List<string> _violations = new List<string>();
         private readonly object _gate = new object();
-        private readonly object _trackGate = new object();
+        private readonly object _trackQueue = new object();
+        private readonly Queue<TrackRequest> _pendingTracks = new Queue<TrackRequest>();
         private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
         private readonly ManualResetEventSlim _stop = new ManualResetEventSlim(false);
         private readonly ManualResetEventSlim _flushed = new ManualResetEventSlim(false);
-        private readonly ManualResetEventSlim _trackDone = new ManualResetEventSlim(false);
         private readonly int _flushTimeoutMs;
         private POINT _startCursor;
         private bool _hasCursor;
         private string _hookError;
-        private volatile string _trackError;
-        private int _pidHookCount;
         private Thread _hookThread;
         private Thread _pollThread;
         private volatile uint _hookThreadId;
@@ -318,27 +325,31 @@ namespace Conclave.DesktopTests
 
         public bool HasDesktopCursor { get { return _hasCursor; } }
 
-        internal int InstalledPidHookCount { get { lock (_gate) { return _pidHookCount; } } }
+        internal int InstalledPidHookCount { get { lock (_gate) { return _pidCallbacks.Count; } } }
 
         public void TrackPid(int pid)
         {
             lock (_gate) { _ownedPids.Add(pid); }
             SnapshotOwnedThreads();
-            lock (_trackGate)
+            var req = new TrackRequest(pid);
+            lock (_trackQueue)
             {
                 uint tid = _hookThreadId;
                 if (_disposed || tid == 0)
                     throw new InvalidOperationException("DeskObserver hook thread is not running; cannot track pid " + pid);
-                _trackError = null;
-                _trackDone.Reset();
-                if (!PostThreadMessage(tid, WM_TRACK_PID, new IntPtr(pid), IntPtr.Zero))
+                _pendingTracks.Enqueue(req);
+                if (!PostThreadMessage(tid, WM_TRACK_PID, IntPtr.Zero, IntPtr.Zero))
                     throw new InvalidOperationException("DeskObserver failed to register per-PID hook for pid " + pid + " (err=" + Marshal.GetLastWin32Error() + ")");
-                if (!_trackDone.Wait(_flushTimeoutMs))
-                    throw new InvalidOperationException("DeskObserver timed out registering per-PID hook for pid " + pid);
-                if (!string.IsNullOrEmpty(_trackError))
-                    throw new InvalidOperationException("DeskObserver failed closed: " + _trackError);
-                if (_hookThreadId == 0)
-                    throw new InvalidOperationException("DeskObserver hook thread exited before registering per-PID hook for pid " + pid);
+                DateTime deadline = DateTime.UtcNow.AddMilliseconds(_flushTimeoutMs);
+                while (!req.Done)
+                {
+                    int rem = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                    if (rem <= 0)
+                        throw new InvalidOperationException("DeskObserver timed out registering per-PID hook for pid " + pid);
+                    Monitor.Wait(_trackQueue, rem);
+                }
+                if (!string.IsNullOrEmpty(req.Error))
+                    throw new InvalidOperationException("DeskObserver failed closed: " + req.Error);
             }
         }
 
@@ -492,6 +503,17 @@ namespace Conclave.DesktopTests
             OnGlobalForegroundEvent(IntPtr.Zero, EVENT_SYSTEM_FOREGROUND, hwnd, 0, 0, dwEventThread, 0);
         }
 
+        internal void InvokePidForegroundCallbackForTest(int pid, IntPtr hwnd, uint dwEventThread)
+        {
+            WinEventDelegate cb;
+            lock (_gate)
+            {
+                if (!_pidCallbacks.TryGetValue(pid, out cb))
+                    throw new InvalidOperationException("no per-PID foreground callback registered for pid " + pid);
+            }
+            cb(IntPtr.Zero, EVENT_SYSTEM_FOREGROUND, hwnd, 0, 0, dwEventThread, 0);
+        }
+
         private void OnGlobalForegroundEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
         {
             ObserveForegroundHandle(hwnd, dwEventThread);
@@ -501,7 +523,6 @@ namespace Conclave.DesktopTests
         {
             _hookThreadId = GetCurrentThreadId();
             var pidHooks = new Dictionary<int, IntPtr>();
-            var pidDelegates = new List<WinEventDelegate>();
             HookProc kb = (code, wParam, lParam) =>
             {
                 if (code >= 0)
@@ -535,8 +556,7 @@ namespace Conclave.DesktopTests
                     return "per-PID foreground hook failed for pid " + capturedPid + " (err=" + Marshal.GetLastWin32Error() + ")";
                 }
                 pidHooks[capturedPid] = h;
-                pidDelegates.Add(pidCb);
-                lock (_gate) { _pidHookCount = pidHooks.Count; }
+                lock (_gate) { _pidCallbacks[capturedPid] = pidCb; }
                 return null;
             };
             IntPtr mod = GetModuleHandle(null);
@@ -577,16 +597,39 @@ namespace Conclave.DesktopTests
                     else if (msg.message == WM_HOLD) Thread.Sleep((int)msg.wParam.ToInt64());
                     else if (msg.message == WM_TRACK_PID)
                     {
-                        _trackError = installPidHook((int)msg.wParam.ToInt64());
-                        _trackDone.Set();
+                        while (true)
+                        {
+                            TrackRequest req = null;
+                            lock (_trackQueue)
+                            {
+                                if (_pendingTracks.Count > 0) req = _pendingTracks.Dequeue();
+                            }
+                            if (req == null) break;
+                            string err = installPidHook(req.Pid);
+                            lock (_trackQueue)
+                            {
+                                req.Error = err;
+                                req.Done = true;
+                                Monitor.PulseAll(_trackQueue);
+                            }
+                        }
                     }
                     else DispatchMessage(ref msg);
                 }
             }
             finally
             {
-                _hookThreadId = 0;
-                _trackDone.Set();
+                lock (_trackQueue)
+                {
+                    _hookThreadId = 0;
+                    while (_pendingTracks.Count > 0)
+                    {
+                        TrackRequest req = _pendingTracks.Dequeue();
+                        req.Error = "hook thread exited before registering per-PID hook for pid " + req.Pid;
+                        req.Done = true;
+                    }
+                    Monitor.PulseAll(_trackQueue);
+                }
                 foreach (IntPtr ph in pidHooks.Values) UnhookWinEvent(ph);
                 UnhookWindowsHookEx(hKb);
                 UnhookWindowsHookEx(hMs);
@@ -594,7 +637,7 @@ namespace Conclave.DesktopTests
                 GC.KeepAlive(kb);
                 GC.KeepAlive(ms);
                 GC.KeepAlive(fgEv);
-                GC.KeepAlive(pidDelegates);
+                lock (_gate) { _pidCallbacks.Clear(); }
             }
         }
 
@@ -639,7 +682,6 @@ namespace Conclave.DesktopTests
             _ready.Dispose();
             _stop.Dispose();
             _flushed.Dispose();
-            _trackDone.Dispose();
         }
 
         private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
