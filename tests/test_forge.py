@@ -4821,9 +4821,12 @@ class LaunchersPageTests(unittest.TestCase):
                 else:
                     self.assertEqual(pathlib.Path(rec["Target"]).resolve(), pwsh_resolved, rec)
                     self.assertEqual(tokens, ["-NoLogo", "-NoExit", "-Command", agent_name])
+            rundll_resolved = (
+                pathlib.Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "rundll32.exe"
+            ).resolve()
             site_url = next(lnk["url"] for lnk in example["links"] if lnk["label"] == "Site")
             site_rec = recs["Shop App (Site).lnk"]
-            self.assertTrue(site_rec["Target"].lower().endswith("rundll32.exe"), site_rec)
+            self.assertEqual(pathlib.Path(site_rec["Target"]).resolve(), rundll_resolved, site_rec)
             self.assertEqual(site_rec["Arguments"], f"url.dll,FileProtocolHandler {site_url}")
             run_cmd = next(lnk["run"] for lnk in example["links"] if lnk["label"] == "App Check")
             check_rec = recs["Shop App (App Check).lnk"]
@@ -4923,8 +4926,8 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertEqual(ic.parent.resolve(), icon_dir.resolve())
             self.assertNotIn("Other App (Site).lnk", recs2)
             ob_rec = recs2["O'Brien $x (Site).lnk"]
-            self.assertTrue(ob_rec["Target"].lower().endswith("rundll32.exe"), ob_rec)
-            self.assertIn("https://example.test", ob_rec["Arguments"])
+            self.assertEqual(pathlib.Path(ob_rec["Target"]).resolve(), rundll_resolved, ob_rec)
+            self.assertEqual(ob_rec["Arguments"], f"url.dll,FileProtocolHandler {site_url}")
             self.assertTrue(unrelated.is_file())
             self.assertTrue(other_lnk.is_file())
 
