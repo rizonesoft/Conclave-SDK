@@ -848,104 +848,89 @@ namespace Conclave.DesktopTests
             return QueryJobActiveProcessCount(hJob, null);
         }
 
+        private static bool TryQueryJobPidListRaw(IntPtr hJob, int capacity, out int assigned, out int inList, out long[] pids, out int win32Err)
+        {
+            QueryJobPidListDelegate testOverride = QueryJobPidListForTest;
+            if (testOverride != null)
+            {
+                return testOverride(hJob, capacity, out assigned, out inList, out pids, out win32Err);
+            }
+            int bufSize = 8 + IntPtr.Size * capacity;
+            IntPtr buf = Marshal.AllocHGlobal(bufSize);
+            try
+            {
+                uint retLen;
+                bool ok = QueryInformationJobObject(hJob, JobObjectBasicProcessIdList, buf, (uint)bufSize, out retLen);
+                if (!ok)
+                {
+                    assigned = 0;
+                    inList = 0;
+                    pids = null;
+                    win32Err = Marshal.GetLastWin32Error();
+                    return false;
+                }
+                assigned = Marshal.ReadInt32(buf, 0);
+                inList = Marshal.ReadInt32(buf, 4);
+                int limit = Math.Min(Math.Max(inList, 0), capacity);
+                pids = limit > 0 ? new long[limit] : null;
+                for (int i = 0; i < limit; i++)
+                {
+                    pids[i] = (IntPtr.Size == 8)
+                        ? Marshal.ReadInt64(buf, 8 + i * 8)
+                        : Marshal.ReadInt32(buf, 8 + i * 4);
+                }
+                win32Err = 0;
+                return true;
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buf);
+            }
+        }
+
         private static int QueryJobActiveProcessCount(IntPtr hJob, List<IntPtr> collectSyncHandles)
         {
             // Dynamically grow JOBOBJECT_BASIC_PROCESS_ID_LIST buffer on ERROR_MORE_DATA or partial list
             // (inList < assigned) so large process trees never skip SYNCHRONIZE handle collection; fail closed
-            // if the list still exceeds the safety cap.
+            // if the list still exceeds the safety cap. Native and test queries share this single decision path.
             const int MaxCapacity = 65536;
             int capacity = 64;
-            QueryJobPidListDelegate testOverride = QueryJobPidListForTest;
             while (true)
             {
-                if (testOverride != null)
+                int assigned, inList, win32Err;
+                long[] pids;
+                bool ok = TryQueryJobPidListRaw(hJob, capacity, out assigned, out inList, out pids, out win32Err);
+                if (!ok)
                 {
-                    int tAssigned, tInList, tErr;
-                    long[] tPids;
-                    bool tOk = testOverride(hJob, capacity, out tAssigned, out tInList, out tPids, out tErr);
-                    if (!tOk)
-                    {
-                        if (tErr == 234)
-                        {
-                            if (capacity >= MaxCapacity)
-                                throw new InvalidOperationException("desktop job process list exceeded enumeration cap (" + MaxCapacity + "); refusing lock acquisition");
-                            capacity = Math.Min(MaxCapacity, capacity * 2);
-                            continue;
-                        }
-                        throw new Win32Exception(tErr, "QueryInformationJobObject failed");
-                    }
-                    if (tInList < tAssigned)
+                    if (win32Err == 234) // ERROR_MORE_DATA
                     {
                         if (capacity >= MaxCapacity)
-                            throw new InvalidOperationException("desktop job process list remained incomplete (" + tInList + " of " + tAssigned + "); refusing lock acquisition");
-                        capacity = Math.Min(MaxCapacity, Math.Max(capacity * 2, tAssigned + 16));
+                            throw new InvalidOperationException("desktop job process list exceeded enumeration cap (" + MaxCapacity + "); refusing lock acquisition");
+                        capacity = Math.Min(MaxCapacity, capacity * 2);
                         continue;
                     }
-                    if (collectSyncHandles != null && tPids != null)
-                    {
-                        int tLim = Math.Min(tInList, tPids.Length);
-                        for (int i = 0; i < tLim; i++)
-                        {
-                            if (tPids[i] > 0 && tPids[i] <= uint.MaxValue)
-                            {
-                                IntPtr hp = OpenProcess(SYNCHRONIZE, false, (uint)tPids[i]);
-                                if (hp != IntPtr.Zero) collectSyncHandles.Add(hp);
-                            }
-                        }
-                    }
-                    return Math.Max(tAssigned, tInList);
+                    throw new Win32Exception(win32Err, "QueryInformationJobObject failed");
                 }
-                int bufSize = 8 + IntPtr.Size * capacity;
-                IntPtr buf = Marshal.AllocHGlobal(bufSize);
-                try
+                if (inList < assigned)
                 {
-                    uint retLen;
-                    bool ok = QueryInformationJobObject(hJob, JobObjectBasicProcessIdList, buf, (uint)bufSize, out retLen);
-                    if (!ok)
-                    {
-                        int err = Marshal.GetLastWin32Error();
-                        if (err == 234) // ERROR_MORE_DATA
-                        {
-                            if (capacity >= MaxCapacity)
-                                throw new InvalidOperationException("desktop job process list exceeded enumeration cap (" + MaxCapacity + "); refusing lock acquisition");
-                            capacity = Math.Min(MaxCapacity, capacity * 2);
-                            continue;
-                        }
-                        throw new Win32Exception(err, "QueryInformationJobObject failed");
-                    }
-                    int assigned = Marshal.ReadInt32(buf, 0);
-                    int inList = Marshal.ReadInt32(buf, 4);
-                    if (inList < assigned)
-                    {
-                        if (capacity >= MaxCapacity)
-                            throw new InvalidOperationException("desktop job process list remained incomplete (" + inList + " of " + assigned + "); refusing lock acquisition");
-                        capacity = Math.Min(MaxCapacity, Math.Max(capacity * 2, assigned + 16));
-                        continue;
-                    }
-                    if (collectSyncHandles != null && inList > 0)
-                    {
-                        int limit = Math.Min(inList, capacity);
-                        for (int i = 0; i < limit; i++)
-                        {
-                            long pidVal = (IntPtr.Size == 8)
-                                ? Marshal.ReadInt64(buf, 8 + i * 8)
-                                : Marshal.ReadInt32(buf, 8 + i * 4);
-                            if (pidVal > 0 && pidVal <= uint.MaxValue)
-                            {
-                                IntPtr hp = OpenProcess(SYNCHRONIZE, false, (uint)pidVal);
-                                if (hp != IntPtr.Zero)
-                                {
-                                    collectSyncHandles.Add(hp);
-                                }
-                            }
-                        }
-                    }
-                    return Math.Max(assigned, inList);
+                    if (capacity >= MaxCapacity)
+                        throw new InvalidOperationException("desktop job process list remained incomplete (" + inList + " of " + assigned + "); refusing lock acquisition");
+                    capacity = Math.Min(MaxCapacity, Math.Max(capacity * 2, assigned + 16));
+                    continue;
                 }
-                finally
+                if (collectSyncHandles != null && pids != null)
                 {
-                    Marshal.FreeHGlobal(buf);
+                    int limit = Math.Min(inList, pids.Length);
+                    for (int i = 0; i < limit; i++)
+                    {
+                        if (pids[i] > 0 && pids[i] <= uint.MaxValue)
+                        {
+                            IntPtr hp = OpenProcess(SYNCHRONIZE, false, (uint)pids[i]);
+                            if (hp != IntPtr.Zero) collectSyncHandles.Add(hp);
+                        }
+                    }
                 }
+                return Math.Max(assigned, inList);
             }
         }
 

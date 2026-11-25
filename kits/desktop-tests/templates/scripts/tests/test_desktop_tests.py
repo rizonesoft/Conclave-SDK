@@ -653,17 +653,19 @@ public static class LockDriver {
                         calls = 0;
                         seenCaps.Clear();
                         bool ok = DesktopLock.TerminateAndDrainJob(h1.JobHandle, h1.JobHandle, 2000);
-                        if (!ok || calls != 4 || seenCaps[0] != 64 || seenCaps[1] != 128 || seenCaps[2] < 216 || seenCaps[3] != 64)
+                        if (!ok || calls != 4 || seenCaps[0] != 64 || seenCaps[1] != 128 || seenCaps[2] != 256 || seenCaps[3] != 64)
                             throw new InvalidOperationException("unexpected retry sequence: ok=" + ok + " calls=" + calls + " caps=" + string.Join(",", seenCaps));
                     }
                 } finally {
                     DesktopLock.QueryJobPidListForTest = null;
                 }
-                // 2. Cap refusal on persistent ERROR_MORE_DATA during Acquire handoff must throw and preserve record bytes.
+                // 2. Cap refusal on persistent ERROR_MORE_DATA during Acquire handoff must reach cap=65536, throw, and preserve record bytes.
                 using (var hHold = DesktopLock.Acquire(prefix, "pidlist-cap-seed")) {
                     recPath = hHold.RecordPath;
                     origBytes = File.ReadAllBytes(recPath);
+                    int lastMoreDataCap = 0;
                     DesktopLock.QueryJobPidListForTest = (IntPtr hj, int cap, out int ass, out int inl, out long[] pids, out int err) => {
+                        lastMoreDataCap = cap;
                         ass = 0; inl = 0; pids = null; err = 234; return false;
                     };
                     try {
@@ -673,11 +675,14 @@ public static class LockDriver {
                         } catch (InvalidOperationException ex) {
                             refusedMoreData = ex.Message.IndexOf("enumeration cap", StringComparison.OrdinalIgnoreCase) >= 0;
                         }
-                        if (!refusedMoreData) throw new InvalidOperationException("expected enumeration cap refusal on ERROR_MORE_DATA");
+                        if (!refusedMoreData || lastMoreDataCap != 65536)
+                            throw new InvalidOperationException("expected enumeration cap refusal at 65536 on ERROR_MORE_DATA, lastCap=" + lastMoreDataCap);
                         if (!System.Linq.Enumerable.SequenceEqual(File.ReadAllBytes(recPath), origBytes))
                             throw new InvalidOperationException("holder record mutated on ERROR_MORE_DATA cap refusal");
 
+                        int lastIncompleteCap = 0;
                         DesktopLock.QueryJobPidListForTest = (IntPtr hj, int cap, out int ass, out int inl, out long[] pids, out int err) => {
+                            lastIncompleteCap = cap;
                             ass = 70000; inl = cap; pids = new long[0]; err = 0; return true;
                         };
                         bool refusedIncomplete = false;
@@ -686,7 +691,8 @@ public static class LockDriver {
                         } catch (InvalidOperationException ex) {
                             refusedIncomplete = ex.Message.IndexOf("remained incomplete", StringComparison.OrdinalIgnoreCase) >= 0;
                         }
-                        if (!refusedIncomplete) throw new InvalidOperationException("expected remained incomplete refusal on inList < assigned");
+                        if (!refusedIncomplete || lastIncompleteCap != 65536)
+                            throw new InvalidOperationException("expected remained incomplete refusal at 65536 on inList < assigned, lastCap=" + lastIncompleteCap);
                         if (!System.Linq.Enumerable.SequenceEqual(File.ReadAllBytes(recPath), origBytes))
                             throw new InvalidOperationException("holder record mutated on incomplete-list cap refusal");
                     } finally {
