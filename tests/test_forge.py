@@ -1,4 +1,5 @@
 """Tests for forge.py template provisioning, 3-agent isolation, stack kits, and prose hygiene."""
+import base64
 import contextlib
 import ctypes
 import importlib.util
@@ -7,6 +8,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -4347,6 +4349,8 @@ class LaunchersPageTests(unittest.TestCase):
                 "-Distro",
                 "-Project",
                 "relative to the script's own installed project folder",
+                "## How do I inspect the links?",
+                "pwsh -NoProfile -File scripts/project-shortcuts.ps1 -Inspect",
                 "pwsh scripts/project-shortcuts.ps1 -Remove",
                 "unattended-shortcut.ps1",
                 "Watch run",
@@ -4356,6 +4360,7 @@ class LaunchersPageTests(unittest.TestCase):
                 "pass either -Remove or -Inspect, not both",
                 "missing ...ShellLink.cs",
                 "the shortcut folder cannot be read",
+                "-IconDir must be a filesystem path",
             ):
                 self.assertIn(required, text, f"missing topic in docs/launchers.md: {required!r}")
 
@@ -4367,17 +4372,16 @@ class LaunchersPageTests(unittest.TestCase):
             icon_path.parent.mkdir(parents=True, exist_ok=True)
             icon_path.write_bytes(_minimal_rgba_png(256))
 
-            # Diagnose fresh invalid profile first, then apply the worked example and verify show succeeds.
-            bad = subprocess.run([sys.executable, "scripts/lib/launchers.py", "show"], cwd=target,
-                                 capture_output=True, text=True, timeout=30,
-                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            # Extract and execute the published diagnosis command block from docs/launchers.md.
+            diag_argv = self._extract_section_command(text, "## What does each refusal mean?")
+            self.assertEqual(diag_argv[0], "python")
+            diag_cmd = [sys.executable, *diag_argv[1:]]
+            bad = self._run_tree(diag_cmd, cwd=target, timeout=30)
             self.assertEqual(bad.returncode, 1)
             self.assertIn("title: must be set", bad.stdout + bad.stderr)
 
             (target / ".conclave/launchers.json").write_text(example_text, encoding="utf-8")
-            good = subprocess.run([sys.executable, "scripts/lib/launchers.py", "show"], cwd=target,
-                                  capture_output=True, text=True, timeout=30,
-                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            good = self._run_tree(diag_cmd, cwd=target, timeout=30)
             self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
             loaded = json.loads(good.stdout)
             self.assertEqual(loaded["title"], "Shop App")
@@ -4411,10 +4415,8 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertIn("docs/launchers.md", st)
                 self.assertIn("-Remove", st)
                 self.assertIn("pwsh", st)
-                self.assertIn("Add-Type -Path", st)
-                self.assertIn("scripts/lib/ShellLink.cs", st)
-                self.assertIn("[Conclave.ShellLink]::Read", st)
                 self.assertIn("pwsh -NoProfile -File scripts/project-shortcuts.ps1 -Inspect", st)
+                self.assertNotIn("Add-Type -Path", st)
                 self.assertIn("skip creation and removal", st)
                 self.assertIn("verify that the project's owned `.lnk` files", st)
                 self.assertIn("only ever started by the operator", st)
@@ -4692,6 +4694,22 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertEqual(len(spawned), 1)
             self._assert_pid_gone(spawned[0].pid)
 
+    @staticmethod
+    def _extract_section_command(page_text: str, heading: str) -> list[str]:
+        parts = page_text.split(heading, 1)
+        assert len(parts) == 2, f"missing heading {heading!r}"
+        body = parts[1].split("\n## ", 1)[0]
+        m = re.search(r"```powershell\s*\n([^\n]+)\n```", body)
+        assert m is not None, f"missing single-line powershell command under {heading!r}"
+        return shlex.split(m.group(1).strip())
+
+    @staticmethod
+    def _decode_encoded_command(args: str) -> str:
+        m = re.search(r"-EncodedCommand\s+([A-Za-z0-9+/=]+)", args)
+        if not m:
+            return ""
+        return base64.b64decode(m.group(1)).decode("utf-16le", errors="replace")
+
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
         pwsh = shutil.which("pwsh")
@@ -4707,6 +4725,16 @@ class LaunchersPageTests(unittest.TestCase):
             profile_path = target / ".conclave/launchers.json"
             profile_path.write_text(example_text, encoding="utf-8")
 
+            # Extract published creation, inspection, and removal commands from docs/launchers.md.
+            create_argv = self._extract_section_command(page_text, "## How do I write the links?")
+            inspect_argv = self._extract_section_command(page_text, "## How do I inspect the links?")
+            remove_argv = self._extract_section_command(page_text, "## How do I remove the links?")
+            for parsed_argv in (create_argv, inspect_argv, remove_argv):
+                self.assertEqual(parsed_argv[0], "pwsh")
+            create_base = [pwsh, *create_argv[1:]]
+            inspect_base = [pwsh, *inspect_argv[1:]]
+            remove_base = [pwsh, *remove_argv[1:]]
+
             shortcut_dir = pathlib.Path(tmp) / "shortcuts"
             icon_dir = pathlib.Path(tmp) / "icons"
             shortcut_dir.mkdir()
@@ -4717,7 +4745,7 @@ class LaunchersPageTests(unittest.TestCase):
             other_lnk = shortcut_dir / "Other App (Site).lnk"
             mk_other = self._run_tree(
                 [pwsh, "-NoProfile", "-Command",
-                 "Add-Type -Path scripts/lib/ShellLink.cs; "
+                 "Add-Type -LiteralPath scripts/lib/ShellLink.cs; "
                  "$d = [Conclave.ShellLinkData]::new(); "
                  "$d.Target = 'C:\\Windows\\System32\\rundll32.exe'; "
                  "$d.Arguments = 'url.dll,FileProtocolHandler https://other.test'; "
@@ -4726,27 +4754,32 @@ class LaunchersPageTests(unittest.TestCase):
                 cwd=target, env={**os.environ, "OTHER_LNK": str(other_lnk)})
             self.assertEqual(mk_other.returncode, 0, mk_other.stdout + mk_other.stderr)
 
-            # 1. Create links with the command from docs/launchers.md (under process-tree timeout cleanup).
+            # 1. Create links with the exact command extracted from docs/launchers.md.
             created = self._run_tree(
-                [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
-                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
+                [*create_base, "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(created.returncode, 0, created.stdout + created.stderr)
             site_lnk = shortcut_dir / "Shop App (Site).lnk"
             claude_lnk = shortcut_dir / "Shop App (Claude).lnk"
+            codex_lnk = shortcut_dir / "Shop App (Codex).lnk"
             check_lnk = shortcut_dir / "Shop App (App Check).lnk"
-            for lnk in (site_lnk, claude_lnk, check_lnk):
+            for lnk in (site_lnk, claude_lnk, codex_lnk, check_lnk):
                 self.assertTrue(lnk.is_file(), f"missing created shortcut: {lnk}")
 
-            # 2. Execute the published -Inspect command in a fresh pwsh process (sharing project-shortcuts.ps1's identity resolver).
+            # 2. Execute the published -Inspect command in a fresh pwsh process and verify each link's specific action.
             skill_text = (target / ".claude/skills/project-launchers/SKILL.md").read_text(encoding="utf-8")
             m_cmd = re.search(r"```powershell\s*\n(.*?)\n```", skill_text, re.S)
             self.assertIsNotNone(m_cmd, "SKILL.md must include a PowerShell read-back command")
-            self.assertEqual(m_cmd.group(1).strip(), "pwsh -NoProfile -File scripts/project-shortcuts.ps1 -Inspect")
-            inspect_base = [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1", "-Inspect"]
+            self.assertEqual(shlex.split(m_cmd.group(1).strip()), inspect_argv)
             rb = self._run_tree([*inspect_base, "-ShortcutDir", str(shortcut_dir)], cwd=target)
             self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
             recs = self._parse_format_list(rb.stdout)
-            for name in ("Shop App (Claude).lnk", "Shop App (Codex).lnk", "Shop App (Site).lnk", "Shop App (App Check).lnk"):
+            expected_slugs = {
+                "Shop App (Claude).lnk": "claude",
+                "Shop App (Codex).lnk": "codex",
+                "Shop App (Site).lnk": "site",
+                "Shop App (App Check).lnk": "app-check",
+            }
+            for name, slug in expected_slugs.items():
                 self.assertIn(name, recs, recs)
                 rec = recs[name]
                 self.assertTrue(rec.get("Target"), rec)
@@ -4754,12 +4787,28 @@ class LaunchersPageTests(unittest.TestCase):
                 ic = pathlib.Path(rec["IconPath"])
                 self.assertTrue(ic.is_file(), f"IconPath does not exist for {name}: {ic}")
                 self.assertEqual(ic.parent.resolve(), icon_dir.resolve())
-            self.assertNotIn("Other App (Site).lnk", recs, "read-back must ignore another project's shortcut")
-            self.assertIn("Keep Me.lnk", recs, "read-back must surface unreadable shortcut errors")
-            self.assertTrue(recs["Keep Me.lnk"].get("Error"), recs["Keep Me.lnk"])
+                self.assertTrue(ic.name.startswith(f"launcher-{slug}-"), f"wrong icon slug for {name}: {ic.name}")
+            # Verify each saved link's specific target and decoded command / agent / URL arguments.
+            claude_rec = recs["Shop App (Claude).lnk"]
+            self.assertTrue(
+                claude_rec["Target"].lower().endswith(("wt.exe", "pwsh.exe", "powershell.exe")), claude_rec)
+            self.assertIn("claude", claude_rec["Arguments"].lower())
+            self.assertNotIn("codex", claude_rec["Arguments"].lower())
+            codex_rec = recs["Shop App (Codex).lnk"]
+            self.assertTrue(
+                codex_rec["Target"].lower().endswith(("wt.exe", "pwsh.exe", "powershell.exe")), codex_rec)
+            self.assertIn("codex", codex_rec["Arguments"].lower())
+            self.assertNotIn("claude", codex_rec["Arguments"].lower())
             site_rec = recs["Shop App (Site).lnk"]
             self.assertTrue(site_rec["Target"].lower().endswith("rundll32.exe"), site_rec)
             self.assertIn("https://example.test", site_rec["Arguments"])
+            check_rec = recs["Shop App (App Check).lnk"]
+            self.assertTrue(check_rec["Target"].lower().endswith(("pwsh.exe", "powershell.exe")), check_rec)
+            decoded_check = self._decode_encoded_command(check_rec["Arguments"])
+            self.assertIn("laravel-ok", decoded_check, f"decoded App Check command missing payload: {check_rec}")
+            self.assertNotIn("Other App (Site).lnk", recs, "read-back must ignore another project's shortcut")
+            self.assertIn("Keep Me.lnk", recs, "read-back must surface unreadable shortcut errors")
+            self.assertTrue(recs["Keep Me.lnk"].get("Error"), recs["Keep Me.lnk"])
 
             # 2b. Verify -Project destination, WSL distro lowercasing, and UNC/distro conflict refusal share creation's resolver.
             dest_b = pathlib.Path(tmp) / "dest-b"
@@ -4843,11 +4892,10 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertTrue(unrelated.is_file())
             self.assertTrue(other_lnk.is_file())
 
-            # 4. Invalidate the profile before running -Remove and verify owned files vanish while unrelated survive.
+            # 4. Invalidate the profile before running the extracted -Remove command; owned files vanish, unrelated survive.
             profile_path.write_text("{broken json", encoding="utf-8")
             removed = self._run_tree(
-                [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
-                 "-Remove", "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
+                [*remove_base, "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(removed.returncode, 0, removed.stdout + removed.stderr)
             self.assertEqual(sorted(p.name for p in shortcut_dir.iterdir()), ["Keep Me.lnk", "Other App (Site).lnk"])
             self.assertEqual(list(icon_dir.glob("*.ico")), [])

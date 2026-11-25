@@ -1492,6 +1492,51 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(rem_rel.returncode, 0, rem_rel.stdout + rem_rel.stderr)
         self.assertFalse(rel_ico.exists(), "relative -IconDir must resolve against PowerShell Set-Location")
 
+    def test_icon_dir_provider_refuses_non_filesystem_and_accepts_provider_qualified_filesystem(self):
+        # Non-FileSystem PowerShell provider path (e.g. HKCU:\Software) must refuse with exit 1 naming -IconDir
+        # and filesystem, writing nothing to either the shortcut folder or the working directory.
+        cwd_dir = self.base / "provider_cwd"
+        cwd_dir.mkdir()
+        refused = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts/project-shortcuts.ps1"),
+             "-ShortcutDir", str(self.desk), "-IconDir", r"HKCU:\Software",
+             "-Wsl", str(self.wsl), "-Python", sys.executable],
+            timeout=120, cwd=str(cwd_dir), env=self.env(),
+        )
+        self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
+        self.assertIn("-IconDir", refused.stdout)
+        self.assertIn("filesystem", refused.stdout.lower())
+        self.assertEqual(self.links(), [])
+        self.assertEqual(list(cwd_dir.iterdir()), [], "non-filesystem -IconDir must not create folders in CWD")
+        # Valid provider-qualified FileSystem path must be accepted cleanly.
+        fs_icons = self.base / "fs_provider_icons"
+        ok = run_tree(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts/project-shortcuts.ps1"),
+             "-ShortcutDir", str(self.desk), "-IconDir", f"Microsoft.PowerShell.Core\\FileSystem::{fs_icons}",
+             "-Wsl", str(self.wsl), "-Python", sys.executable],
+            timeout=120, cwd=str(cwd_dir), env=self.env(),
+        )
+        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
+        self.assertEqual(self.links(), ["Example Site (Claude).lnk"])
+        self.assertEqual(len(list(fs_icons.glob("*.ico"))), 1)
+
+    def test_inspect_includes_hidden_owned_link_and_excludes_hidden_foreign_link(self):
+        done = self.run_script()
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        owned_lnk = self.desk / "Example Site (Claude).lnk"
+        foreign_lnk = self.desk / "Other Project (Claude).lnk"
+        self._write_shell_link(
+            foreign_lnk, target=str(self.wt_dir / "wt.exe"),
+            description="conclave-launcher: c:\\other-hidden-project",
+        )
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.assertTrue(kernel32.SetFileAttributesW(str(owned_lnk), 0x02))
+        self.assertTrue(kernel32.SetFileAttributesW(str(foreign_lnk), 0x02))
+        insp = self.run_script("-Inspect")
+        self.assertEqual(insp.returncode, 0, insp.stdout + insp.stderr)
+        self.assertIn("Example Site (Claude).lnk", insp.stdout)
+        self.assertNotIn("Other Project (Claude).lnk", insp.stdout)
+
 
 
 @unittest.skipUnless(BASH, "the shell tests need a real bash (Git's on Windows)")

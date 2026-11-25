@@ -119,7 +119,16 @@ if ($null -ne $linux) {
   $name = Split-Path $Project -Leaf
 }
 if (-not $IconDir) { $IconDir = Join-Path $env:LOCALAPPDATA $name }
-else { $IconDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IconDir) }
+else {
+  [System.Management.Automation.ProviderInfo]$iconProv = $null
+  [System.Management.Automation.PSDriveInfo]$iconDrive = $null
+  $resolvedIconDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($IconDir, [ref]$iconProv, [ref]$iconDrive)
+  if (-not $iconProv -or $iconProv.Name -ne 'FileSystem') {
+    $provName = if ($iconProv) { $iconProv.Name } else { 'unknown' }
+    Refuse "-IconDir must be a filesystem path (got provider '$provName': '$IconDir')"
+  }
+  $IconDir = $resolvedIconDir
+}
 $mark = "conclave-launcher: $identity"
 $key = Get-IdentityKey $identity
 
@@ -195,7 +204,7 @@ if ($Inspect) {
     Refuse "the shortcut folder cannot be read: '$ShortcutDir'"
   }
   try {
-    $lnkFiles = @(Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -ErrorAction Stop)
+    $lnkFiles = @(Get-ChildItem -LiteralPath $ShortcutDir -Filter '*.lnk' -File -Force -ErrorAction Stop)
   } catch {
     Refuse "the shortcut folder cannot be read: '$ShortcutDir' ($($_.Exception.Message))"
   }

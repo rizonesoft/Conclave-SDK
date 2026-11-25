@@ -59,6 +59,16 @@ The script always reads `.conclave/launchers.json` and the icon file relative to
 
 Changes to `.conclave/launchers.json` (such as renaming `title` or removing a link) take effect when you rerun the command, and a successful rerun deletes stale everyday links of the same project that the profile no longer names.
 
+## How do I inspect the links?
+
+Run the same script in PowerShell 7 (`pwsh`) with `-Inspect` to read back this project's shortcuts (including hidden ones) without launching any link:
+
+```powershell
+pwsh -NoProfile -File scripts/project-shortcuts.ps1 -Inspect
+```
+
+Reuse the same `-ShortcutDir`, `-Distro`, and `-Project` arguments used when writing the links so inspection matches the same project identity and folder. Because `-Inspect` checks only the ownership mark stored in each shortcut's description, it works even when `.conclave/launchers.json` is invalid. An empty readable folder prints no records; an unreadable shortcut prints a per-file `Error` record naming that `.lnk` file.
+
 ## How do I remove the links?
 
 Run the same script in PowerShell 7 (`pwsh`) with `-Remove`:
@@ -94,3 +104,4 @@ When the profile is valid, `show` prints one line of JSON and exits 0. When it i
 - `project-shortcuts: missing ...ShellLink.cs (python forge.py kit <project> launchers installs it)`: restore the launchers kit's shortcut helper (`python forge.py kit <project> launchers`).
 - `project-shortcuts: could not read '...' to check ownership (close whatever holds it and retry)`: another program holds an exclusive lock on a `.lnk` file in the shortcut folder; close it and rerun.
 - `project-shortcuts: the shortcut folder cannot be read: '<ShortcutDir>'`: pass an existing, readable `-ShortcutDir` folder (or fix permissions on the Desktop folder).
+- `project-shortcuts: -IconDir must be a filesystem path (got provider '<provider>': '<IconDir>')`: pass a Windows filesystem folder path (not a PowerShell registry or non-filesystem provider path such as `HKCU:\Software`).
