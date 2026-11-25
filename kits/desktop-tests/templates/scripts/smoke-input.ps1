@@ -394,9 +394,14 @@ function Add-History($entry) {
                 $doc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
                 if ($doc -is [System.Array]) {
                     foreach ($d in @($doc)) { if ($d) { $ranges.Add(@([string]$d, [string]$d)) } }
-                } elseif ($doc -and $doc.PSObject.Properties['ranges']) {
-                    foreach ($r in @($doc.ranges)) {
-                        if ($r -and $r.Count -eq 2) { $ranges.Add(@([string]$r[0], [string]$r[1])) }
+                } elseif ($doc) {
+                    if ($doc.PSObject.Properties['ranges']) {
+                        foreach ($r in @($doc.ranges)) {
+                            if ($r -and $r.Count -eq 2) { $ranges.Add(@([string]$r[0], [string]$r[1])) }
+                        }
+                    }
+                    if ($doc.PSObject.Properties['dates']) {
+                        foreach ($d in @($doc.dates)) { if ($d) { $ranges.Add(@([string]$d, [string]$d)) } }
                     }
                 }
             }
@@ -669,14 +674,19 @@ if ($Status) {
             $nDoc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
             if ($nDoc -is [System.Array]) {
                 foreach ($nd in @($nDoc)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
-            } elseif ($nDoc -and $nDoc.PSObject.Properties['ranges']) {
-                foreach ($r in @($nDoc.ranges)) {
-                    if ($r -and $r.Count -eq 2) {
-                        $schedRanges.Add(@(
-                            [DateTime]::ParseExact([string]$r[0], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture),
-                            [DateTime]::ParseExact([string]$r[1], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
-                        ))
+            } elseif ($nDoc) {
+                if ($nDoc.PSObject.Properties['ranges']) {
+                    foreach ($r in @($nDoc.ranges)) {
+                        if ($r -and $r.Count -eq 2) {
+                            $schedRanges.Add(@(
+                                [DateTime]::ParseExact([string]$r[0], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture),
+                                [DateTime]::ParseExact([string]$r[1], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+                            ))
+                        }
                     }
+                }
+                if ($nDoc.PSObject.Properties['dates']) {
+                    foreach ($nd in @($nDoc.dates)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
                 }
             }
         }
