@@ -289,6 +289,7 @@ public static class FixtureDriver {
             int pidB = pidA + 1;
             var aEntered = new ManualResetEventSlim(false);
             var releaseA = new ManualResetEventSlim(false);
+            var bQueued = new ManualResetEventSlim(false);
             var bEntered = new ManualResetEventSlim(false);
             var releaseB = new ManualResetEventSlim(false);
             var bDone = new ManualResetEventSlim(false);
@@ -297,6 +298,9 @@ public static class FixtureDriver {
                 obs.BeforeTrackInstallForTest = p => {
                     if (p == pidA) { aEntered.Set(); releaseA.Wait(5000); }
                     else if (p == pidB) { bEntered.Set(); releaseB.Wait(5000); }
+                };
+                obs.AfterTrackEnqueueForTest = p => {
+                    if (p == pidB) bQueued.Set();
                 };
                 bool aTimedOut = false;
                 try {
@@ -314,8 +318,13 @@ public static class FixtureDriver {
                     finally { bDone.Set(); }
                 }) { IsBackground = true };
                 threadB.Start();
-                Thread.Sleep(60);
-                // Release A while B is still held; A's late acknowledgement must not complete B.
+                if (!bQueued.Wait(2000)) {
+                    Console.Error.WriteLine("pidB did not enqueue its request before releasing pidA");
+                    releaseA.Set();
+                    releaseB.Set();
+                    return 17;
+                }
+                // Release A only after B has enqueued under _trackQueue; A's late acknowledgement must not complete B.
                 releaseA.Set();
                 if (!bEntered.Wait(2000)) {
                     Console.Error.WriteLine("pidB registration never reached hook thread after pidA completed");

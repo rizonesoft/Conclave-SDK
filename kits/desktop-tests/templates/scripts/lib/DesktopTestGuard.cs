@@ -328,6 +328,7 @@ namespace Conclave.DesktopTests
         internal int InstalledPidHookCount { get { lock (_gate) { return _pidCallbacks.Count; } } }
 
         internal Action<int> BeforeTrackInstallForTest;
+        internal Action<int> AfterTrackEnqueueForTest;
 
         public void TrackPid(int pid)
         {
@@ -348,6 +349,8 @@ namespace Conclave.DesktopTests
                 if (!PostThreadMessage(tid, WM_TRACK_PID, IntPtr.Zero, IntPtr.Zero))
                     throw new InvalidOperationException("DeskObserver failed to register per-PID hook for pid " + pid + " (err=" + Marshal.GetLastWin32Error() + ")");
                 _pendingTracks.Enqueue(req);
+                Action<int> enqHook = AfterTrackEnqueueForTest;
+                if (enqHook != null) enqHook(pid);
                 DateTime deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
                 while (!req.Done)
                 {
