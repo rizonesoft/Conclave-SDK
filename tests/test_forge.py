@@ -4789,23 +4789,25 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertEqual(ic.parent.resolve(), icon_dir.resolve())
                 self.assertTrue(ic.name.startswith(f"launcher-{slug}-"), f"wrong icon slug for {name}: {ic.name}")
             # Verify each saved link's specific target and decoded command / agent / URL arguments.
-            claude_rec = recs["Shop App (Claude).lnk"]
-            self.assertTrue(
-                claude_rec["Target"].lower().endswith(("wt.exe", "pwsh.exe", "powershell.exe")), claude_rec)
-            self.assertIn("claude", claude_rec["Arguments"].lower())
-            self.assertNotIn("codex", claude_rec["Arguments"].lower())
-            codex_rec = recs["Shop App (Codex).lnk"]
-            self.assertTrue(
-                codex_rec["Target"].lower().endswith(("wt.exe", "pwsh.exe", "powershell.exe")), codex_rec)
-            self.assertIn("codex", codex_rec["Arguments"].lower())
-            self.assertNotIn("claude", codex_rec["Arguments"].lower())
+            for agent_label, agent_name in (("Claude", "claude"), ("Codex", "codex")):
+                rec = recs[f"Shop App ({agent_label}).lnk"]
+                self.assertTrue(
+                    rec["Target"].lower().endswith(("wt.exe", "pwsh.exe", "powershell.exe")), rec)
+                m_agent = re.search(r"-Command\s+(.*)$", rec["Arguments"], re.I)
+                self.assertIsNotNone(m_agent, f"missing -Command in {agent_label} arguments: {rec}")
+                agent_cmd = m_agent.group(1)
+                self.assertRegex(agent_cmd, rf"\b{agent_name}\b")
+                other = "codex" if agent_name == "claude" else "claude"
+                self.assertNotRegex(agent_cmd, rf"\b{other}\b")
+            site_url = next(lnk["url"] for lnk in example["links"] if lnk["label"] == "Site")
             site_rec = recs["Shop App (Site).lnk"]
             self.assertTrue(site_rec["Target"].lower().endswith("rundll32.exe"), site_rec)
-            self.assertIn("https://example.test", site_rec["Arguments"])
+            self.assertEqual(site_rec["Arguments"], f"url.dll,FileProtocolHandler {site_url}")
+            run_cmd = next(lnk["run"] for lnk in example["links"] if lnk["label"] == "App Check")
             check_rec = recs["Shop App (App Check).lnk"]
             self.assertTrue(check_rec["Target"].lower().endswith(("pwsh.exe", "powershell.exe")), check_rec)
             decoded_check = self._decode_encoded_command(check_rec["Arguments"])
-            self.assertIn("laravel-ok", decoded_check, f"decoded App Check command missing payload: {check_rec}")
+            self.assertIn(run_cmd, decoded_check, f"decoded App Check command missing exact run payload: {decoded_check!r}")
             self.assertNotIn("Other App (Site).lnk", recs, "read-back must ignore another project's shortcut")
             self.assertIn("Keep Me.lnk", recs, "read-back must surface unreadable shortcut errors")
             self.assertTrue(recs["Keep Me.lnk"].get("Error"), recs["Keep Me.lnk"])
@@ -4867,8 +4869,7 @@ class LaunchersPageTests(unittest.TestCase):
             example["links"] = [lnk for lnk in example["links"] if lnk["label"] == "Site"]
             profile_path.write_text(json.dumps(example), encoding="utf-8")
             rerun = self._run_tree(
-                [pwsh, "-NoProfile", "-File", "scripts/project-shortcuts.ps1",
-                 "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
+                [*create_base, "-ShortcutDir", str(shortcut_dir), "-IconDir", str(icon_dir)], cwd=target)
             self.assertEqual(rerun.returncode, 0, rerun.stdout + rerun.stderr)
             self.assertFalse(site_lnk.exists(), "stale shortcut was not removed on rerun")
             self.assertFalse(check_lnk.exists(), "dropped link shortcut was not removed on rerun")

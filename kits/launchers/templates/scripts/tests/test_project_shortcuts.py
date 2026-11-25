@@ -1497,6 +1497,8 @@ class ProjectShortcutsTest(unittest.TestCase):
         # and filesystem, writing nothing to either the shortcut folder or the working directory.
         cwd_dir = self.base / "provider_cwd"
         cwd_dir.mkdir()
+        desk_existed_before = self.desk.exists()
+        desk_before = sorted(p.name for p in self.desk.iterdir()) if desk_existed_before else None
         refused = run_tree(
             [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.project / "scripts/project-shortcuts.ps1"),
              "-ShortcutDir", str(self.desk), "-IconDir", r"HKCU:\Software",
@@ -1506,7 +1508,9 @@ class ProjectShortcutsTest(unittest.TestCase):
         self.assertEqual(refused.returncode, 1, refused.stdout + refused.stderr)
         self.assertIn("-IconDir", refused.stdout)
         self.assertIn("filesystem", refused.stdout.lower())
-        self.assertEqual(self.links(), [])
+        self.assertEqual(self.desk.exists(), desk_existed_before, "non-filesystem -IconDir must not create ShortcutDir")
+        if desk_existed_before:
+            self.assertEqual(sorted(p.name for p in self.desk.iterdir()), desk_before)
         self.assertEqual(list(cwd_dir.iterdir()), [], "non-filesystem -IconDir must not create folders in CWD")
         # Valid provider-qualified FileSystem path must be accepted cleanly.
         fs_icons = self.base / "fs_provider_icons"
