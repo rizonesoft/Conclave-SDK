@@ -47,7 +47,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 9 | §9 | C++ lens entries in the C++ projects | §8 | [x] |
 | 10 | §10 | Reviewer scripts current in the WSL project | §3 | [ ] |
 | 11 | §11 | Surface validation in the custom graphs | §3 | [x] |
-| 12 | §12 | Stamp gate planned in each custom graph's project | §11 | [ ] |
+| 12 | §12 | Stamp gate planned in each custom graph's project | §11 | [x] |
 | 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [ ] |
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
@@ -363,6 +363,9 @@ The three custom graphs have no `stamp`, so nothing there can refuse a section w
 - [x] Commit: `todo: file the stamp gate` in each project, and `docs: custom graph stamp gates filed (D00 T03 §12)` here.
 
 **Test checkpoint:** `python scripts/todo-graph.py resolve "<filed ref>"` in each of the three projects prints the section and exits 0 or 4. **Corrected 2026-11-25 (plan review):** read back each committed section by project, path, and ref (`resolve` exiting 0 or 4), confirm its gate contract and behavioral checkpoint, and confirm `validate` and `plan --check` exit 0 in all three projects.
+
+> **Verified:** 2026-11-25 | §12 | 5005e9159ae595b6f82c55909678ad92a5eba119
+> **Review:** `docs/reviews/d00-t03-s12.json`
 
 ## 13. Concurrency and Lifetime Checks in the Clang-Tidy Ratchet
 
