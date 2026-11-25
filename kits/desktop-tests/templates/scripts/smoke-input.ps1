@@ -245,14 +245,7 @@ public static class ConclaveSmokeDesk {
             CloseHandle(outR); CloseHandle(errR);
             throw new Win32Exception(err);
         }
-        if (!AssignProcessToJobObject(job, pi.hProcess)) {
-            int jerr = Marshal.GetLastWin32Error();
-            TerminateProcess(pi.hProcess, 1);
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
-            CloseHandle(outR); CloseHandle(errR);
-            throw new Win32Exception(jerr, "AssignProcessToJobObject failed before child resumed");
-        }
+        // Assign outer desktop job FIRST, then inner per-class/discovery job SECOND (Windows nested-job order).
         if (extraJob != IntPtr.Zero && !AssignProcessToJobObject(extraJob, pi.hProcess)) {
             int jerr = Marshal.GetLastWin32Error();
             TerminateProcess(pi.hProcess, 1);
@@ -260,6 +253,14 @@ public static class ConclaveSmokeDesk {
             CloseHandle(pi.hProcess);
             CloseHandle(outR); CloseHandle(errR);
             throw new Win32Exception(jerr, "AssignProcessToJobObject(desktopJob) failed before child resumed");
+        }
+        if (!AssignProcessToJobObject(job, pi.hProcess)) {
+            int jerr = Marshal.GetLastWin32Error();
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            CloseHandle(outR); CloseHandle(errR);
+            throw new Win32Exception(jerr, "AssignProcessToJobObject failed before child resumed");
         }
         if (ResumeThread(pi.hThread) == unchecked((uint)-1)) {
             int rerr = Marshal.GetLastWin32Error();
@@ -992,15 +993,14 @@ try {
     $discoveredCount = 0
 
     try {
-        # Discover test cases inside the desktop lock's Kill-On-Close Job Object with active interruption polling.
+        # Discover test cases inside a nested per-discovery Kill-On-Close Job Object under the outer desktop job.
         $discLines = [Collections.Generic.List[string]]::new()
-        $discJobOwned = ($desktopJobHandle -eq [IntPtr]::Zero)
-        $discJob = if ($discJobOwned) { [ConclaveSmokeDesk]::NewKillOnCloseJob() } else { $desktopJobHandle }
+        $discJob = [ConclaveSmokeDesk]::NewKillOnCloseJob()
         $discChild = $null
         $discExit = 0
         try {
             $discCmd = Build-WinCmdLine $runnerExe (@($runnerBaseArgs) + @('--discover'))
-            $discChild = [ConclaveSmokeDesk]::StartInJob($discJob, $discCmd, $repo, $childEnv)
+            $discChild = [ConclaveSmokeDesk]::StartInJob($discJob, $desktopJobHandle, $discCmd, $repo, $childEnv)
             $outLineTask = $discChild.StdOut.ReadLineAsync()
             $errDrainTask = $discChild.StdErr.ReadToEndAsync()
             while ($true) {
@@ -1034,7 +1034,7 @@ try {
             }
         } finally {
             [void][ConclaveSmokeDesk]::TerminateJobObject($discJob, 1)
-            if ($discJobOwned) { [void][ConclaveSmokeDesk]::CloseHandle($discJob) }
+            [void][ConclaveSmokeDesk]::CloseHandle($discJob)
             if ($discChild) { $discChild.Dispose() }
         }
 
@@ -1093,14 +1093,13 @@ try {
             $stopReason = Check-RuntimeStop $deadline
             if ($stopReason) { break }
 
-            $jobOwned = ($desktopJobHandle -eq [IntPtr]::Zero)
-            $job = if ($jobOwned) { [ConclaveSmokeDesk]::NewKillOnCloseJob() } else { $desktopJobHandle }
+            $job = [ConclaveSmokeDesk]::NewKillOnCloseJob()
             $cChild = $null
             $counts = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
             $expectedSet = [Collections.Generic.HashSet[string]]::new($expectedByClass[$cls], [StringComparer]::Ordinal)
             try {
                 $classCmd = Build-WinCmdLine $runnerExe (@($runnerBaseArgs) + @('--run-class', $cls))
-                $cChild = [ConclaveSmokeDesk]::StartInJob($job, $classCmd, $repo, $childEnv)
+                $cChild = [ConclaveSmokeDesk]::StartInJob($job, $desktopJobHandle, $classCmd, $repo, $childEnv)
                 $logWriter.WriteLine("=== class $cls ===")
                 $outTask = $cChild.StdOut.ReadLineAsync()
                 $errTask = $cChild.StdErr.ReadLineAsync()
@@ -1183,7 +1182,7 @@ try {
                 }
             } finally {
                 [void][ConclaveSmokeDesk]::TerminateJobObject($job, 1)
-                if ($jobOwned) { [void][ConclaveSmokeDesk]::CloseHandle($job) }
+                [void][ConclaveSmokeDesk]::CloseHandle($job)
                 if ($cChild) { $cChild.Dispose() }
             }
         }

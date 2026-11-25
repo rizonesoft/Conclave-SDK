@@ -144,11 +144,12 @@ namespace Conclave.DesktopTests
             _disposed = true;
             if (_inherited) return;
 
+            bool drained = true;
             try
             {
                 if (_hJob != IntPtr.Zero)
                 {
-                    DesktopLock.TerminateAndDrainJob(_hJob, 5000);
+                    drained = DesktopLock.TerminateAndDrainJob(_hJob, 5000);
                 }
             }
             finally
@@ -159,25 +160,11 @@ namespace Conclave.DesktopTests
                     {
                         if (!DesktopLock.SetEvent(_hLease))
                         {
-                            // Record error only after releasing mutex in finally; signaling must not block mutex release.
                             Trace.WriteLine("DesktopLock: SetEvent failed (err=" + Marshal.GetLastWin32Error() + ")");
                         }
                     }
-                    if (!string.IsNullOrEmpty(_recordPath))
-                    {
-                        try
-                        {
-                            if (File.Exists(_recordPath)) File.Delete(_recordPath);
-                        }
-                        catch (IOException)
-                        {
-                            // Intentional: lease event is already permanently signaled so a locked-open record cannot authorize inheritance or misattribute ownership.
-                        }
-                        catch (UnauthorizedAccessException)
-                        {
-                            // Intentional: same as IOException above; mutex release must still execute unconditionally.
-                        }
-                    }
+                    // Retain the last published holder record on disk: readers validate the lease event,
+                    // next owners atomically replace it, and a failed drain preserves prior job identity.
                 }
                 finally
                 {
@@ -189,6 +176,10 @@ namespace Conclave.DesktopTests
                     if (_hLease != IntPtr.Zero) DesktopLock.CloseHandle(_hLease);
                     if (_hJob != IntPtr.Zero) DesktopLock.CloseHandle(_hJob);
                 }
+            }
+            if (!drained)
+            {
+                throw new InvalidOperationException("desktop job '" + _jobName + "' did not drain to zero active processes within timeout");
             }
         }
     }
@@ -218,11 +209,14 @@ namespace Conclave.DesktopTests
         internal const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
         internal const int ERROR_FILE_NOT_FOUND = 2;
 
-        // Owner retains full control (including READ_CONTROL); AuthenticatedUsers gets only operational rights.
+        // Owner retains full control on mutex/job; on the lease event, even same-account openers get only
+        // READ_CONTROL | SYNCHRONIZE (0x00120000) so only the creator's private CreateEventExW handle can SetEvent.
         private const string SddlMutex = "D:(A;;0x001F0001;;;OW)(A;;0x00100001;;;AU)";
-        private const string SddlLeaseEvent = "D:(A;;0x001F0003;;;OW)(A;;0x00100000;;;AU)";
+        private const string SddlLeaseEvent = "D:(A;;0x00120000;;;OW)(A;;0x00100000;;;AU)";
         private const string SddlJob = "D:(A;;0x001F001F;;;OW)(A;;0x00100004;;;AU)";
         private const string SddlRecordDir = "D:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)(A;OICI;0x001301BF;;;AU)";
+
+        internal enum LeaseState { Active, Inactive, Unknown }
 
         // Test-only hooks (default null/false in production).
         internal static Action BeforeRecordPublishForTest { get; set; }
@@ -547,21 +541,58 @@ namespace Conclave.DesktopTests
                 null);
         }
 
-        internal static bool IsHolderLeaseLive(int pid, long expectedStartTicks, string leaseEventName)
+        internal static LeaseState CheckHolderLeaseState(int pid, long expectedStartTicks, string leaseEventName)
         {
-            if (pid <= 0 || expectedStartTicks <= 0 || string.IsNullOrEmpty(leaseEventName)) return false;
-            long liveTicks;
-            if (!TryGetProcessCreationTicks(pid, out liveTicks) || liveTicks != expectedStartTicks) return false;
+            if (pid <= 0 || expectedStartTicks <= 0 || string.IsNullOrEmpty(leaseEventName))
+                return LeaseState.Unknown;
+
             IntPtr hLease = OpenEventW(SYNCHRONIZE, false, leaseEventName);
-            if (hLease == IntPtr.Zero) return false;
+            if (hLease != IntPtr.Zero)
+            {
+                try
+                {
+                    uint w = WaitForSingleObject(hLease, 0);
+                    if (w == WAIT_OBJECT_0) return LeaseState.Inactive; // Explicitly signaled on disposal.
+                    if (w != WAIT_TIMEOUT) return LeaseState.Unknown;   // WAIT_FAILED or unexpected.
+                }
+                finally
+                {
+                    CloseHandle(hLease);
+                }
+            }
+            else
+            {
+                int evErr = Marshal.GetLastWin32Error();
+                if (evErr != ERROR_FILE_NOT_FOUND) return LeaseState.Unknown; // e.g. ERROR_ACCESS_DENIED
+            }
+
+            // Lease event is either still unsignaled or vanished: inspect owner process with 3-state semantics.
+            IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
+            if (hProc == IntPtr.Zero)
+            {
+                int pErr = Marshal.GetLastWin32Error();
+                // ERROR_INVALID_PARAMETER (87) means no process with this PID exists.
+                return pErr == 87 ? LeaseState.Inactive : LeaseState.Unknown;
+            }
             try
             {
-                return WaitForSingleObject(hLease, 0) == WAIT_TIMEOUT;
+                uint exitCode;
+                if (!GetExitCodeProcess(hProc, out exitCode)) return LeaseState.Unknown;
+                if (exitCode != 259) return LeaseState.Inactive; // Confirmed exited.
+                long c, e, k, u;
+                if (!GetProcessTimes(hProc, out c, out e, out k, out u) || c <= 0) return LeaseState.Unknown;
+                if (c != expectedStartTicks) return LeaseState.Inactive; // PID reused by a different process.
+                return hLease != IntPtr.Zero ? LeaseState.Active : LeaseState.Inactive;
             }
             finally
             {
-                CloseHandle(hLease);
+                CloseHandle(hProc);
             }
+        }
+
+        internal static bool IsHolderLeaseLive(int pid, long expectedStartTicks, string leaseEventName)
+        {
+            return CheckHolderLeaseState(pid, expectedStartTicks, leaseEventName) == LeaseState.Active;
         }
 
         internal static bool IsCurrentProcessInNamedJob(string jobName)
@@ -580,10 +611,35 @@ namespace Conclave.DesktopTests
             }
         }
 
+        private static bool ReadHolderRecordForRecovery(string path, out HolderRecord rec)
+        {
+            rec = null;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+            try
+            {
+                using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var sr = new StreamReader(fs, Encoding.UTF8))
+                {
+                    rec = ParseRecord(sr.ReadToEnd());
+                }
+            }
+            catch (IOException ex)
+            {
+                throw new InvalidOperationException("holder record is unreadable during handoff recovery: " + ex.Message, ex);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                throw new InvalidOperationException("holder record access denied during handoff recovery: " + ex.Message, ex);
+            }
+            if (rec == null || rec.Pid <= 0 || rec.StartTicks <= 0 || string.IsNullOrEmpty(rec.LeaseId))
+                throw new InvalidOperationException("holder record is malformed during handoff recovery");
+            return true;
+        }
+
         private static void DrainPriorJobFromRecord(string recordPath, int timeoutMs)
         {
-            HolderRecord prior = TryReadHolderRecord(recordPath);
-            if (prior == null || string.IsNullOrEmpty(prior.LeaseId)) return;
+            HolderRecord prior;
+            if (!ReadHolderRecordForRecovery(recordPath, out prior)) return;
             string priorJobName = JobNameFor(prior.LeaseId);
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             while (true)
@@ -596,9 +652,10 @@ namespace Conclave.DesktopTests
                     int err = Marshal.GetLastWin32Error();
                     if (err == ERROR_FILE_NOT_FOUND)
                     {
-                        // Job name is gone; also verify prior owner is no longer holding an active lease.
-                        if (!IsHolderLeaseLive(prior.Pid, prior.StartTicks, LeaseEventNameFor(prior.LeaseId)))
-                            return;
+                        LeaseState st = CheckHolderLeaseState(prior.Pid, prior.StartTicks, LeaseEventNameFor(prior.LeaseId));
+                        if (st == LeaseState.Inactive) return;
+                        if (st == LeaseState.Unknown)
+                            throw new InvalidOperationException("cannot verify prior lease state after desktop job vanished; refusing acquisition");
                         if (DateTime.UtcNow >= deadline)
                             throw new InvalidOperationException("prior holder lease still appears active after job vanished");
                         Thread.Sleep(20);
@@ -622,14 +679,21 @@ namespace Conclave.DesktopTests
             }
         }
 
-        internal static void TerminateAndDrainJob(IntPtr hJob, int timeoutMs)
+        internal static bool TerminateAndDrainJob(IntPtr hJob, int timeoutMs)
         {
             TerminateJobObject(hJob, 1);
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-            while (DateTime.UtcNow < deadline)
+            while (true)
             {
-                int count = QueryJobActiveProcessCount(hJob);
-                if (count == 0) return;
+                try
+                {
+                    if (QueryJobActiveProcessCount(hJob) == 0) return true;
+                }
+                catch (Win32Exception)
+                {
+                    return false;
+                }
+                if (DateTime.UtcNow >= deadline) return false;
                 Thread.Sleep(15);
             }
         }

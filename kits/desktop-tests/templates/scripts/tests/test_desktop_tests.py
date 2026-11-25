@@ -686,6 +686,9 @@ public static class LockDriver {
             }
             if (cmd == "hold-lease-reader") {
                 string leaseEventName = args[2];
+                IntPtr hm = OpenEventW(0x00000002, false, leaseEventName); // EVENT_MODIFY_STATE must be denied even for same account!
+                if (hm != IntPtr.Zero) { CloseHandle(hm); return 42; }
+                if (Marshal.GetLastWin32Error() != 5) return 43;
                 IntPtr he = OpenEventW(SYNCHRONIZE, false, leaseEventName);
                 if (he == IntPtr.Zero) return 41;
                 try {
@@ -1524,6 +1527,21 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                     except Exception:
                         p.kill()
                         p.communicate()
+
+        # 5. Unreadable holder record (sharing violation denying read) refuses recovery fail-closed before replacement!
+        lock5 = f"conclave-dt-unreadable-{os.getpid()}-{time.time_ns()}"
+        env5 = {**os.environ, "DEMO_DESKTOP_LOCK": lock5, "DEMO_DESKTOP_WAIT_S": "1"}
+        r_seed = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env5)
+        self.assertEqual(r_seed.returncode, 0, r_seed.stdout + r_seed.stderr)
+        rec5 = self._parse_kv([ln for ln in r_seed.stdout.splitlines() if ln.startswith("ACQUIRED ")][0])["record"]
+        # Open exclusively (share=0) so reading during handoff hits a sharing violation!
+        h_excl = kernel32.CreateFileW(rec5, 0x80000000, 0, None, 3, 0x80, None)
+        self.assertNotEqual(h_excl, ctypes.c_void_p(-1).value)
+        try:
+            r_unr = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env5)
+            self.assertNotEqual(r_unr.returncode, 0, "acquisition must refuse when holder record is unreadable")
+        finally:
+            kernel32.CloseHandle(h_excl)
 
     def test_desktop_lock_inheritance_reused_pid_and_child_lifetime(self):
         # 1. Job-member child inherits immediately and disposing it does NOT release parent's lock.
