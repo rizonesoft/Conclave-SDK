@@ -628,17 +628,21 @@ if ($Uninstall) {
             $kept.Add($t)
         }
         if ($removedTask -and (-not $NoRegister) -and $doc.PSObject.Properties['folder'] -and $doc.folder) {
-            # Unregister a legacy pre-tag scheduled task while the manifest description is still known.
-            $existingLegacy = Get-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -ErrorAction SilentlyContinue
-            if ($existingLegacy -and $existingLegacy.Actions -and $existingLegacy.Actions.Count -eq 1) {
-                $act = $existingLegacy.Actions[0]
-                $pwCmd = (Get-Command pythonw.exe -ErrorAction Ignore).Source
+            # Verify ownership of any live task at ($doc.folder, $taskName) BEFORE mutating tasks.json.
+            $existingLive = Get-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($existingLive) {
+                $ownerTag = "[conclave-automations:$autoRunner]"
+                $act = if ($existingLive.Actions -and $existingLive.Actions.Count -eq 1) { $existingLive.Actions[0] } else { $null }
                 $expectedArgs = "`"$autoRunner`" $taskName"
-                if ($pwCmd -and ([string]$act.Execute -ieq $pwCmd) -and
-                    ([string]$act.Arguments -ceq $expectedArgs) -and
-                    (([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\')) -and
-                    ([string]$existingLegacy.Description -ceq [string]$removedTask.description)) {
+                $argsAndDirOk = $act -and ([string]$act.Arguments -ceq $expectedArgs) -and (([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\'))
+                $isTaggedOwned = $argsAndDirOk -and ([IO.Path]::GetFileName([string]$act.Execute) -ieq 'pythonw.exe') -and ([string]$existingLive.Description).EndsWith($ownerTag, [StringComparison]::OrdinalIgnoreCase)
+                $pwCmd = (Get-Command pythonw.exe -ErrorAction Ignore).Source
+                $isLegacyOwned = $argsAndDirOk -and $pwCmd -and ([string]$act.Execute -ieq $pwCmd) -and ([string]$existingLive.Description -ceq [string]$removedTask.description)
+                if ($isLegacyOwned) {
                     Unregister-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -Confirm:$false -ErrorAction Stop
+                } elseif (-not $isTaggedOwned) {
+                    [Console]::Error.WriteLine("smoke-input: refusing to remove scheduled task '$($doc.folder)$taskName' whose ownership cannot be verified; manifest retained")
+                    exit 2
                 }
             }
         }

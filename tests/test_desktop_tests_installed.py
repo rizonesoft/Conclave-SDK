@@ -210,6 +210,25 @@ class DesktopTestsInstalledTest(unittest.TestCase):
                     f"if ($s -or -not $m) {{ exit 1 }}",
                 ])
                 self.assertEqual(rc_after2, 0, out_after2 + err_after2)
+                # Ambiguous ownership (legacy untagged task registered under a different pythonw.exe path):
+                # direct uninstall MUST refuse (exit 2), keep the task untouched, and retain the manifest entry!
+                manifest_path.write_text(json.dumps(legacy_manifest, indent=2), encoding="utf-8")
+                rc_amb, out_amb, err_amb = _run_tree([
+                    PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                    f"$a3 = New-ScheduledTaskAction -Execute 'C:\\OtherPython\\pythonw.exe' -Argument '\"{runner_py}\" {smoke_task}' -WorkingDirectory '{target}'; "
+                    f"$t = New-ScheduledTaskTrigger -Daily -At '03:00'; "
+                    f"Register-ScheduledTask -TaskPath '{folder}' -TaskName '{smoke_task}' -Description 'Nightly real-input desktop UI tests for {prefix}' -Action $a3 -Trigger $t -Force | Out-Null",
+                ])
+                self.assertEqual(rc_amb, 0, out_amb + err_amb)
+                rc_ref, out_ref, err_ref = _run_tree([
+                    PWSH, "-NoProfile", "-NonInteractive", "-File", str(target / "scripts/smoke-input.ps1"),
+                    "-ProjectRoot", str(target), "-StateFolder", str(state), "-Python", sys.executable,
+                    "-Uninstall",
+                ], cwd=target)
+                self.assertEqual(rc_ref, 2, out_ref + err_ref)
+                self.assertIn("manifest retained", err_ref)
+                retained = json.loads(manifest_path.read_text(encoding="utf-8"))
+                self.assertEqual([t["name"] for t in retained["tasks"]], [smoke_task])
             finally:
                 _run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", cleanup_ps])
 
