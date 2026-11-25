@@ -301,7 +301,9 @@ Two faults in the campaign link, both found on the first project that used the w
 
 ## 8. Operator page and `project-launchers` skill
 
-> **Started:** 2026-11-21T14:57Z
+> **Started:** 2026-11-25T00:35Z
+
+**Corrected 2026-11-25:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-21T14:57Z; its review chain is kept as `docs/reviews/07-launchers/D07-T01-s8-chain2.md`.
 
 **Corrected 2026-11-21:** re-planned with `todo-graph.py replan`; the build first began at 2026-11-19T07:47Z; its review chain is kept as `docs/reviews/07-launchers/D07-T01-s8-chain1.md` (prior plan review ran under the retired P1-only pin; its 5 findings are folded into the checklist below).
 
@@ -321,6 +323,7 @@ A person or an agent in a project needs one place that says how to set the title
 - [x] Write `kits/launchers/templates/.claude/skills/project-launchers/SKILL.md` with discovery metadata (`name`, `description`): when to use it (the operator asks for desktop shortcuts, or a project's title or icon changed), pointer to the installed `docs/launchers.md` for creation and removal commands (avoiding duplicated command steps), agent-specific read-back in PowerShell 7 (`pwsh`) loading `scripts/lib/ShellLink.cs` with `Add-Type -Path` and calling `[Conclave.ShellLink]::Read` to inspect saved `Target`, `Arguments` and `IconPath` without launching the link, and the rule that a link is only ever started by the operator. Done when: a test in `tests/test_forge.py` checks the installed skill in `.agents`, `.claude`, and `.codex` for discovery metadata, `docs/launchers.md` reference, creation/removal guidance, `pwsh` + `Add-Type -Path` read-back without launching, the operator-only rule, and zero project names or machine paths, and runs the documented read-back command in a fresh `pwsh` process against a shortcut created by the page example to assert `Target`, `Arguments` and `IconPath`.
 - [x] Run `python forge.py skill-copies` to write the Antigravity and Codex copies, and add Codex's `agents/openai.yaml` by hand. Done when: `python forge.py skill-copies --check` exits 0 and a test verifies the installed Codex `agents/openai.yaml` display name, description, and invocation prompt naming `project-launchers`.
 - [x] Point at the page from `kits/unattended/templates/docs/unattended-run.md` (the shortcuts section, linking to `launchers.md` beside it after install) and from the file table in `kits/launchers/README.md` (linking to `templates/docs/launchers.md` in the SDK checkout). Done when: a test follows the README link in the SDK checkout, the unattended guide link in a project provisioned with `unattended`, and the back-link from `launchers.md` to `unattended-run.md#shortcuts`.
+- [ ] Reject non-`FileSystem` provider paths passed to `-IconDir` in `kits/launchers/templates/scripts/project-shortcuts.ps1` (filed P3 finding 12 from `D07 T01 §10`) by checking the resolved PowerShell provider name before accepting the native path. Done when: a test in `kits/launchers/templates/scripts/tests/test_project_shortcuts.py` passes `-IconDir HKCU:\Software` and verifies exit 1 refusal with nothing written.
 - [ ] Commit: `launchers: the operator's page and the project-launchers skill`
 
 **Test checkpoint:** on Windows, `python -m unittest tests.test_forge -k launchers_page -v` runs and passes the live shortcut creation/rerun/invalid-profile-removal and fresh-`pwsh` read-back tests (not skipped), plus profile, link, skill, and `openai.yaml` checks; removing the removal heading from the page, the `docs/launchers.md` reference or operator-only rule from the skill, or Codex's `agents/openai.yaml` makes it fail.
