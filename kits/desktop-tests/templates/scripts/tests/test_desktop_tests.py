@@ -90,7 +90,10 @@ using Conclave.DesktopTests;
 public static class FixtureApp {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int WM_MOUSEACTIVATE = 0x0021;
+    private const int WM_WINDOWPOSCHANGING = 0x0046;
     private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
+    [StructLayout(LayoutKind.Sequential)] private struct WINDOWPOS { public IntPtr hwnd, hwndInsertAfter; public int x, y, cx, cy; public uint flags; }
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
     [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
@@ -119,6 +122,18 @@ public static class FixtureApp {
                 IntPtr hwnd = new WindowInteropHelper(win).Handle;
                 SetWindowLong(hwnd, GWL_EXSTYLE, GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                HwndSource src = HwndSource.FromHwnd(hwnd);
+                if (src != null) {
+                    src.AddHook((IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) => {
+                        if (msg == WM_MOUSEACTIVATE) { handled = true; return (IntPtr)3; }
+                        if (msg == WM_WINDOWPOSCHANGING && lParam != IntPtr.Zero) {
+                            WINDOWPOS wp = (WINDOWPOS)Marshal.PtrToStructure(lParam, typeof(WINDOWPOS));
+                            wp.flags |= SWP_NOACTIVATE;
+                            Marshal.StructureToPtr(wp, lParam, false);
+                        }
+                        return IntPtr.Zero;
+                    });
+                }
             };
         }
         var lbl = new TextBlock { Text = "Clicks: 0" };
