@@ -185,6 +185,7 @@ public static class FixtureDriver {
             SmokeInputGuard.Require(prefix, true, "SendKey");
             uint tag = SmokeInputGuard.CurrentTag(prefix);
             bool liveDesk = Environment.GetEnvironmentVariable("CONCLAVE_TEST_LIVE_DESK") == "1";
+            int sendInputCalls = 0;
             uint sent = 0;
             if (liveDesk) {
                 var down = new INPUT { type = 1 };
@@ -193,13 +194,14 @@ public static class FixtureDriver {
                 up.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 2, dwExtraInfo = (UIntPtr)tag };
                 POINT cur;
                 bool unlockedDesktop = GetCursorPos(out cur);
+                sendInputCalls++;
                 sent = SendInput(2, new[] { down, up }, Marshal.SizeOf(typeof(INPUT)));
                 if (unlockedDesktop && sent != 2) {
                     Console.Error.WriteLine("SendInput inserted " + sent + " of 2 events on unlocked desktop");
                     return 12;
                 }
             }
-            Console.WriteLine("ADMITTED_OK tag=" + tag.ToString("X8") + " live=" + liveDesk + " sent=" + sent);
+            Console.WriteLine("ADMITTED_OK tag=" + tag.ToString("X8") + " live=" + liveDesk + " calls=" + sendInputCalls + " sent=" + sent);
             return 0;
         }
         if (mode == "default-uia" || mode == "neg-focus" || mode == "neg-pointer" || mode == "neg-key") {
@@ -377,7 +379,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             "r = subprocess.run([DRV, 'real-input-action', 'demo'], capture_output=True, text=True)\n"
             "print(r.stdout.strip())\n"
             "if r.returncode == 0:\n"
-            "    if os.environ.get('CONCLAVE_TEST_LIVE_DESK') != '1' and 'live=False sent=0' not in r.stdout:\n"
+            "    if os.environ.get('CONCLAVE_TEST_LIVE_DESK') != '1' and 'live=False calls=0' not in r.stdout:\n"
             "        sys.exit(13)\n"
             "    print('CASE PASS RealSuite Case1')\n"
             "sys.exit(r.returncode)\n",

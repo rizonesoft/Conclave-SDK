@@ -36,17 +36,28 @@ $manifest = Get-Content -Raw -Path (Join-Path $here 'tasks.json') | ConvertFrom-
 $existing = @(Get-ScheduledTask | Where-Object TaskPath -eq $folder)
 
 $ownerTag = "[conclave-automations:$runner]"
+$manifestDescByName = @{}
+foreach ($mt in @($manifest.tasks)) { $manifestDescByName[[string]$mt.name] = [string]$mt.description }
 
 function Test-OwnedByManifest($schedTask) {
   if (-not $schedTask -or -not $schedTask.Actions -or $schedTask.Actions.Count -ne 1) { return $false }
   $act = $schedTask.Actions[0]
-  $exeName = [IO.Path]::GetFileName([string]$act.Execute)
+  $exe = [string]$act.Execute
+  $exeName = [IO.Path]::GetFileName($exe)
   $expectedArgs = "`"$runner`" $($schedTask.TaskName)"
   $desc = [string]$schedTask.Description
-  return ($exeName -ieq 'pythonw.exe') -and
-         ([string]$act.Arguments -ceq $expectedArgs) -and
-         ([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\') -and
-         ($desc.EndsWith($ownerTag, [StringComparison]::OrdinalIgnoreCase))
+  if (([string]$act.Arguments -cne $expectedArgs) -or (([string]$act.WorkingDirectory).TrimEnd('\') -ine $repo.TrimEnd('\'))) {
+    return $false
+  }
+  # Tagged tasks survive Python path upgrades; untagged tasks are accepted only on upgrade when they
+  # match the resolved pythonw.exe and exact manifest task description.
+  if (($exeName -ieq 'pythonw.exe') -and $desc.EndsWith($ownerTag, [StringComparison]::OrdinalIgnoreCase)) {
+    return $true
+  }
+  if (($exe -ieq $pythonw) -and $manifestDescByName.ContainsKey($schedTask.TaskName) -and ($desc -ceq $manifestDescByName[$schedTask.TaskName])) {
+    return $true
+  }
+  return $false
 }
 
 if ($Uninstall) {

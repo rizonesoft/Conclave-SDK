@@ -121,12 +121,16 @@ class DesktopTestsInstalledTest(unittest.TestCase):
             runner_py = str((target / ".conclave/automations/run.py").resolve())
             try:
                 # Register a manual task in the same folder using pythonw.exe with the exact runner/cwd args
-                # but WITHOUT the conclave-automations ownership tag (must be preserved, not deleted!).
+                # but WITHOUT the conclave-automations ownership tag (must be preserved, not deleted!), AND
+                # pre-register a legacy pre-tag task matching the manifest description (must upgrade cleanly!).
                 rc_m, out_m, err_m = _run_tree([
                     PWSH, "-NoProfile", "-NonInteractive", "-Command",
-                    f"$a = New-ScheduledTaskAction -Execute 'pythonw.exe' -Argument '\"{runner_py}\" {manual_task}' -WorkingDirectory '{target}'; "
+                    f"$pw = (Get-Command pythonw.exe).Source; "
+                    f"$a1 = New-ScheduledTaskAction -Execute $pw -Argument '\"{runner_py}\" {manual_task}' -WorkingDirectory '{target}'; "
                     f"$t = New-ScheduledTaskTrigger -Daily -At '04:00'; "
-                    f"Register-ScheduledTask -TaskPath '{folder}' -TaskName '{manual_task}' -Description 'User manual task' -Action $a -Trigger $t -Force | Out-Null",
+                    f"Register-ScheduledTask -TaskPath '{folder}' -TaskName '{manual_task}' -Description 'User manual task' -Action $a1 -Trigger $t -Force | Out-Null; "
+                    f"$a2 = New-ScheduledTaskAction -Execute $pw -Argument '\"{runner_py}\" {smoke_task}' -WorkingDirectory '{target}'; "
+                    f"Register-ScheduledTask -TaskPath '{folder}' -TaskName '{smoke_task}' -Description 'Nightly real-input desktop UI tests for {prefix}' -Action $a2 -Trigger $t -Force | Out-Null",
                 ])
                 self.assertEqual(rc_m, 0, out_m + err_m)
                 # Real combined install WITHOUT -NoRegister (executes .conclave/automations/install.ps1).
