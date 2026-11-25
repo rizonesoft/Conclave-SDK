@@ -195,7 +195,7 @@ Sections: 27 | Checklist items: 173
 | [ ]    | D00 T03 §5  | Design Contract Rule in Every Project                         | third-party  | 7     |
 | [ ]    | D00 T03 §6  | Design Paths in Every Three-Pass Pin                          | windows-host | 5     |
 | [ ]    | D00 T03 §7  | Design Lint Where a Project Has None                          | third-party  | 7     |
-| [ ]    | D00 T03 §8  | Resolute on Three-Pass                                        | windows-host | 6     |
+| [x]    | D00 T03 §8  | Resolute on Three-Pass                                        | windows-host | 6     |
 | [ ]    | D00 T03 §9  | C++ Lens Entries in the C++ Projects                          | windows-host | 5     |
 | [ ]    | D00 T03 §10 | Reviewer Scripts Current in the WSL Project                   | third-party  | 5     |
 | [ ]    | D00 T03 §11 | Surface Validation in the Custom Graphs                       | windows-host | 4     |
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 126/155 verified sections, 6 ready to run now.
+Progress: 127/155 verified sections, 6 ready to run now.
 
-Checklist: 1016/1172 items completed (includes Commit items).
+Checklist: 1017/1172 items completed (includes Commit items).

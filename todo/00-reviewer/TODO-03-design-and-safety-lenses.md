@@ -43,7 +43,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 5 | §5 | Design contract rule in every project | §3 | [ ] |
 | 6 | §6 | Design paths in every three-pass pin | §5 | [ ] |
 | 7 | §7 | Design lint where a project has none | §3 | [ ] |
-| 8 | §8 | Resolute on three-pass | §3 | [ ] |
+| 8 | §8 | Resolute on three-pass | §3 | [x] |
 | 9 | §9 | C++ lens entries in the C++ projects | §8 | [ ] |
 | 10 | §10 | Reviewer scripts current in the WSL project | §3 | [ ] |
 | 11 | §11 | Surface validation in the custom graphs | §3 | [ ] |
@@ -262,9 +262,12 @@ Resolute's pin is a rotation schedule and its `scripts/review-dispatch.py` knows
 - [x] Update `Resolute/AGENTS.md:143` and all three agent skill trees (`.claude/skills/`, `.agents/skills/`, `.codex/skills/` for `independent-review`, `process-todo-section`, and `review-todo-section`) from rotation / `-repair` records to three-pass (`plan -> round -> completion -> reconciliation` on the same record), noting that the open legacy chain `D00 T05 §4` (`docs/reviews/00-workspace/D00-T05-s4.md`) finishes under its initiating rotation pin. Done when: grep across `AGENTS.md` and `.{claude,agents,codex}/skills/` finds no stale `-repair` or rotation-workflow prescriptions (only the `D00 T05 §4` legacy note).
 - [x] Add a controlled-reviewer dispatcher test in `Resolute/scripts/tests/` that exercises both `claude` and `gemini` routes through `plan -> round -> completion (gaps) -> reconciliation (complete)` on the same record, asserting `astra`, exact `--writer-model`, medium/medium/low/low effort, scheduled lens verdicts, `P1`/`P2` blocking, `pass_cap = 33`, refusal before invocation on retired writer / missing or changed `--writer-model` / out-of-order pass, `build/review-in-flight/` visibility to `run_guard.py` and cleanup on success and failure, and replay of a representative legacy rotation record. Done when: `python -m unittest discover -s scripts/tests` passes in `Resolute`.
 - [x] Run `Resolute`'s reviewer test suite (`python -m unittest discover -s scripts/tests`) and `pwsh -NoProfile -Command "& { python scripts/review-dispatch.py --check-pin; python scripts/review_pin.py --check --all }"` (matching `scripts/check-all.ps1:265-270`). Done when: all pass and are recorded in `docs/phase-runs/2026-11-24-phase-9.md`.
-- [ ] Commit: `review: three-pass pin and current reviewer scripts` in `Resolute`, and `docs: Resolute three-pass migration record (D00 T03 §8)` here.
+- [x] Commit: `review: three-pass pin and current reviewer scripts` in `Resolute`, and `docs: Resolute three-pass migration record (D00 T03 §8)` here.
 
 **Test checkpoint:** in `Resolute`, `python scripts/review_pin.py --check --all` prints `ok`, `python scripts/review_pin.py --lenses round --no-surface --paths src/main.cpp` prints `design` (and not for `README.md`), `python scripts/review-prompt.py` renders all four prompt kinds against a real section, and `python -m unittest discover -s scripts/tests` passes end-to-end.
+
+> **Verified:** 2026-11-25 | §8 | 4c48a129f2a785372f254842c56298fdbd5136d1
+> **Review:** `docs/reviews/d00-t03-s8.json`
 
 ## 9. C++ Lens Entries in the C++ Projects
 
