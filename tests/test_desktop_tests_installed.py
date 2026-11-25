@@ -106,8 +106,16 @@ class DesktopTestsInstalledTest(unittest.TestCase):
             f"try {{ $s.GetFolder('\\').DeleteFolder('{prefix}', 0) }} catch {{ }}"
         )
         with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "comb-proj"
-            state = Path(tmp) / "state"
+            # Resolve 8.3 short paths (e.g. RUNNER~1 -> runneradmin on Windows CI) so WorkingDirectory matches install.ps1.
+            base = Path(tmp).resolve()
+            if os.name == "nt":
+                import ctypes
+                buf = ctypes.create_unicode_buffer(1024)
+                n = ctypes.windll.kernel32.GetLongPathNameW(str(base), buf, len(buf))
+                if 0 < n < len(buf):
+                    base = Path(buf.value)
+            target = base / "comb-proj"
+            state = base / "state"
             target.mkdir()
             forge.apply_kit(target, "automations")
             forge.apply_kit(target, "desktop-tests")

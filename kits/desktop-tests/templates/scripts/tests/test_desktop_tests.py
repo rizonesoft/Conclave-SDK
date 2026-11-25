@@ -90,8 +90,10 @@ using Conclave.DesktopTests;
 public static class FixtureApp {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
     [STAThread]
     public static void Main(string[] args) {
@@ -106,11 +108,13 @@ public static class FixtureApp {
             Top = 40,
             ShowInTaskbar = false,
             ShowActivated = activate,
+            Focusable = activate,
         };
         if (!activate) {
             win.SourceInitialized += (s, e) => {
                 IntPtr hwnd = new WindowInteropHelper(win).Handle;
                 SetWindowLong(hwnd, GWL_EXSTYLE, GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             };
         }
         var lbl = new TextBlock { Text = "Clicks: 0" };
