@@ -318,7 +318,9 @@ RasterFold took the base and reviewer kits long ago and keeps its own TODO syste
 
 ## 11. Surface Validation in the Custom Graphs
 
-Three projects keep a `scripts/todo-graph.py` of their own that never checks a Surface field or the four surface lines (Resolute 1,677 lines, ScratchPad 1,273, Gemail 10,818; Gemail and RasterFold treat a Fidelity line as the surface marker). All three use the `DNN TNN §N` grammar. The kit's rule is the model: `Surface` is `yes` or `no`, and `yes` requires `Fidelity`, `Job`, `Treatment` and `Chrome`.
+> **Started:** 2026-11-25T13:47Z
+
+Three projects keep a `scripts/todo-graph.py` of their own that never checks a Surface field or the four surface lines (Resolute 1,677 lines, ScratchPad 1,273, Gemail 10,818; Gemail and RasterFold treat a Fidelity line as the surface marker). All three use the `DNN TNN §N` grammar. The kit's rule is the model: `Surface` is `yes` or `no`, and `yes` requires `Fidelity`, `Job`, `Treatment` and `Chrome`. **Scan 2026-11-25 (read-only):** `Resolute` (`1,700` lines, `30` todos, `259` sections): `162` open and `97` stamped sections have no `**Surface:**` line, `0` `Surface: yes` sections missing any of the four lines; `ScratchPad` (`1,273` lines, `34` todos, `352` sections): `192` open and `160` stamped sections have no `**Surface:**` line, `0` `Surface: yes` sections missing any of the four lines; `Gemail` (`10,938` lines, `21` todos, `124` sections): `124` open and `0` stamped sections have no `**Surface:**` line, `0` `Surface: yes` sections missing any of the four lines.
 
 **Phase:** 9
 **Needs:** windows-host
