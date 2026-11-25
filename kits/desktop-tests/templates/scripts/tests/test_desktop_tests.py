@@ -293,11 +293,18 @@ public static class FixtureDriver {
             var bEntered = new ManualResetEventSlim(false);
             var releaseB = new ManualResetEventSlim(false);
             var bDone = new ManualResetEventSlim(false);
+            int aWaitTimedOut = 0;
+            int bWaitTimedOut = 0;
             Exception bError = null;
             using (DeskObserver obs = new DeskObserver(new int[0], flushTimeoutMs: 2000)) {
                 obs.BeforeTrackInstallForTest = p => {
-                    if (p == pidA) { aEntered.Set(); releaseA.Wait(5000); }
-                    else if (p == pidB) { bEntered.Set(); releaseB.Wait(5000); }
+                    if (p == pidA) {
+                        aEntered.Set();
+                        if (!releaseA.Wait(5000)) Interlocked.Exchange(ref aWaitTimedOut, 1);
+                    } else if (p == pidB) {
+                        bEntered.Set();
+                        if (!releaseB.Wait(5000)) Interlocked.Exchange(ref bWaitTimedOut, 1);
+                    }
                 };
                 obs.AfterTrackEnqueueForTest = p => {
                     if (p == pidB) bQueued.Set();
@@ -340,6 +347,10 @@ public static class FixtureDriver {
                 if (!bDone.Wait(3000) || bError != null) {
                     Console.Error.WriteLine("pidB failed after release: " + (bError == null ? "timeout" : bError.Message));
                     return 16;
+                }
+                if (Volatile.Read(ref aWaitTimedOut) != 0 || Volatile.Read(ref bWaitTimedOut) != 0) {
+                    Console.Error.WriteLine("hook-wait timed out before explicit release (a=" + aWaitTimedOut + ", b=" + bWaitTimedOut + ")");
+                    return 18;
                 }
             }
             Console.WriteLine("TRACK_LATE_ACK_OK");
