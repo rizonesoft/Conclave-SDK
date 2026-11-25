@@ -624,6 +624,78 @@ public static class LockDriver {
                 }
                 return 0;
             }
+            if (cmd == "check-pidlist-cap") {
+                // Deterministic regression for QueryJobActiveProcessCount retry + fail-closed cap refusal.
+                string recPath;
+                byte[] origBytes;
+                using (var seed = DesktopLock.Acquire(prefix, "pidlist-seed")) {
+                    recPath = seed.RecordPath;
+                }
+                origBytes = File.ReadAllBytes(recPath);
+                // 1. Retry on ERROR_MORE_DATA (64 -> 128) then inList < assigned (128 -> >=216) then clean 0.
+                int calls = 0;
+                var seenCaps = new List<int>();
+                DesktopLock.QueryJobPidListForTest = (IntPtr hj, int cap, out int ass, out int inl, out long[] pids, out int err) => {
+                    seenCaps.Add(cap);
+                    calls++;
+                    pids = new long[0];
+                    if (calls == 1) { ass = 0; inl = 0; err = 234; return false; }
+                    if (calls == 2) { ass = 200; inl = 128; err = 0; return true; }
+                    ass = 0; inl = 0; err = 0; return true;
+                };
+                try {
+                    using (var h = DesktopLock.Acquire(prefix, "pidlist-retry-ok")) {
+                        // Also exercise TerminateAndDrainJob via real handle by querying directly through a fresh job.
+                        if (calls != 0) { /* DrainPriorJobFromRecord may not open vanished job; invoke directly below */ }
+                    }
+                    // Directly exercise QueryJobActiveProcessCount via a live job handle on Acquire handoff!
+                    using (var h1 = DesktopLock.Acquire(prefix, "pidlist-live")) {
+                        calls = 0;
+                        seenCaps.Clear();
+                        bool ok = DesktopLock.TerminateAndDrainJob(h1.JobHandle, h1.JobHandle, 2000);
+                        if (!ok || calls != 4 || seenCaps[0] != 64 || seenCaps[1] != 128 || seenCaps[2] < 216 || seenCaps[3] != 64)
+                            throw new InvalidOperationException("unexpected retry sequence: ok=" + ok + " calls=" + calls + " caps=" + string.Join(",", seenCaps));
+                    }
+                } finally {
+                    DesktopLock.QueryJobPidListForTest = null;
+                }
+                // 2. Cap refusal on persistent ERROR_MORE_DATA during Acquire handoff must throw and preserve record bytes.
+                using (var hHold = DesktopLock.Acquire(prefix, "pidlist-cap-seed")) {
+                    recPath = hHold.RecordPath;
+                    origBytes = File.ReadAllBytes(recPath);
+                    DesktopLock.QueryJobPidListForTest = (IntPtr hj, int cap, out int ass, out int inl, out long[] pids, out int err) => {
+                        ass = 0; inl = 0; pids = null; err = 234; return false;
+                    };
+                    try {
+                        bool refusedMoreData = false;
+                        try {
+                            using (DesktopLock.Acquire(prefix, "pidlist-cap-moredata", 0)) { }
+                        } catch (InvalidOperationException ex) {
+                            refusedMoreData = ex.Message.IndexOf("enumeration cap", StringComparison.OrdinalIgnoreCase) >= 0;
+                        }
+                        if (!refusedMoreData) throw new InvalidOperationException("expected enumeration cap refusal on ERROR_MORE_DATA");
+                        if (!System.Linq.Enumerable.SequenceEqual(File.ReadAllBytes(recPath), origBytes))
+                            throw new InvalidOperationException("holder record mutated on ERROR_MORE_DATA cap refusal");
+
+                        DesktopLock.QueryJobPidListForTest = (IntPtr hj, int cap, out int ass, out int inl, out long[] pids, out int err) => {
+                            ass = 70000; inl = cap; pids = new long[0]; err = 0; return true;
+                        };
+                        bool refusedIncomplete = false;
+                        try {
+                            using (DesktopLock.Acquire(prefix, "pidlist-cap-incomplete", 0)) { }
+                        } catch (InvalidOperationException ex) {
+                            refusedIncomplete = ex.Message.IndexOf("remained incomplete", StringComparison.OrdinalIgnoreCase) >= 0;
+                        }
+                        if (!refusedIncomplete) throw new InvalidOperationException("expected remained incomplete refusal on inList < assigned");
+                        if (!System.Linq.Enumerable.SequenceEqual(File.ReadAllBytes(recPath), origBytes))
+                            throw new InvalidOperationException("holder record mutated on incomplete-list cap refusal");
+                    } finally {
+                        DesktopLock.QueryJobPidListForTest = null;
+                    }
+                }
+                Console.WriteLine("PIDLIST_CAP_OK");
+                return 0;
+            }
             if (cmd == "fail-publish") {
                 DesktopLock.FailRecordPublishForTest = true;
                 bool failed = false;
@@ -1840,6 +1912,14 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.assertNotEqual(r_nc.returncode, 0, "acquisition must refuse on missing-comma holder record")
         self.assertIn("holder record is malformed during handoff recovery", r_nc.stdout + r_nc.stderr)
         self.assertEqual(Path(rec5).read_bytes(), no_comma, "missing-comma record must not be overwritten")
+
+        # 6. Incomplete JOBOBJECT_BASIC_PROCESS_ID_LIST (ERROR_MORE_DATA and inList < assigned): retries up to cap and
+        # refuses fail-closed at cap without mutating the retained holder record.
+        lock6 = f"conclave-dt-pidcap-{os.getpid()}-{time.time_ns()}"
+        r_cap = run_cmd([str(self.lock_drv_exe), "check-pidlist-cap", "demo"],
+                        env={**os.environ, "DEMO_DESKTOP_LOCK": lock6, "DEMO_DESKTOP_WAIT_S": "1"})
+        self.assertEqual(r_cap.returncode, 0, r_cap.stdout + r_cap.stderr)
+        self.assertIn("PIDLIST_CAP_OK", r_cap.stdout)
 
     def test_desktop_lock_inheritance_reused_pid_and_child_lifetime(self):
         # 1. Job-member child inherits immediately and disposing it does NOT release parent's lock.

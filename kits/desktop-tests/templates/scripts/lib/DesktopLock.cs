@@ -233,9 +233,11 @@ namespace Conclave.DesktopTests
         internal enum LeaseState { Active, Inactive, Unknown }
 
         // Test-only hooks (default null/false in production).
+        internal delegate bool QueryJobPidListDelegate(IntPtr hJob, int capacity, out int assigned, out int inList, out long[] pids, out int win32Err);
         internal static Action BeforeWaitForMutexForTest { get; set; }
         internal static Action<bool> BeforeRecordPublishForTest { get; set; }
         internal static bool FailRecordPublishForTest { get; set; }
+        internal static QueryJobPidListDelegate QueryJobPidListForTest { get; set; }
 
         internal sealed class HolderRecord
         {
@@ -369,26 +371,25 @@ namespace Conclave.DesktopTests
                     return inherited;
                 }
 
-                // Pin the current holder's named tracking job (JOB_OBJECT_QUERY only; never blocks _hKillJob's
-                // KILL_ON_JOB_CLOSE) and snapshot SYNCHRONIZE handles to its active members before waiting so even
-                // if the holder dies while a close_fds=True grandchild is still finishing kernel exit teardown
-                // (after JobObjectBasicProcessIdList drops to 0), we wait until every member's EPROCESS signals exit.
                 IntPtr hPinnedPriorJob = IntPtr.Zero;
                 string pinnedPriorJobName = null;
                 List<IntPtr> pinnedMemberHandles = new List<IntPtr>();
-                HolderRecord preRec = TryReadHolderRecord(recordPath);
-                if (preRec != null && !string.IsNullOrEmpty(preRec.LeaseId))
-                {
-                    pinnedPriorJobName = JobNameFor(preRec.LeaseId);
-                    hPinnedPriorJob = OpenJobObjectW(JOB_OBJECT_QUERY, false, pinnedPriorJobName);
-                    if (hPinnedPriorJob != IntPtr.Zero)
-                    {
-                        SnapshotJobMemberSyncHandles(hPinnedPriorJob, pinnedMemberHandles);
-                    }
-                }
-
                 try
                 {
+                    // Pin the current holder's named tracking job (JOB_OBJECT_QUERY only; never blocks _hKillJob's
+                    // KILL_ON_JOB_CLOSE) and snapshot SYNCHRONIZE handles to its active members inside the cleanup
+                    // scope before waiting so a cap refusal never leaks hPinnedPriorJob or member handles.
+                    HolderRecord preRec = TryReadHolderRecord(recordPath);
+                    if (preRec != null && !string.IsNullOrEmpty(preRec.LeaseId))
+                    {
+                        pinnedPriorJobName = JobNameFor(preRec.LeaseId);
+                        hPinnedPriorJob = OpenJobObjectW(JOB_OBJECT_QUERY, false, pinnedPriorJobName);
+                        if (hPinnedPriorJob != IntPtr.Zero)
+                        {
+                            SnapshotJobMemberSyncHandles(hPinnedPriorJob, pinnedMemberHandles);
+                        }
+                    }
+
                     Action beforeWait = BeforeWaitForMutexForTest;
                     if (beforeWait != null) beforeWait();
                     uint waitMs = checked((uint)waitSeconds * 1000u);
@@ -854,8 +855,46 @@ namespace Conclave.DesktopTests
             // if the list still exceeds the safety cap.
             const int MaxCapacity = 65536;
             int capacity = 64;
+            QueryJobPidListDelegate testOverride = QueryJobPidListForTest;
             while (true)
             {
+                if (testOverride != null)
+                {
+                    int tAssigned, tInList, tErr;
+                    long[] tPids;
+                    bool tOk = testOverride(hJob, capacity, out tAssigned, out tInList, out tPids, out tErr);
+                    if (!tOk)
+                    {
+                        if (tErr == 234)
+                        {
+                            if (capacity >= MaxCapacity)
+                                throw new InvalidOperationException("desktop job process list exceeded enumeration cap (" + MaxCapacity + "); refusing lock acquisition");
+                            capacity = Math.Min(MaxCapacity, capacity * 2);
+                            continue;
+                        }
+                        throw new Win32Exception(tErr, "QueryInformationJobObject failed");
+                    }
+                    if (tInList < tAssigned)
+                    {
+                        if (capacity >= MaxCapacity)
+                            throw new InvalidOperationException("desktop job process list remained incomplete (" + tInList + " of " + tAssigned + "); refusing lock acquisition");
+                        capacity = Math.Min(MaxCapacity, Math.Max(capacity * 2, tAssigned + 16));
+                        continue;
+                    }
+                    if (collectSyncHandles != null && tPids != null)
+                    {
+                        int tLim = Math.Min(tInList, tPids.Length);
+                        for (int i = 0; i < tLim; i++)
+                        {
+                            if (tPids[i] > 0 && tPids[i] <= uint.MaxValue)
+                            {
+                                IntPtr hp = OpenProcess(SYNCHRONIZE, false, (uint)tPids[i]);
+                                if (hp != IntPtr.Zero) collectSyncHandles.Add(hp);
+                            }
+                        }
+                    }
+                    return Math.Max(tAssigned, tInList);
+                }
                 int bufSize = 8 + IntPtr.Size * capacity;
                 IntPtr buf = Marshal.AllocHGlobal(bufSize);
                 try
