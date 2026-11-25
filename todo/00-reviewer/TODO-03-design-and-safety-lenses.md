@@ -422,6 +422,8 @@ Before this section (baseline 2026-11-25), no sanitizer build was found in Resol
 
 ## 15. Bounded C++ Hot-Spot Audit
 
+> **Started:** 2026-11-25T20:22Z
+
 One review per repository of the files most likely to hold a threading or lifetime defect, through the two lenses of §2. Resolute-SDK first, then Resolute. The tool repositories and the projects built on the SDK are covered through it and get no audit of their own. One pass only: there is no second audit round.
 
 **Phase:** 9
