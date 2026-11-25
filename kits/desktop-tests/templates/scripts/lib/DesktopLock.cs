@@ -996,28 +996,30 @@ namespace Conclave.DesktopTests
                 IntPtr pAce;
                 if (!GetAce(pDacl, i, out pAce) || pAce == IntPtr.Zero) return false;
                 byte aceType = Marshal.ReadByte(pAce, 0);
+                // Fail closed on conditional, callback, object, or any ACE type we cannot evaluate.
+                if (aceType != 0 /* ACCESS_ALLOWED_ACE_TYPE */ && aceType != 1 /* ACCESS_DENIED_ACE_TYPE */)
+                    return false;
                 byte aceFlags = Marshal.ReadByte(pAce, 1);
                 uint mask = unchecked((uint)Marshal.ReadInt32(pAce, 4));
                 IntPtr pSid = IntPtr.Add(pAce, 8);
 
                 if (EqualSid(pSid, auSid))
                 {
-                    if (aceType == 1 /* ACCESS_DENIED_ACE_TYPE */) return false;
-                    if (aceType == 0 /* ACCESS_ALLOWED_ACE_TYPE */)
+                    if (aceType == 1) return false;
+                    bool hasModify = (mask & RequiredModify) == RequiredModify || (mask & GenericAll) != 0;
+                    if (hasModify)
                     {
-                        bool hasModify = (mask & RequiredModify) == RequiredModify || (mask & GenericAll) != 0;
-                        if (hasModify)
-                        {
-                            bool inheritOnly = (aceFlags & 0x08) != 0;
-                            bool oi = (aceFlags & 0x01) != 0;
-                            bool ci = (aceFlags & 0x02) != 0;
-                            if (!inheritOnly) auAppliesToDir = true;
-                            if (oi && ci) auAppliesToChildren = true;
-                        }
+                        bool inheritOnly = (aceFlags & 0x08) != 0;
+                        bool oi = (aceFlags & 0x01) != 0;
+                        bool ci = (aceFlags & 0x02) != 0;
+                        if (!inheritOnly) auAppliesToDir = true;
+                        if (oi && ci) auAppliesToChildren = true;
                     }
                 }
-                else if (EqualSid(pSid, wdSid) && aceType == 0 /* ACCESS_ALLOWED_ACE_TYPE */)
+                else if (EqualSid(pSid, wdSid))
                 {
+                    // Reject Everyone deny ACEs (they also deny AU) and any Everyone write/delete/DAC-modify allow ACE.
+                    if (aceType == 1) return false;
                     if ((mask & ForbiddenWorldMask) != 0) return false;
                 }
             }

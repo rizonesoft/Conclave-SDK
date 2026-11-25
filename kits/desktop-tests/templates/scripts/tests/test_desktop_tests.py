@@ -481,6 +481,10 @@ public static class LockDriver {
     private static extern IntPtr OpenEventW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr OpenJobObjectW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
     [DllImport("kernel32.dll")]
     private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -572,6 +576,10 @@ public static class LockDriver {
                     throw new InvalidOperationException("Everyone delete-child (0x40/DT) DACL accepted");
                 if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;0x1301bf;;;AU)(A;OICI;FW;;;WD)"))
                     throw new InvalidOperationException("Everyone FW DACL accepted");
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(D;OICI;FW;;;WD)(A;OICI;0x1301bf;;;AU)"))
+                    throw new InvalidOperationException("Everyone deny ACE preceding AU allow accepted");
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;0x1301bf;;;AU)(XA;OICI;FW;;;WD;(1 == 1))"))
+                    throw new InvalidOperationException("Conditional Everyone allow ACE accepted");
                 using (var h = DesktopLock.Acquire(prefix, "lock-driver-dacl")) {
                     IntPtr hm = OpenMutexW(READ_CONTROL, false, h.LockName);
                     IntPtr he = OpenEventW(READ_CONTROL, false, h.LeaseEventName);
@@ -611,12 +619,24 @@ public static class LockDriver {
             }
             if (cmd == "pause-before-publish") {
                 string resumeFile = args[2];
+                IntPtr hWatch = IntPtr.Zero;
+                if (args.Length > 3) {
+                    uint watchPid = uint.Parse(args[3]);
+                    hWatch = OpenProcess(SYNCHRONIZE, false, watchPid);
+                    if (hWatch == IntPtr.Zero) throw new InvalidOperationException("failed to open SYNCHRONIZE handle for child pid " + watchPid);
+                    if (WaitForSingleObject(hWatch, 0) != 258) throw new InvalidOperationException("watched child pid " + watchPid + " was not alive before wait");
+                }
                 DesktopLock.BeforeWaitForMutexForTest = () => {
                     Console.WriteLine("WAITING tid=" + GetCurrentThreadId());
                     Console.Out.Flush();
                 };
                 DesktopLock.BeforeRecordPublishForTest = abandoned => {
-                    Console.WriteLine("BEFORE_PUBLISH abandoned=" + abandoned);
+                    string childInfo = "";
+                    if (hWatch != IntPtr.Zero) {
+                        uint w = WaitForSingleObject(hWatch, 0);
+                        childInfo = " childExited=" + (w == 0);
+                    }
+                    Console.WriteLine("BEFORE_PUBLISH abandoned=" + abandoned + childInfo);
                     Console.Out.Flush();
                     DateTime dl = DateTime.UtcNow.AddSeconds(15);
                     while (!File.Exists(resumeFile) && DateTime.UtcNow < dl) Thread.Sleep(25);
@@ -630,6 +650,7 @@ public static class LockDriver {
                 } finally {
                     DesktopLock.BeforeWaitForMutexForTest = null;
                     DesktopLock.BeforeRecordPublishForTest = null;
+                    if (hWatch != IntPtr.Zero) CloseHandle(hWatch);
                 }
                 return 0;
             }
@@ -1473,7 +1494,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             h_ch1 = kernel32.OpenProcess(0x00100000, False, child1_pid)  # SYNCHRONIZE
             self.assertNotEqual(h_ch1, 0, "failed to open SYNCHRONIZE handle to live job child")
             self.assertEqual(kernel32.WaitForSingleObject(h_ch1, 0), 258, "job child must be alive before kill")
-            p2 = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(p1_resume)],
+            p2 = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(p1_resume), str(child1_pid)],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env=env1, creationflags=NO_WINDOW)
             wait_line = p2.stdout.readline().strip()
@@ -1487,11 +1508,10 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             p1.kill()
             p1.communicate(timeout=10)
             bp1 = p2.stdout.readline().strip()
-            self.assertEqual(bp1, "BEFORE_PUBLISH abandoned=True",
-                             f"blocked waiter must receive WAIT_ABANDONED on owner kill, got: {bp1}")
+            self.assertEqual(bp1, "BEFORE_PUBLISH abandoned=True childExited=True",
+                             f"blocked waiter must receive WAIT_ABANDONED with child already exited before publishing, got: {bp1}")
             elapsed = time.monotonic() - t_kill
             self.assertLess(elapsed, 4.0, f"abandoned mutex recovery took {elapsed:.2f}s")
-            # Positive proof via retained SYNCHRONIZE handle that prior job child exited BEFORE p2 publishes!
             self.assertEqual(kernel32.WaitForSingleObject(h_ch1, 0), 0, "prior job child must have exited before waiting successor publishes")
             p1_resume.write_text("go", encoding="utf-8")
             pub_line = p2.stdout.readline().strip()
