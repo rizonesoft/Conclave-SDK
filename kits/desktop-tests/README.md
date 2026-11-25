@@ -23,8 +23,17 @@ Every project setting lives in `.conclave/desktop-tests.json` (validated by `pyt
 - Validate config: `python scripts/lib/desktop_tests.py show`
 - Run default UI Automation tests (local and Windows CI): `python -m unittest discover -s scripts/tests -p "test_desktop_tests.py"`
 - Run real-input tests on demand: `pwsh -NoProfile -File scripts/smoke-input.ps1`
+- Capture a window or run a desktop capture command under the machine-wide lock: `pwsh -NoProfile -File scripts/capture-window.ps1 -Out <path>`
 - Install or remove the nightly 03:00 task (updates `.conclave/automations/tasks.json` when the `automations` kit is installed, or registers directly standalone): `pwsh -NoProfile -File scripts/smoke-input.ps1 -Install` / `-Uninstall`
 - Read nightly and on-demand history: `pwsh -NoProfile -File scripts/smoke-input.ps1 -Status`
+
+## Machine-wide desktop lock
+
+Every `scripts/smoke-input.ps1` run, `scripts/capture-window.ps1` capture, and live-desk fixture acquires one machine-wide named mutex (`Global\conclave-desktop-lock` by default, shared across repositories and Windows sessions) paired with a manual-reset lease event (`Global\conclave-desktop-lease-<lease_id>`), a named desktop Job Object (`Global\conclave-desktop-job-<lease_id>`), and a shared holder record in `%ProgramData%\Conclave\desktop-locks\<sha256(lock-name)>.json`:
+
+- `<ENV_PREFIX>_DESKTOP_LOCK`: optional override (unqualified names canonicalize to `Global\<name>`; `Local\` and other namespaces are rejected).
+- `<ENV_PREFIX>_DESKTOP_WAIT_S`: bounded wait in seconds (default `120`, valid range `0` to `86400`; invalid values fail closed).
+- `<ENV_PREFIX>_DESKTOP_HELD`: inheritance token (`<pid>:<start_ticks>:<lease_id>:<lock_name>`) exported to job-member child processes so runners never deadlock their own children while unrelated processes and reused PIDs are refused.
 
 ## Files
 
@@ -33,6 +42,8 @@ Every project setting lives in `.conclave/desktop-tests.json` (validated by `pyt
 | `.conclave/desktop-tests.json` | Project prefix, nightly window, idle threshold, and retention settings |
 | `scripts/lib/desktop_tests.py` | Stdlib config loader and validator |
 | `scripts/lib/DesktopTestGuard.cs` | Trait guard, no-activate launch helper, and continuous desk observer |
+| `scripts/lib/DesktopLock.cs` | Machine-wide desktop mutex, lease event, named desktop job, and inheritance |
 | `scripts/lib/InputWatch.cs` | Low-level keyboard and mouse hook watcher with per-run tag |
 | `scripts/smoke-input.ps1` | Admitted real-input runner, Job Object teardown, reconciliation, and `-Status` |
-| `scripts/tests/test_desktop_tests.py` | Default UIA fixture, negative desk-violation fixtures, and runner tests |
+| `scripts/capture-window.ps1` | Lock-guarded window capture and desktop capture command wrapper |
+| `scripts/tests/test_desktop_tests.py` | Default UIA, negative desk-violation, lock, and runner tests |

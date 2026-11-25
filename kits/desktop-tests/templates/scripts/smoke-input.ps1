@@ -200,8 +200,12 @@ public static class ConclaveSmokeDesk {
         return Marshal.StringToHGlobalUni(sb.ToString());
     }
 
-    // Starts a child suspended, assigns it to job BEFORE its first instruction runs, then resumes it.
+    // Starts a child suspended, assigns it to job (and optional extraJob) BEFORE its first instruction runs, then resumes it.
     public static JobChild StartInJob(IntPtr job, string cmdLine, string workDir, IDictionary<string, string> envOverrides) {
+        return StartInJob(job, IntPtr.Zero, cmdLine, workDir, envOverrides);
+    }
+
+    public static JobChild StartInJob(IntPtr job, IntPtr extraJob, string cmdLine, string workDir, IDictionary<string, string> envOverrides) {
         var sa = new SECURITY_ATTRIBUTES { nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), bInheritHandle = 1 };
         IntPtr outR = IntPtr.Zero, outW = IntPtr.Zero, errR = IntPtr.Zero, errW = IntPtr.Zero;
         if (!CreatePipe(out outR, out outW, ref sa, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -248,6 +252,14 @@ public static class ConclaveSmokeDesk {
             CloseHandle(pi.hProcess);
             CloseHandle(outR); CloseHandle(errR);
             throw new Win32Exception(jerr, "AssignProcessToJobObject failed before child resumed");
+        }
+        if (extraJob != IntPtr.Zero && !AssignProcessToJobObject(extraJob, pi.hProcess)) {
+            int jerr = Marshal.GetLastWin32Error();
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            CloseHandle(outR); CloseHandle(errR);
+            throw new Win32Exception(jerr, "AssignProcessToJobObject(desktopJob) failed before child resumed");
         }
         if (ResumeThread(pi.hThread) == unchecked((uint)-1)) {
             int rerr = Marshal.GetLastWin32Error();
@@ -805,6 +817,52 @@ if ($skipReason) {
     }
 }
 
+# Acquire the machine-wide desktop lock before starting the watcher or any test runner.
+if (-not ('Conclave.DesktopTests.DesktopLock' -as [type])) {
+    $lockSrc = Join-Path $here 'lib\DesktopLock.cs'
+    Add-Type -TypeDefinition ([IO.File]::ReadAllText($lockSrc, [Text.UTF8Encoding]::new($false))) -Language CSharp
+}
+$desktopLock = $null
+try {
+    $desktopLock = [Conclave.DesktopTests.DesktopLock]::Acquire($prefix, "smoke-input:$mode")
+} catch [Conclave.DesktopTests.DesktopLockBusyException] {
+    $ex = $_.Exception
+    $holderInfo = [ordered]@{
+        pid = $ex.HolderPid
+        start_utc = $ex.HolderStartUtc
+        start_ticks = $ex.HolderStartTicks
+        label = $ex.HolderLabel
+        detail = $ex.Message
+    }
+    Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = 'desktop-locked-by-other'; holder = $holderInfo })
+    if ($Scheduled) {
+        "smoke-input: skipped (desktop-locked-by-other: $($ex.Message))"
+        exit 0
+    } else {
+        [Console]::Error.WriteLine("smoke-input: refused on-demand run (desktop-locked-by-other: $($ex.Message))")
+        exit 1
+    }
+} catch [ArgumentException] {
+    [Console]::Error.WriteLine("smoke-input: invalid desktop lock setting: $($_.Exception.Message)")
+    exit 2
+}
+
+try {
+$desktopJobHandle = if (-not $desktopLock.Inherited) { $desktopLock.JobHandle } else { [IntPtr]::Zero }
+
+# Recheck admission immediately after acquiring the desktop lock (in case the desktop became active or window closed while waiting).
+$afterLockSkip = Check-Admission
+if ($afterLockSkip) {
+    Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = $afterLockSkip })
+    if ($Scheduled) {
+        "smoke-input: skipped ($afterLockSkip)"
+        exit 0
+    } else {
+        [Console]::Error.WriteLine("smoke-input: refused on-demand run ($afterLockSkip)")
+        exit 1
+    }
+}
+
 # Resolve watcher executable (compile InputWatch.cs on demand if -Watcher not passed).
 $watchExe = $Watcher
 if (-not $watchExe) {
@@ -923,6 +981,7 @@ try {
     $childEnv["${envPrefix}_SMOKE_PERSON_EVENT"] = $personName
     $childEnv["${envPrefix}_SMOKE_WATCHER_ALIVE"] = $aliveName
     $childEnv["${envPrefix}_SMOKE_TAG"] = $runTagHex
+    $childEnv["${envPrefix}_DESKTOP_HELD"] = $desktopLock.HeldToken
 
     New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
     $logFile = Join-Path $logsDir "$($now.ToString('yyyyMMdd-HHmmss'))-$runId.log"
@@ -933,9 +992,10 @@ try {
     $discoveredCount = 0
 
     try {
-        # Discover test cases inside a Kill-On-Close Job Object with active interruption polling.
+        # Discover test cases inside the desktop lock's Kill-On-Close Job Object with active interruption polling.
         $discLines = [Collections.Generic.List[string]]::new()
-        $discJob = [ConclaveSmokeDesk]::NewKillOnCloseJob()
+        $discJobOwned = ($desktopJobHandle -eq [IntPtr]::Zero)
+        $discJob = if ($discJobOwned) { [ConclaveSmokeDesk]::NewKillOnCloseJob() } else { $desktopJobHandle }
         $discChild = $null
         $discExit = 0
         try {
@@ -974,7 +1034,7 @@ try {
             }
         } finally {
             [void][ConclaveSmokeDesk]::TerminateJobObject($discJob, 1)
-            [void][ConclaveSmokeDesk]::CloseHandle($discJob)
+            if ($discJobOwned) { [void][ConclaveSmokeDesk]::CloseHandle($discJob) }
             if ($discChild) { $discChild.Dispose() }
         }
 
@@ -1033,7 +1093,8 @@ try {
             $stopReason = Check-RuntimeStop $deadline
             if ($stopReason) { break }
 
-            $job = [ConclaveSmokeDesk]::NewKillOnCloseJob()
+            $jobOwned = ($desktopJobHandle -eq [IntPtr]::Zero)
+            $job = if ($jobOwned) { [ConclaveSmokeDesk]::NewKillOnCloseJob() } else { $desktopJobHandle }
             $cChild = $null
             $counts = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
             $expectedSet = [Collections.Generic.HashSet[string]]::new($expectedByClass[$cls], [StringComparer]::Ordinal)
@@ -1122,7 +1183,7 @@ try {
                 }
             } finally {
                 [void][ConclaveSmokeDesk]::TerminateJobObject($job, 1)
-                [void][ConclaveSmokeDesk]::CloseHandle($job)
+                if ($jobOwned) { [void][ConclaveSmokeDesk]::CloseHandle($job) }
                 if ($cChild) { $cChild.Dispose() }
             }
         }
@@ -1185,4 +1246,7 @@ try {
     $admittedEvent.Dispose()
     $personEvent.Dispose()
     if (Test-Path -LiteralPath $watchRecord) { Remove-Item -LiteralPath $watchRecord -Force -ErrorAction Ignore }
+}
+} finally {
+    if ($desktopLock) { $desktopLock.Dispose() }
 }

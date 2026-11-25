@@ -3010,10 +3010,13 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
     elif kit_name == "desktop-tests":
         cfg_path = target_root / DESKTOP_TESTS_CONFIG
         runner = target_root / "scripts/smoke-input.ps1"
+        capture = target_root / "scripts/capture-window.ps1"
         guard = target_root / "scripts/lib/DesktopTestGuard.cs"
+        desktop_lock = target_root / "scripts/lib/DesktopLock.cs"
         watcher = target_root / "scripts/lib/InputWatch.cs"
         cfg_lib = target_root / "scripts/lib/desktop_tests.py"
-        for label, p in (("runner", runner), ("guard", guard), ("watcher", watcher), ("config-lib", cfg_lib)):
+        for label, p in (("runner", runner), ("capture", capture), ("guard", guard),
+                         ("desktop-lock", desktop_lock), ("watcher", watcher), ("config-lib", cfg_lib)):
             add_check(label, "ok" if p.is_file() else "missing", p.as_posix())
         if not cfg_path.is_file():
             add_check("config", "missing", cfg_path.as_posix())

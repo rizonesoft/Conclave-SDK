@@ -49,7 +49,9 @@ class DesktopTestsInstalledTest(unittest.TestCase):
             report = forge.doctor_repo(target, "desktop-tests")
             rows = {c["name"]: c["status"] for c in report["checks"]}
             self.assertEqual(rows["runner"], "ok")
+            self.assertEqual(rows["capture"], "ok")
             self.assertEqual(rows["guard"], "ok")
+            self.assertEqual(rows["desktop-lock"], "ok")
             self.assertEqual(rows["watcher"], "ok")
             self.assertEqual(rows["config-lib"], "ok")
             self.assertEqual(rows["config"], "setup_required")
@@ -245,6 +247,85 @@ class DesktopTestsInstalledTest(unittest.TestCase):
                 self.assertEqual(rc_kept, 0, out_kept + err_kept)
             finally:
                 _run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", cleanup_ps])
+
+    @unittest.skipUnless(os.name == "nt", "Windows desktop lock cross-project test runs on Windows")
+    def test_two_installed_projects_different_prefixes_contend_on_default_global_lock(self):
+        self.assertTrue(bool(PWSH), "pwsh is required on Windows")
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp).resolve()
+            alpha = base / "proj-alpha"
+            beta = base / "proj-beta"
+            alpha.mkdir()
+            beta.mkdir()
+            for proj, pfx in ((alpha, "alpha"), (beta, "beta")):
+                forge.apply_kit(proj, "desktop-tests")
+                cfg_p = proj / ".conclave/desktop-tests.json"
+                cfg = json.loads(cfg_p.read_text(encoding="utf-8"))
+                cfg["prefix"] = pfx
+                cfg_p.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+            # Clean env with NO *_DESKTOP_LOCK overrides: both installed projects must contend on Global\conclave-desktop-lock.
+            clean_env = {k: v for k, v in os.environ.items()
+                         if not k.upper().endswith("_DESKTOP_LOCK") and not k.upper().endswith("_DESKTOP_HELD")}
+            ready_file = base / "alpha-ready.txt"
+            release_file = base / "alpha-release.txt"
+            holder_py = base / "hold.py"
+            holder_py.write_text(
+                "import pathlib, sys, time\n"
+                "pathlib.Path(sys.argv[1]).write_text('held', encoding='utf-8')\n"
+                "dl = time.time() + 20\n"
+                "while not pathlib.Path(sys.argv[2]).exists() and time.time() < dl:\n"
+                "    time.sleep(0.05)\n",
+                encoding="utf-8",
+            )
+            proc_a = subprocess.Popen(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(alpha / "scripts/capture-window.ps1"),
+                 "-ProjectRoot", str(alpha), "-Python", sys.executable,
+                 "-Command", sys.executable, str(holder_py), str(ready_file), str(release_file)],
+                cwd=alpha, env=clean_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                creationflags=NO_WINDOW,
+            )
+            try:
+                import time
+                dl = time.time() + 20
+                while not ready_file.exists() and time.time() < dl:
+                    if proc_a.poll() is not None:
+                        self.fail(f"proj-alpha exited early ({proc_a.returncode}): {proc_a.stdout.read()} | {proc_a.stderr.read()}")
+                    time.sleep(0.05)
+                self.assertTrue(ready_file.exists(), "proj-alpha did not acquire default desktop lock")
+
+                # proj-beta with a DIFFERENT prefix and NO override must refuse and not create -Out.
+                beta_out = base / "beta-capture.txt"
+                env_b = {**clean_env, "BETA_DESKTOP_WAIT_S": "0"}
+                proc_b = subprocess.run(
+                    [PWSH, "-NoProfile", "-NonInteractive", "-File", str(beta / "scripts/capture-window.ps1"),
+                     "-ProjectRoot", str(beta), "-Python", sys.executable, "-Out", str(beta_out)],
+                    cwd=beta, env=env_b, capture_output=True, text=True, timeout=60, creationflags=NO_WINDOW,
+                )
+                self.assertEqual(proc_b.returncode, 1, proc_b.stdout + proc_b.stderr)
+                self.assertIn("Global\\conclave-desktop-lock", proc_b.stderr)
+                self.assertIn(f"pid={proc_a.pid}", proc_b.stderr)
+                self.assertFalse(beta_out.exists(), "capture output must not be created while lock is busy")
+            finally:
+                release_file.write_text("go", encoding="utf-8")
+                try:
+                    out_a, err_a = proc_a.communicate(timeout=15)
+                except subprocess.TimeoutExpired:
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc_a.pid)],
+                                   capture_output=True, creationflags=NO_WINDOW)
+                    out_a, err_a = proc_a.communicate()
+            self.assertEqual(proc_a.returncode, 0, out_a + err_a)
+
+            # After proj-alpha releases, proj-beta succeeds and writes -Out.
+            beta_out2 = base / "beta-capture-ok.txt"
+            proc_b2 = subprocess.run(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(beta / "scripts/capture-window.ps1"),
+                 "-ProjectRoot", str(beta), "-Python", sys.executable, "-Out", str(beta_out2)],
+                cwd=beta, env={**clean_env, "BETA_DESKTOP_WAIT_S": "5"},
+                capture_output=True, text=True, timeout=60, creationflags=NO_WINDOW,
+            )
+            self.assertEqual(proc_b2.returncode, 0, proc_b2.stdout + proc_b2.stderr)
+            self.assertTrue(beta_out2.exists())
 
 
 if __name__ == "__main__":

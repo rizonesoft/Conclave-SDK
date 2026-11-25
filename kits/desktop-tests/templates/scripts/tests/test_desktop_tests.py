@@ -382,7 +382,11 @@ public static class FixtureDriver {
             bool liveDesk = Environment.GetEnvironmentVariable("CONCLAVE_TEST_LIVE_DESK") == "1";
             bool forceActivate = mode == "neg-focus" && liveDesk;
             int pid = 0;
+            DesktopLockHandle liveLock = null;
             try {
+                if (liveDesk && mode != "default-uia") {
+                    liveLock = DesktopLock.Acquire(prefix, mode);
+                }
                 using (DeskObserver obs = new DeskObserver(new int[0])) {
                     pid = obs.LaunchNoActivate(appExe, forceActivate ? "--activate" : "", null);
                     AutomationElement win = WaitForWindow(pid, 45000);
@@ -430,10 +434,14 @@ public static class FixtureDriver {
                     Console.WriteLine("UIA_OK " + readBack);
                 }
                 return 0;
+            } catch (DesktopLockBusyException ex) {
+                Console.Error.WriteLine("LOCK_BUSY: " + ex.Message);
+                return 21;
             } catch (RealInputRefusedException ex) {
                 Console.Error.WriteLine("REFUSED: " + ex.Message);
                 return 11;
             } finally {
+                if (liveLock != null) liveLock.Dispose();
                 if (pid > 0) {
                     try {
                         using (Process p = Process.GetProcessById(pid)) {
@@ -449,6 +457,259 @@ public static class FixtureDriver {
 '''
 
 
+LOCK_DRIVER_CS = r'''
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading;
+using Conclave.DesktopTests;
+
+public static class LockDriver {
+    private const uint READ_CONTROL = 0x00020000;
+    private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+    private const int SE_KERNEL_OBJECT = 6;
+    private const uint SYNCHRONIZE = 0x00100000;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenMutexW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenEventW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr hObject);
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr hMem);
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint GetSecurityInfo(
+        IntPtr handle, int ObjectType, uint SecurityInfo,
+        IntPtr ppsidOwner, IntPtr ppsidGroup, IntPtr ppDacl, IntPtr ppSacl, out IntPtr ppSecurityDescriptor);
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
+        IntPtr SecurityDescriptor, uint RequestedStringSDRevision, uint SecurityInformation,
+        out IntPtr StringSecurityDescriptor, IntPtr StringSecurityDescriptorLen);
+
+    private static string ReadDaclSddl(IntPtr h) {
+        IntPtr sd;
+        uint rc = GetSecurityInfo(h, SE_KERNEL_OBJECT, DACL_SECURITY_INFORMATION, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out sd);
+        if (rc != 0) throw new InvalidOperationException("GetSecurityInfo failed: " + rc);
+        try {
+            IntPtr sddlPtr;
+            if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(sd, 1, DACL_SECURITY_INFORMATION, out sddlPtr, IntPtr.Zero))
+                throw new InvalidOperationException("ConvertSecurityDescriptorToStringSecurityDescriptorW failed: " + Marshal.GetLastWin32Error());
+            try { return Marshal.PtrToStringUni(sddlPtr); }
+            finally { LocalFree(sddlPtr); }
+        } finally {
+            LocalFree(sd);
+        }
+    }
+
+    private static Dictionary<string, string> CopyEnv(string extraKey, string extraVal) {
+        var env = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry de in Environment.GetEnvironmentVariables())
+            env[(string)de.Key] = (string)de.Value;
+        if (extraKey != null) env[extraKey] = extraVal;
+        return env;
+    }
+
+    public static int Main(string[] args) {
+        string cmd = args[0];
+        string prefix = args[1];
+        string selfExe = Process.GetCurrentProcess().MainModule.FileName;
+        try {
+            if (cmd == "hold") {
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-hold")) {
+                    Console.WriteLine("HELD pid=" + h.HolderPid + " ticks=" + h.HolderStartTicks
+                        + " utc=" + h.HolderStartUtc + " lease=" + h.LeaseId
+                        + " leaseEvent=" + h.LeaseEventName + " job=" + h.JobName
+                        + " record=" + h.RecordPath + " lock=" + h.LockName + " token=" + h.HeldToken);
+                    Console.Out.Flush();
+                    string line = Console.In.ReadLine();
+                    if (line == "exit-raw") Environment.Exit(0);
+                }
+                Console.WriteLine("RELEASED");
+                Console.Out.Flush();
+                return 0;
+            }
+            if (cmd == "wait-acquire") {
+                bool holdUntilStdin = args.Length > 2 && args[2] == "hold";
+                Console.WriteLine("WAITING");
+                Console.Out.Flush();
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-wait")) {
+                    Console.WriteLine("ACQUIRED pid=" + h.HolderPid + " ticks=" + h.HolderStartTicks
+                        + " inherited=" + h.Inherited + " record=" + h.RecordPath + " lock=" + h.LockName);
+                    Console.Out.Flush();
+                    if (holdUntilStdin) Console.In.ReadLine();
+                }
+                Console.WriteLine("DONE");
+                return 0;
+            }
+            if (cmd == "check-dacl") {
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-dacl")) {
+                    IntPtr hm = OpenMutexW(READ_CONTROL, false, h.LockName);
+                    IntPtr he = OpenEventW(READ_CONTROL, false, h.LeaseEventName);
+                    if (hm == IntPtr.Zero || he == IntPtr.Zero)
+                        throw new InvalidOperationException("failed to reopen handles with READ_CONTROL");
+                    try {
+                        string mSddl = ReadDaclSddl(hm);
+                        string eSddl = ReadDaclSddl(he);
+                        Console.WriteLine("MUTEX_DACL=" + mSddl);
+                        Console.WriteLine("LEASE_DACL=" + eSddl);
+                    } finally {
+                        CloseHandle(hm);
+                        CloseHandle(he);
+                    }
+                }
+                return 0;
+            }
+            if (cmd == "fail-publish") {
+                DesktopLock.FailRecordPublishForTest = true;
+                bool failed = false;
+                try {
+                    using (DesktopLock.Acquire(prefix, "lock-driver-fail")) { }
+                } catch (IOException) {
+                    failed = true;
+                } finally {
+                    DesktopLock.FailRecordPublishForTest = false;
+                }
+                if (!failed) return 31;
+                Console.WriteLine("FAILED_PUBLISH_OK");
+                Console.Out.Flush();
+                Console.In.ReadLine();
+                return 0;
+            }
+            if (cmd == "pause-before-publish") {
+                string resumeFile = args[2];
+                DesktopLock.BeforeRecordPublishForTest = () => {
+                    Console.WriteLine("BEFORE_PUBLISH");
+                    Console.Out.Flush();
+                    DateTime dl = DateTime.UtcNow.AddSeconds(15);
+                    while (!File.Exists(resumeFile) && DateTime.UtcNow < dl) Thread.Sleep(25);
+                };
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-pause")) {
+                    Console.WriteLine("PUBLISHED pid=" + h.HolderPid + " record=" + h.RecordPath);
+                    Console.Out.Flush();
+                    Console.In.ReadLine();
+                }
+                return 0;
+            }
+            if (cmd == "hold-with-job-child") {
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-job-parent")) {
+                    var env = CopyEnv(DesktopLock.EnvPrefix(prefix) + "_DESKTOP_HELD", h.HeldToken);
+                    int cpid = h.StartProcessInJob(selfExe, "sleep-forever " + prefix, Environment.CurrentDirectory, env);
+                    Console.WriteLine("READY pid=" + h.HolderPid + " child_pid=" + cpid + " job=" + h.JobName + " record=" + h.RecordPath);
+                    Console.Out.Flush();
+                    Console.In.ReadLine();
+                }
+                return 0;
+            }
+            if (cmd == "sleep-forever") {
+                Thread.Sleep(60000);
+                return 0;
+            }
+            if (cmd == "test-inheritance-parent") {
+                string mode = args[2];
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-parent")) {
+                    string envKey = DesktopLock.EnvPrefix(prefix) + "_DESKTOP_HELD";
+                    if (mode == "job-child") {
+                        var env = CopyEnv(envKey, h.HeldToken);
+                        int cpid = h.StartProcessInJob(selfExe, "child-inherit-verify " + prefix + " " + args[3], Environment.CurrentDirectory, env);
+                        using (Process cp = Process.GetProcessById(cpid)) { cp.WaitForExit(10000); }
+                        Console.WriteLine("PARENT_STILL_HELD");
+                        Console.Out.Flush();
+                        Console.In.ReadLine();
+                    } else if (mode == "non-job-child") {
+                        var psi = new ProcessStartInfo(selfExe, "child-inherit-verify " + prefix + " " + args[3]) {
+                            UseShellExecute = false, CreateNoWindow = true
+                        };
+                        psi.EnvironmentVariables[envKey] = h.HeldToken;
+                        psi.EnvironmentVariables[DesktopLock.EnvPrefix(prefix) + "_DESKTOP_WAIT_S"] = "0";
+                        using (Process cp = Process.Start(psi)) { cp.WaitForExit(10000); }
+                    } else if (mode == "reused-pid-child") {
+                        // Rewrite BOTH token AND holder record to real parent PID + wrong start_ticks (startTicks + 1).
+                        long forgedTicks = h.HolderStartTicks + 1;
+                        string forgedToken = h.HolderPid + ":" + forgedTicks + ":" + h.LeaseId + ":" + h.LockName;
+                        var forgedRec = new DesktopLock.HolderRecord {
+                            Pid = h.HolderPid, StartTicks = forgedTicks, StartUtc = h.HolderStartUtc,
+                            LeaseId = h.LeaseId, JobName = h.JobName, LockName = h.LockName, Label = "forged"
+                        };
+                        DesktopLock.WriteHolderRecordAtomic(h.RecordPath, forgedRec);
+                        var env = CopyEnv(envKey, forgedToken);
+                        env[DesktopLock.EnvPrefix(prefix) + "_DESKTOP_WAIT_S"] = "0";
+                        int cpid = h.StartProcessInJob(selfExe, "child-inherit-verify " + prefix + " " + args[3], Environment.CurrentDirectory, env);
+                        using (Process cp = Process.GetProcessById(cpid)) { cp.WaitForExit(10000); }
+                    } else if (mode == "post-check-barrier") {
+                        string pastFile = args[3], goFile = args[4], actedFile = args[5];
+                        var env = CopyEnv(envKey, h.HeldToken);
+                        int cpid = h.StartProcessInJob(selfExe,
+                            "child-post-check " + prefix + " \"" + pastFile + "\" \"" + goFile + "\" \"" + actedFile + "\"",
+                            Environment.CurrentDirectory, env);
+                        DateTime dl = DateTime.UtcNow.AddSeconds(10);
+                        while (!File.Exists(pastFile) && DateTime.UtcNow < dl) Thread.Sleep(20);
+                        Console.WriteLine("CHILD_PAST_CHECK child_pid=" + cpid + " record=" + h.RecordPath);
+                        Console.Out.Flush();
+                        string action = Console.In.ReadLine();
+                        if (action == "dispose") {
+                            // Normal disposal closes/drains the desktop job before releasing the mutex!
+                        }
+                    }
+                }
+                Console.WriteLine("PARENT_DISPOSED");
+                Console.Out.Flush();
+                return 0;
+            }
+            if (cmd == "child-inherit-verify") {
+                string outFile = args[2];
+                try {
+                    using (var ch = DesktopLock.Acquire(prefix, "child-inherit")) {
+                        ch.EnsureStillHeld();
+                        File.WriteAllText(outFile, "OK inherited=" + ch.Inherited + " pid=" + ch.HolderPid);
+                    }
+                    return 0;
+                } catch (Exception ex) {
+                    File.WriteAllText(outFile, "ERR " + ex.GetType().Name + ": " + ex.Message);
+                    return 21;
+                }
+            }
+            if (cmd == "child-post-check") {
+                string pastFile = args[2], goFile = args[3], actedFile = args[4];
+                using (var ch = DesktopLock.Acquire(prefix, "child-post-check")) {
+                    ch.EnsureStillHeld();
+                    File.WriteAllText(pastFile, "PAST_CHECK");
+                    DateTime dl = DateTime.UtcNow.AddSeconds(10);
+                    while (!File.Exists(goFile) && DateTime.UtcNow < dl) Thread.Sleep(20);
+                    if (File.Exists(goFile)) {
+                        File.WriteAllText(actedFile, "ACTED");
+                    }
+                }
+                return 0;
+            }
+            if (cmd == "hold-lease-reader") {
+                string leaseEventName = args[2];
+                IntPtr he = OpenEventW(SYNCHRONIZE, false, leaseEventName);
+                if (he == IntPtr.Zero) return 41;
+                try {
+                    Console.WriteLine("READER_OPEN");
+                    Console.Out.Flush();
+                    Console.In.ReadLine();
+                } finally {
+                    CloseHandle(he);
+                }
+                return 0;
+            }
+            return 2;
+        } catch (DesktopLockBusyException ex) {
+            Console.Error.WriteLine("BUSY: " + ex.Message);
+            return 21;
+        } catch (ArgumentException ex) {
+            Console.Error.WriteLine("INVALID: " + ex.Message);
+            return 22;
+        }
+    }
+}
+'''
+
+
 @unittest.skipUnless(os.name == "nt" and PWSH and CSC.is_file() and UIA_CLIENT.is_file(),
                      "Windows desktop UIA, PowerShell 7, and .NET Framework csc.exe required")
 class DesktopTestsWindowsSuite(unittest.TestCase):
@@ -457,13 +718,17 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         cls._shared = tempfile.TemporaryDirectory()
         cls.bin_dir = Path(cls._shared.name)
         guard_cs = SCRIPTS / "lib" / "DesktopTestGuard.cs"
+        lock_cs = SCRIPTS / "lib" / "DesktopLock.cs"
         watch_cs = SCRIPTS / "lib" / "InputWatch.cs"
         app_cs = cls.bin_dir / "FixtureApp.cs"
         drv_cs = cls.bin_dir / "FixtureDriver.cs"
+        lock_drv_cs = cls.bin_dir / "LockDriver.cs"
         app_cs.write_text(FIXTURE_APP_CS, encoding="utf-8")
         drv_cs.write_text(FIXTURE_DRIVER_CS, encoding="utf-8")
+        lock_drv_cs.write_text(LOCK_DRIVER_CS, encoding="utf-8")
         cls.app_exe = cls.bin_dir / "FixtureApp.exe"
         cls.drv_exe = cls.bin_dir / "FixtureDriver.exe"
+        cls.lock_drv_exe = cls.bin_dir / "LockDriver.exe"
         cls.watch_exe = cls.bin_dir / "InputWatch.exe"
         wpf = UIA_CLIENT.parent
         for argv in (
@@ -472,7 +737,9 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
              f"/r:{wpf / 'WindowsBase.dll'}", f"/r:{UIA_CLIENT}", "/r:System.Xaml.dll",
              str(guard_cs), str(app_cs)],
             [str(CSC), "/nologo", f"/out:{cls.drv_exe}",
-             f"/r:{UIA_CLIENT}", f"/r:{UIA_TYPES}", "/r:System.Windows.Forms.dll", str(guard_cs), str(drv_cs)],
+             f"/r:{UIA_CLIENT}", f"/r:{UIA_TYPES}", "/r:System.Windows.Forms.dll",
+             str(guard_cs), str(lock_cs), str(drv_cs)],
+            [str(CSC), "/nologo", f"/out:{cls.lock_drv_exe}", str(lock_cs), str(lock_drv_cs)],
             [str(CSC), "/nologo", f"/out:{cls.watch_exe}", str(watch_cs)],
         ):
             r = run_cmd(argv)
@@ -490,13 +757,16 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         (self.root / ".conclave").mkdir(parents=True)
         (self.root / "scripts" / "lib").mkdir(parents=True)
         shutil.copyfile(SCRIPTS / "smoke-input.ps1", self.root / "scripts" / "smoke-input.ps1")
+        shutil.copyfile(SCRIPTS / "capture-window.ps1", self.root / "scripts" / "capture-window.ps1")
         shutil.copyfile(SCRIPTS / "lib" / "desktop_tests.py", self.root / "scripts" / "lib" / "desktop_tests.py")
+        shutil.copyfile(SCRIPTS / "lib" / "DesktopLock.cs", self.root / "scripts" / "lib" / "DesktopLock.cs")
         shutil.copyfile(SCRIPTS / "lib" / "InputWatch.cs", self.root / "scripts" / "lib" / "InputWatch.cs")
         self.write_cfg()
         self.state.mkdir(parents=True, exist_ok=True)
         # Default unlocked idle probes for test harness runs.
         (self.state / "probe-locked").write_text("0", encoding="utf-8")
         (self.state / "probe-idle").write_text("1000", encoding="utf-8")
+        self._test_lock = f"conclave-dt-test-{os.getpid()}-{time.time_ns()}"
 
     def write_cfg(self, **overrides):
         cfg = {
@@ -507,7 +777,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         (self.root / ".conclave" / "desktop-tests.json").write_text(json.dumps(cfg), encoding="utf-8")
 
     def run_smoke(self, *args, extra_env=None, include_watcher=True):
-        env = {**os.environ, **(extra_env or {})}
+        env = {**os.environ, "DEMO_DESKTOP_LOCK": self._test_lock, **(extra_env or {})}
         cmd = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "smoke-input.ps1"),
                "-ProjectRoot", str(self.root), "-StateFolder", str(self.state), "-Python", sys.executable]
         if include_watcher:
@@ -1044,6 +1314,370 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                 self.assertIn("manifest retained", comb_res.stderr)
                 retained = json.loads(manifest_path.read_text(encoding="utf-8"))
                 self.assertEqual([t["name"] for t in retained["tasks"]], ["demo-real-input-smoke"])
+
+    def _parse_kv(self, line):
+        parts = line.strip().split()
+        out = {}
+        for tok in parts[1:]:
+            if "=" in tok:
+                k, v = tok.split("=", 1)
+                out[k] = v
+        return out
+
+    def test_desktop_lock_contention_bounds_canonical_name_and_dacl(self):
+        lock_name = f"conclave-dt-contend-{os.getpid()}-{time.time_ns()}"
+        env_a = {**os.environ, "DEMO_DESKTOP_LOCK": lock_name}
+        proc_a = subprocess.Popen(
+            [str(self.lock_drv_exe), "hold", "demo"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, env=env_a, creationflags=NO_WINDOW,
+        )
+        try:
+            held_line = proc_a.stdout.readline().strip()
+            self.assertTrue(held_line.startswith("HELD "), f"unexpected hold line: {held_line}")
+            info = self._parse_kv(held_line)
+            # Unqualified override must canonicalize to Global\<name>.
+            self.assertEqual(info["lock"], f"Global\\{lock_name}")
+            # Process 2 waits 1s and refuses naming Process 1's exact pid and start time.
+            t0 = time.monotonic()
+            res_b = run_cmd(
+                [str(self.lock_drv_exe), "wait-acquire", "demo"],
+                env={**os.environ, "DEMO_DESKTOP_LOCK": f"Global\\{lock_name}", "DEMO_DESKTOP_WAIT_S": "1"},
+            )
+            elapsed = time.monotonic() - t0
+            self.assertEqual(res_b.returncode, 21, res_b.stdout + res_b.stderr)
+            self.assertGreaterEqual(elapsed, 0.7)
+            self.assertIn(f"pid={info['pid']}", res_b.stderr)
+            self.assertIn(f"started={info['utc']}", res_b.stderr)
+            self.assertIn(f"ticks={info['ticks']}", res_b.stderr)
+        finally:
+            try:
+                proc_a.stdin.write("release\n")
+                proc_a.stdin.flush()
+                proc_a.communicate(timeout=10)
+            except Exception:
+                proc_a.kill()
+                proc_a.communicate()
+
+        # Unsupported namespaces (Local\, Session\1\) refuse before any desktop access.
+        for bad_ns in ("Local\\bad-lock", "Session\\1\\bad-lock", "bad lock"):
+            with self.subTest(bad_ns=bad_ns):
+                r = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"],
+                            env={**os.environ, "DEMO_DESKTOP_LOCK": bad_ns, "DEMO_DESKTOP_WAIT_S": "0"})
+                self.assertEqual(r.returncode, 22, r.stdout + r.stderr)
+                self.assertIn("INVALID:", r.stderr)
+
+        # Wait bounds: negative, invalid, and excessive (>86400) fail closed; unset (default 120) and 0 succeed.
+        for bad_wait in ("-1", "abc", "86401"):
+            with self.subTest(bad_wait=bad_wait):
+                r = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"],
+                            env={**os.environ, "DEMO_DESKTOP_LOCK": lock_name, "DEMO_DESKTOP_WAIT_S": bad_wait})
+                self.assertEqual(r.returncode, 22, r.stdout + r.stderr)
+                self.assertIn("INVALID:", r.stderr)
+        clean_wait_env = {k: v for k, v in os.environ.items() if k.upper() != "DEMO_DESKTOP_WAIT_S"}
+        clean_wait_env["DEMO_DESKTOP_LOCK"] = lock_name
+        r_unset = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=clean_wait_env)
+        self.assertEqual(r_unset.returncode, 0, r_unset.stdout + r_unset.stderr)
+        r_zero = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"],
+                         env={**clean_wait_env, "DEMO_DESKTOP_WAIT_S": "0"})
+        self.assertEqual(r_zero.returncode, 0, r_zero.stdout + r_zero.stderr)
+
+        # DACL check via separate creator READ_CONTROL handle: AU has only 0x00100001 on mutex and 0x00100000 on lease event (no WRITE_DAC).
+        dacl_res = run_cmd([str(self.lock_drv_exe), "check-dacl", "demo"],
+                           env={**os.environ, "DEMO_DESKTOP_LOCK": f"conclave-dt-dacl-{os.getpid()}-{time.time_ns()}"})
+        self.assertEqual(dacl_res.returncode, 0, dacl_res.stdout + dacl_res.stderr)
+        lines = dict(ln.split("=", 1) for ln in dacl_res.stdout.strip().splitlines() if "=" in ln)
+        self.assertIn("(A;;0x100001;;;AU)", lines["MUTEX_DACL"])
+        self.assertNotIn("WD", lines["MUTEX_DACL"].split(";;;AU")[0].split("(")[-1])
+        self.assertIn("(A;;0x100000;;;AU)", lines["LEASE_DACL"])
+
+    def test_desktop_lock_kill_recovery_late_successor_failed_publish_and_two_reader_handoff(self):
+        # 1. Synchronized kill test: Process 2 already open & waiting before Process 1 is killed acquires at once.
+        lock1 = f"conclave-dt-kill-{os.getpid()}-{time.time_ns()}"
+        env1 = {**os.environ, "DEMO_DESKTOP_LOCK": lock1, "DEMO_DESKTOP_WAIT_S": "15"}
+        p1 = subprocess.Popen([str(self.lock_drv_exe), "hold", "demo"],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, env=env1, creationflags=NO_WINDOW)
+        p2 = None
+        try:
+            held1 = self._parse_kv(p1.stdout.readline())
+            p2 = subprocess.Popen([str(self.lock_drv_exe), "wait-acquire", "demo", "hold"],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env=env1, creationflags=NO_WINDOW)
+            self.assertEqual(p2.stdout.readline().strip(), "WAITING")
+            time.sleep(0.25)  # Give p2 time to enter WaitForSingleObject on the mutex.
+            t_kill = time.monotonic()
+            p1.kill()
+            p1.communicate(timeout=10)
+            acq_line = p2.stdout.readline().strip()
+            elapsed = time.monotonic() - t_kill
+            self.assertTrue(acq_line.startswith("ACQUIRED "), f"expected ACQUIRED, got: {acq_line}")
+            self.assertLess(elapsed, 4.0, f"abandoned mutex recovery took {elapsed:.2f}s")
+            info2 = self._parse_kv(acq_line)
+            # Read back the replacement record while p2 still holds the lock.
+            rec_doc = json.loads(Path(info2["record"]).read_text(encoding="utf-8"))
+            self.assertEqual(rec_doc["pid"], int(info2["pid"]))
+            self.assertNotEqual(rec_doc["pid"], int(held1["pid"]))
+        finally:
+            if p1.poll() is None:
+                p1.kill()
+                p1.communicate()
+            if p2 is not None:
+                try:
+                    p2.stdin.write("release\n")
+                    p2.stdin.flush()
+                    p2.communicate(timeout=10)
+                except Exception:
+                    p2.kill()
+                    p2.communicate()
+
+        # 2. Late-arriving successor after last handle close drains prior desktop job before acquiring.
+        lock2 = f"conclave-dt-late-{os.getpid()}-{time.time_ns()}"
+        env2 = {**os.environ, "DEMO_DESKTOP_LOCK": lock2, "DEMO_DESKTOP_WAIT_S": "5"}
+        p_parent = subprocess.Popen([str(self.lock_drv_exe), "hold-with-job-child", "demo"],
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    text=True, env=env2, creationflags=NO_WINDOW)
+        ready = self._parse_kv(p_parent.stdout.readline())
+        p_parent.kill()
+        p_parent.communicate(timeout=10)
+        # Late-arriving successor enters AFTER p_parent closed all handles.
+        late = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env2)
+        self.assertEqual(late.returncode, 0, late.stdout + late.stderr)
+        self.assertIn("ACQUIRED ", late.stdout)
+        # Verify the prior job child is dead.
+        child_pid = int(ready["child_pid"])
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        h_ch = kernel32.OpenProcess(0x1000, False, child_pid)
+        if h_ch:
+            ec = ctypes.c_uint(0)
+            kernel32.GetExitCodeProcess(h_ch, ctypes.byref(ec))
+            kernel32.CloseHandle(h_ch)
+            self.assertNotEqual(ec.value, 259, "prior desktop job child must have exited before successor entered")
+
+        # 3. Failed record publication rolls back mutex so Process 2 acquires while Process 1 stays alive.
+        lock3 = f"conclave-dt-failpub-{os.getpid()}-{time.time_ns()}"
+        env3 = {**os.environ, "DEMO_DESKTOP_LOCK": lock3, "DEMO_DESKTOP_WAIT_S": "1"}
+        p_fail = subprocess.Popen([str(self.lock_drv_exe), "fail-publish", "demo"],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env=env3, creationflags=NO_WINDOW)
+        try:
+            self.assertEqual(p_fail.stdout.readline().strip(), "FAILED_PUBLISH_OK")
+            r_next = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env3)
+            self.assertEqual(r_next.returncode, 0, r_next.stdout + r_next.stderr)
+            self.assertIn("ACQUIRED ", r_next.stdout)
+        finally:
+            try:
+                p_fail.stdin.write("quit\n")
+                p_fail.stdin.flush()
+                p_fail.communicate(timeout=10)
+            except Exception:
+                p_fail.kill()
+                p_fail.communicate()
+
+        # 4. Locked-record deletion + two-reader handoff: Reader 1 holds A's lease handle AND locks A's JSON open;
+        # A disposes cleanly; B acquires and pauses BEFORE publishing; Reader 2 must report 'holder identity unavailable'
+        # (never attributes A) and A's inheritance token must fail.
+        lock4 = f"conclave-dt-handoff-{os.getpid()}-{time.time_ns()}"
+        env4 = {**os.environ, "DEMO_DESKTOP_LOCK": lock4, "DEMO_DESKTOP_WAIT_S": "0"}
+        resume_file = Path(self._tmp.name) / "resume-b.txt"
+        pa = subprocess.Popen([str(self.lock_drv_exe), "hold", "demo"],
+                              stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              text=True, env=env4, creationflags=NO_WINDOW)
+        reader1 = None
+        pb = None
+        h_rec_lock = None
+        try:
+            info_a = self._parse_kv(pa.stdout.readline())
+            # Reader 1 opens A's lease event handle AND locks A's JSON against deletion (no FILE_SHARE_DELETE).
+            reader1 = subprocess.Popen([str(self.lock_drv_exe), "hold-lease-reader", "demo", info_a["leaseEvent"]],
+                                       stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       text=True, env=env4, creationflags=NO_WINDOW)
+            self.assertEqual(reader1.stdout.readline().strip(), "READER_OPEN")
+            h_rec_lock = kernel32.CreateFileW(info_a["record"], 0x80000000, 0x00000003, None, 3, 0x80, None)
+            self.assertNotEqual(h_rec_lock, ctypes.c_void_p(-1).value)
+            # A disposes cleanly while staying alive: deletion hits locked file, lease event is signaled, mutex releases!
+            pa.stdin.write("release\n")
+            pa.stdin.flush()
+            self.assertEqual(pa.stdout.readline().strip(), "RELEASED")
+            # B acquires the mutex and pauses BEFORE publishing its record over A's locked-open JSON.
+            pb = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(resume_file)],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env={**env4, "DEMO_DESKTOP_WAIT_S": "5"}, creationflags=NO_WINDOW)
+            self.assertEqual(pb.stdout.readline().strip(), "BEFORE_PUBLISH")
+            # Reader 2 (zero-wait Acquire) runs while Reader 1 still holds A's lease handle and A's JSON is on disk.
+            r2 = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"],
+                         env={**env4, "DEMO_DESKTOP_HELD": info_a["token"]})
+            self.assertEqual(r2.returncode, 21, r2.stdout + r2.stderr)
+            self.assertIn("holder identity unavailable", r2.stderr)
+            self.assertNotIn(f"pid={info_a['pid']}", r2.stderr)
+        finally:
+            if h_rec_lock and h_rec_lock != ctypes.c_void_p(-1).value:
+                kernel32.CloseHandle(h_rec_lock)
+            resume_file.write_text("go", encoding="utf-8")
+            for p in (pb, reader1, pa):
+                if p is not None:
+                    try:
+                        if p.stdin:
+                            p.stdin.write("quit\n")
+                            p.stdin.flush()
+                        p.communicate(timeout=10)
+                    except Exception:
+                        p.kill()
+                        p.communicate()
+
+    def test_desktop_lock_inheritance_reused_pid_and_child_lifetime(self):
+        # 1. Job-member child inherits immediately and disposing it does NOT release parent's lock.
+        lock1 = f"conclave-dt-inh-{os.getpid()}-{time.time_ns()}"
+        env1 = {**os.environ, "DEMO_DESKTOP_LOCK": lock1, "DEMO_DESKTOP_WAIT_S": "0"}
+        child_out = Path(self._tmp.name) / "child-ok.txt"
+        p_par = subprocess.Popen([str(self.lock_drv_exe), "test-inheritance-parent", "demo", "job-child", str(child_out)],
+                                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True, env=env1, creationflags=NO_WINDOW)
+        try:
+            self.assertEqual(p_par.stdout.readline().strip(), "PARENT_STILL_HELD")
+            self.assertIn("OK inherited=True", child_out.read_text(encoding="utf-8"))
+            # Outsider is STILL blocked by parent after child disposed its inherited handle.
+            out_r = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env1)
+            self.assertEqual(out_r.returncode, 21, out_r.stdout + out_r.stderr)
+        finally:
+            try:
+                p_par.stdin.write("done\n")
+                p_par.stdin.flush()
+                p_par.communicate(timeout=10)
+            except Exception:
+                p_par.kill()
+                p_par.communicate()
+
+        # 2. Non-job child with valid token is refused.
+        nonjob_out = Path(self._tmp.name) / "child-nonjob.txt"
+        r_nj = run_cmd([str(self.lock_drv_exe), "test-inheritance-parent", "demo", "non-job-child", str(nonjob_out)],
+                       env={**os.environ, "DEMO_DESKTOP_LOCK": f"conclave-dt-nj-{os.getpid()}-{time.time_ns()}"})
+        self.assertEqual(r_nj.returncode, 0, r_nj.stdout + r_nj.stderr)
+        self.assertIn("ERR DesktopLockBusyException", nonjob_out.read_text(encoding="utf-8"))
+
+        # 3. Reused-PID descendant test (mutation-sensitive): real parent->child inside desktop job,
+        # BOTH token and holder record carry real parent PID + wrong start_ticks (startTicks+1) -> MUST refuse!
+        reused_out = Path(self._tmp.name) / "child-reused.txt"
+        r_ru = run_cmd([str(self.lock_drv_exe), "test-inheritance-parent", "demo", "reused-pid-child", str(reused_out)],
+                       env={**os.environ, "DEMO_DESKTOP_LOCK": f"conclave-dt-ru-{os.getpid()}-{time.time_ns()}"})
+        self.assertEqual(r_ru.returncode, 0, r_ru.stdout + r_ru.stderr)
+        self.assertIn("ERR DesktopLockBusyException", reused_out.read_text(encoding="utf-8"))
+
+        # 4. Both owner kill AND normal owner disposal with child paused AFTER EnsureStillHeld() and BEFORE desktop action.
+        for stop_kind in ("dispose", "kill"):
+            with self.subTest(stop_kind=stop_kind):
+                lk = f"conclave-dt-life-{stop_kind}-{os.getpid()}-{time.time_ns()}"
+                env_l = {**os.environ, "DEMO_DESKTOP_LOCK": lk, "DEMO_DESKTOP_WAIT_S": "5"}
+                past = Path(self._tmp.name) / f"past-{stop_kind}.txt"
+                go = Path(self._tmp.name) / f"go-{stop_kind}.txt"
+                acted = Path(self._tmp.name) / f"acted-{stop_kind}.txt"
+                pa = subprocess.Popen(
+                    [str(self.lock_drv_exe), "test-inheritance-parent", "demo", "post-check-barrier",
+                     str(past), str(go), str(acted)],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, env=env_l, creationflags=NO_WINDOW,
+                )
+                try:
+                    line = pa.stdout.readline().strip()
+                    self.assertTrue(line.startswith("CHILD_PAST_CHECK "), line)
+                    if stop_kind == "dispose":
+                        pa.stdin.write("dispose\n")
+                        pa.stdin.flush()
+                        self.assertEqual(pa.stdout.readline().strip(), "PARENT_DISPOSED")
+                        pa.communicate(timeout=10)
+                    else:
+                        pa.kill()
+                        pa.communicate(timeout=10)
+                    # New Owner B acquires the lock, then opens the barrier; the old child must NEVER act.
+                    rb = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env_l)
+                    self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
+                    go.write_text("go", encoding="utf-8")
+                    time.sleep(0.25)
+                    self.assertFalse(acted.exists(), f"old child acted after owner {stop_kind} and new owner entry")
+                finally:
+                    if pa.poll() is None:
+                        pa.kill()
+                        pa.communicate()
+
+    def test_smoke_input_capture_window_and_live_fixture_lock_enforcement(self):
+        # Use a hyphenated project prefix to prove MY_APP_DESKTOP_* env-name mapping end-to-end.
+        self.write_cfg(prefix="my-app")
+        lk = f"conclave-dt-smoke-{os.getpid()}-{time.time_ns()}"
+        env_hold = {**os.environ, "MY_APP_DESKTOP_LOCK": lk}
+        holder = subprocess.Popen([str(self.lock_drv_exe), "hold", "my-app"],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env=env_hold, creationflags=NO_WINDOW)
+        runner_called = Path(self._tmp.name) / "runner-called.txt"
+        runner_py = Path(self._tmp.name) / "smoke-lock-runner.py"
+        runner_py.write_text(
+            "import os, pathlib, sys\n"
+            f"pathlib.Path({str(runner_called)!r}).write_text(os.environ.get('MY_APP_DESKTOP_HELD', ''), encoding='utf-8')\n"
+            "if '--discover' in sys.argv:\n"
+            "    print('DISCOVER C1 t1')\n"
+            "elif '--run-class' in sys.argv:\n"
+            "    print('CASE PASS C1 t1')\n",
+            encoding="utf-8",
+        )
+        try:
+            held_info = self._parse_kv(holder.stdout.readline())
+            contend_env = {"MY_APP_DESKTOP_LOCK": lk, "MY_APP_DESKTOP_WAIT_S": "0"}
+            # 1. Scheduled smoke-input under contention: exit 0, skipped desktop-locked-by-other, holder in history, 0 runner starts.
+            r_sched = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:15:00",
+                                     "-RunnerCommand", str(runner_py), extra_env=contend_env)
+            self.assertEqual(r_sched.returncode, 0, r_sched.stdout + r_sched.stderr)
+            self.assertIn("desktop-locked-by-other", r_sched.stdout)
+            self.assertFalse(runner_called.exists())
+            hist_rows = [json.loads(ln) for ln in (self.state / "input-history.jsonl").read_text(encoding="utf-8").splitlines() if ln.strip()]
+            self.assertEqual(hist_rows[-1]["outcome"], "skipped")
+            self.assertEqual(hist_rows[-1]["reason"], "desktop-locked-by-other")
+            self.assertEqual(hist_rows[-1]["holder"]["pid"], int(held_info["pid"]))
+            # 2. On-demand smoke-input under contention: exit 1, 0 runner starts.
+            r_ond = self.run_smoke("-TestProbes", "-NowOverride", "2026-11-25T03:15:00",
+                                   "-RunnerCommand", str(runner_py), extra_env=contend_env)
+            self.assertEqual(r_ond.returncode, 1, r_ond.stdout + r_ond.stderr)
+            self.assertIn("desktop-locked-by-other", r_ond.stderr)
+            self.assertFalse(runner_called.exists())
+            # 3. capture-window.ps1 under contention: exit 1, no output file created.
+            cap_out = Path(self._tmp.name) / "cap-busy.txt"
+            r_cap = run_cmd(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "capture-window.ps1"),
+                 "-ProjectRoot", str(self.root), "-Python", sys.executable, "-Out", str(cap_out)],
+                cwd=self.root, env={**os.environ, **contend_env},
+            )
+            self.assertEqual(r_cap.returncode, 1, r_cap.stdout + r_cap.stderr)
+            self.assertIn("refused (busy)", r_cap.stderr)
+            self.assertFalse(cap_out.exists())
+            # 4. Live-desk negative fixture under contention: exit 21 with LOCK_BUSY and zero desktop calls.
+            r_live = run_cmd(
+                [str(self.drv_exe), "neg-focus", "my-app", str(self.app_exe)],
+                env={**os.environ, "CONCLAVE_TEST_LIVE_DESK": "1", **contend_env},
+            )
+            self.assertEqual(r_live.returncode, 21, r_live.stdout + r_live.stderr)
+            self.assertIn("LOCK_BUSY:", r_live.stderr)
+        finally:
+            try:
+                holder.stdin.write("release\n")
+                holder.stdin.flush()
+                holder.communicate(timeout=10)
+            except Exception:
+                holder.kill()
+                holder.communicate()
+
+        # After release: capture-window.ps1 succeeds and creates -Out, and smoke-input.ps1 runs & exports MY_APP_DESKTOP_HELD!
+        cap_ok = Path(self._tmp.name) / "cap-ok.txt"
+        r_cap2 = run_cmd(
+            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "capture-window.ps1"),
+             "-ProjectRoot", str(self.root), "-Python", sys.executable, "-Out", str(cap_ok)],
+            cwd=self.root, env={**os.environ, "MY_APP_DESKTOP_LOCK": lk, "MY_APP_DESKTOP_WAIT_S": "5"},
+        )
+        self.assertEqual(r_cap2.returncode, 0, r_cap2.stdout + r_cap2.stderr)
+        self.assertTrue(cap_ok.exists())
+        r_run = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:20:00",
+                               "-RunnerCommand", str(runner_py),
+                               extra_env={"MY_APP_DESKTOP_LOCK": lk, "MY_APP_DESKTOP_WAIT_S": "5"})
+        self.assertEqual(r_run.returncode, 0, r_run.stdout + r_run.stderr)
+        self.assertTrue(runner_called.exists())
+        self.assertIn(f":Global\\{lk}", runner_called.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
