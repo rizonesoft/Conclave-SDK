@@ -238,10 +238,28 @@ public static class FixtureDriver {
         if (mode == "neg-focus-destroyed") {
             try {
                 int selfPid = Process.GetCurrentProcess().Id;
-                uint selfTid = GetCurrentThreadId();
                 using (DeskObserver obs = new DeskObserver(new[] { selfPid })) {
-                    // Simulate a destroyed HWND where GetWindowThreadProcessId returns 0 while eventThreadId identifies the owned thread.
-                    obs.ObserveForegroundHandle(new IntPtr(0x12340000), selfTid);
+                    if (obs.InstalledPidHookCount < 1) {
+                        throw new InvalidOperationException("per-PID foreground hook was not installed");
+                    }
+                    // Spawn a secondary thread, snapshot it via TrackPid, let it exit completely so OpenThread fails,
+                    // then deliver a destroyed HWND + exited TID through the real WinEvent callback path.
+                    uint secondaryTid = 0;
+                    var started = new ManualResetEventSlim(false);
+                    var release = new ManualResetEventSlim(false);
+                    var th = new Thread(() => {
+                        secondaryTid = GetCurrentThreadId();
+                        started.Set();
+                        release.Wait(2000);
+                    }) { IsBackground = true };
+                    th.Start();
+                    if (!started.Wait(2000) || secondaryTid == 0) {
+                        throw new InvalidOperationException("secondary thread did not start");
+                    }
+                    obs.TrackPid(selfPid);
+                    release.Set();
+                    th.Join(2000);
+                    obs.InvokeGlobalForegroundCallbackForTest(new IntPtr(0x12340000), secondaryTid);
                     obs.VerifyClean(mode);
                 }
                 return 0;

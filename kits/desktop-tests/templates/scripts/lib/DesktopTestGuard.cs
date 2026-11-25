@@ -275,18 +275,23 @@ namespace Conclave.DesktopTests
         private const uint WM_QUIT = 0x0012;
         private const uint WM_FLUSH = 0x0401;
         private const uint WM_HOLD = 0x0402;
+        private const uint WM_TRACK_PID = 0x0403;
         private const uint THREAD_QUERY_LIMITED_INFORMATION = 0x0800;
         private readonly HashSet<int> _ownedPids = new HashSet<int>();
         private readonly HashSet<uint> _ownedTids = new HashSet<uint>();
         private readonly List<string> _violations = new List<string>();
         private readonly object _gate = new object();
+        private readonly object _trackGate = new object();
         private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
         private readonly ManualResetEventSlim _stop = new ManualResetEventSlim(false);
         private readonly ManualResetEventSlim _flushed = new ManualResetEventSlim(false);
+        private readonly ManualResetEventSlim _trackDone = new ManualResetEventSlim(false);
         private readonly int _flushTimeoutMs;
         private POINT _startCursor;
         private bool _hasCursor;
         private string _hookError;
+        private volatile string _trackError;
+        private int _pidHookCount;
         private Thread _hookThread;
         private Thread _pollThread;
         private volatile uint _hookThreadId;
@@ -313,10 +318,28 @@ namespace Conclave.DesktopTests
 
         public bool HasDesktopCursor { get { return _hasCursor; } }
 
+        internal int InstalledPidHookCount { get { lock (_gate) { return _pidHookCount; } } }
+
         public void TrackPid(int pid)
         {
             lock (_gate) { _ownedPids.Add(pid); }
             SnapshotOwnedThreads();
+            lock (_trackGate)
+            {
+                uint tid = _hookThreadId;
+                if (_disposed || tid == 0)
+                    throw new InvalidOperationException("DeskObserver hook thread is not running; cannot track pid " + pid);
+                _trackError = null;
+                _trackDone.Reset();
+                if (!PostThreadMessage(tid, WM_TRACK_PID, new IntPtr(pid), IntPtr.Zero))
+                    throw new InvalidOperationException("DeskObserver failed to register per-PID hook for pid " + pid + " (err=" + Marshal.GetLastWin32Error() + ")");
+                if (!_trackDone.Wait(_flushTimeoutMs))
+                    throw new InvalidOperationException("DeskObserver timed out registering per-PID hook for pid " + pid);
+                if (!string.IsNullOrEmpty(_trackError))
+                    throw new InvalidOperationException("DeskObserver failed closed: " + _trackError);
+                if (_hookThreadId == 0)
+                    throw new InvalidOperationException("DeskObserver hook thread exited before registering per-PID hook for pid " + pid);
+            }
         }
 
         private void SnapshotOwnedThreads()
@@ -464,9 +487,21 @@ namespace Conclave.DesktopTests
             }
         }
 
+        internal void InvokeGlobalForegroundCallbackForTest(IntPtr hwnd, uint dwEventThread)
+        {
+            OnGlobalForegroundEvent(IntPtr.Zero, EVENT_SYSTEM_FOREGROUND, hwnd, 0, 0, dwEventThread, 0);
+        }
+
+        private void OnGlobalForegroundEvent(IntPtr hWinEventHook, uint eventType, IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        {
+            ObserveForegroundHandle(hwnd, dwEventThread);
+        }
+
         private void RunHooks()
         {
             _hookThreadId = GetCurrentThreadId();
+            var pidHooks = new Dictionary<int, IntPtr>();
+            var pidDelegates = new List<WinEventDelegate>();
             HookProc kb = (code, wParam, lParam) =>
             {
                 if (code >= 0)
@@ -485,17 +520,46 @@ namespace Conclave.DesktopTests
                 }
                 return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
             };
-            WinEventDelegate fgEv = (hWinEventHook, eventType, hwnd, idObject, idChild, dwEventThread, dwmsEventTime) =>
+            WinEventDelegate fgEv = OnGlobalForegroundEvent;
+            Func<int, string> installPidHook = pid =>
             {
-                ObserveForegroundHandle(hwnd, dwEventThread);
+                if (pid <= 0 || pidHooks.ContainsKey(pid)) return null;
+                int capturedPid = pid;
+                WinEventDelegate pidCb = (hHook, evType, hwnd, idObj, idChild, dwThread, dwTime) =>
+                {
+                    ObserveForegroundPid(capturedPid);
+                };
+                IntPtr h = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, pidCb, (uint)capturedPid, 0, WINEVENT_OUTOFCONTEXT);
+                if (h == IntPtr.Zero)
+                {
+                    return "per-PID foreground hook failed for pid " + capturedPid + " (err=" + Marshal.GetLastWin32Error() + ")";
+                }
+                pidHooks[capturedPid] = h;
+                pidDelegates.Add(pidCb);
+                lock (_gate) { _pidHookCount = pidHooks.Count; }
+                return null;
             };
             IntPtr mod = GetModuleHandle(null);
             IntPtr hKb = SetWindowsHookEx(WH_KEYBOARD_LL, kb, mod, 0);
             IntPtr hMs = SetWindowsHookEx(WH_MOUSE_LL, ms, mod, 0);
             IntPtr hFg = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, IntPtr.Zero, fgEv, 0, 0, WINEVENT_OUTOFCONTEXT);
-            if (hKb == IntPtr.Zero || hMs == IntPtr.Zero || hFg == IntPtr.Zero)
+            string initPidErr = null;
+            if (hKb != IntPtr.Zero && hMs != IntPtr.Zero && hFg != IntPtr.Zero)
             {
-                _hookError = "hook installation failed (kb=" + hKb + ", ms=" + hMs + ", fg=" + hFg + ", err=" + Marshal.GetLastWin32Error() + ")";
+                List<int> initialPids;
+                lock (_gate) { initialPids = new List<int>(_ownedPids); }
+                foreach (int p in initialPids)
+                {
+                    initPidErr = installPidHook(p);
+                    if (!string.IsNullOrEmpty(initPidErr)) break;
+                }
+            }
+            if (hKb == IntPtr.Zero || hMs == IntPtr.Zero || hFg == IntPtr.Zero || !string.IsNullOrEmpty(initPidErr))
+            {
+                _hookError = !string.IsNullOrEmpty(initPidErr)
+                    ? initPidErr
+                    : "hook installation failed (kb=" + hKb + ", ms=" + hMs + ", fg=" + hFg + ", err=" + Marshal.GetLastWin32Error() + ")";
+                foreach (IntPtr ph in pidHooks.Values) UnhookWinEvent(ph);
                 if (hKb != IntPtr.Zero) UnhookWindowsHookEx(hKb);
                 if (hMs != IntPtr.Zero) UnhookWindowsHookEx(hMs);
                 if (hFg != IntPtr.Zero) UnhookWinEvent(hFg);
@@ -511,18 +575,26 @@ namespace Conclave.DesktopTests
                 {
                     if (msg.message == WM_FLUSH) _flushed.Set();
                     else if (msg.message == WM_HOLD) Thread.Sleep((int)msg.wParam.ToInt64());
+                    else if (msg.message == WM_TRACK_PID)
+                    {
+                        _trackError = installPidHook((int)msg.wParam.ToInt64());
+                        _trackDone.Set();
+                    }
                     else DispatchMessage(ref msg);
                 }
             }
             finally
             {
                 _hookThreadId = 0;
+                _trackDone.Set();
+                foreach (IntPtr ph in pidHooks.Values) UnhookWinEvent(ph);
                 UnhookWindowsHookEx(hKb);
                 UnhookWindowsHookEx(hMs);
                 UnhookWinEvent(hFg);
                 GC.KeepAlive(kb);
                 GC.KeepAlive(ms);
                 GC.KeepAlive(fgEv);
+                GC.KeepAlive(pidDelegates);
             }
         }
 
@@ -567,6 +639,7 @@ namespace Conclave.DesktopTests
             _ready.Dispose();
             _stop.Dispose();
             _flushed.Dispose();
+            _trackDone.Dispose();
         }
 
         private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -594,7 +667,7 @@ namespace Conclave.DesktopTests
         [DllImport("user32.dll")] private static extern bool UnhookWinEvent(IntPtr hWinEventHook);
         [DllImport("user32.dll")] private static extern int GetMessage(out MSG lpMsg, IntPtr hWnd, uint min, uint max);
         [DllImport("user32.dll")] private static extern IntPtr DispatchMessage(ref MSG lpMsg);
-        [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint idThread, uint msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll", SetLastError = true)] private static extern bool PostThreadMessage(uint idThread, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string lpModuleName);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
         [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr OpenThread(uint dwDesiredAccess, bool bInheritHandle, uint dwThreadId);
