@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T03 \u00a715",
+  "title": "Bounded C++ Hot-Spot Audit",
+  "implementation_sha": "2daef92e27966035ddee8fc7d8eac2e5015a9fe8",
+  "date": "2026-11-26",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T03-s15.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml green 7/7 at 2daef92e (https://github.com/rizonesoft/Conclave-SDK/actions/runs/45706357418); Resolute-SDK 49e9e51/deab1a1/3f0a2db/d613820/67e53e4/3ae684a valid 77 sections; Resolute 0443c5d3/ef97bbc2/74d2020c/82fede96/c8a7804e/50a59d9d/5dd51e6d/4b46d7bd/6f6cc16c/7dd841b8 valid 262 sections, paired red/green sanitizer proofs 10/10 + same-process 21/21 pass"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T03-s15.md",
+    "verdict": "reconciled",
+    "candidate": "2daef92e27966035ddee8fc7d8eac2e5015a9fe8",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T03-s15.md",
+    "candidate": "fd84bd44e284f1de01afeb51da94de1ee9f523f7",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "fd84bd44e284f1de01afeb51da94de1ee9f523f7",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 7,
+  "pass_cap": 33
+}

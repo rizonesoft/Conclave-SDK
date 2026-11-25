@@ -50,7 +50,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 12 | §12 | Stamp gate planned in each custom graph's project | §11 | [x] |
 | 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [x] |
 | 14 | §14 | Sanitizer test configuration | §13 | [x] |
-| 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
+| 15 | §15 | Bounded C++ hot-spot audit | §9 | [x] |
 | 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11 | [ ] |
 | 17 | §17 | One Opus design check before a surface section's review | -- | [x] |
 
@@ -440,9 +440,12 @@ One review per repository of the files most likely to hold a threading or lifeti
 - [x] Run `python scripts/review-dispatch.py --writer agy --kind round --candidate <SHA> --paths <selected> --record docs/reviews/2026-11-25-cpp-safety-audit.md --prompt <file>` (with `--writer-model gemini-pro-orchestrator` in `Resolute`) where the prompt names every selected file at `<SHA>` for whole-file inspection. Done when: each repository has exactly one returned round (exit 0, non-failed) for the audited SHA from the pinned reviewer, accounting for every selected file and carrying valid `LENS thread-safety:` and `LENS memory-safety:` lines.
 - [x] Fix each P1 and P2 finding that is cheap, with a regression test that fails before the fix and passes after it; for any `Resolute-SDK` fix, bump `Resolute/sdk.json` and verify the regression through `Resolute`'s build/test suite at that pin. Done when: each fixed finding has an `- Implemented:` line naming its commit and verified before/after regression.
 - [x] File every other finding in the owning project through its `add-todo`, reading back the target section to verify it describes the exact finding. Done when: each remaining finding has a `- Filed:` line whose reference resolves and matches the finding.
-- [ ] Commit: `docs: C++ safety audit, findings fixed or filed` in each repository (`Resolute-SDK` `49e9e51` / `deab1a1`, `Resolute` `0443c5d3` / `ef97bbc2`).
+- [x] Commit: `docs: C++ safety audit, findings fixed or filed` in each repository (`Resolute-SDK` `49e9e51` / `deab1a1` / `3f0a2db` / `d613820` / `67e53e4` / `3ae684a`, `Resolute` `0443c5d3` / `ef97bbc2` / `74d2020c` / `82fede96` / `c8a7804e` / `50a59d9d` / `5dd51e6d` / `4b46d7bd` / `6f6cc16c` / `7dd841b8`).
 
 **Test checkpoint:** `python scripts/review-dispatch.py --list-rounds --records docs/reviews` in each repository lists `docs/reviews/2026-11-25-cpp-safety-audit.md` with exactly one returned round for the audited SHA carrying valid `LENS thread-safety:` and `LENS memory-safety:` lines, the selected files match the reproducible ranking rule, and every numbered finding has a verified `- Implemented:` (with before/after regression) or `- Filed:` (read back in the owning TODO section) line.
+
+> **Verified:** 2026-11-26 | §15 | 2daef92e27966035ddee8fc7d8eac2e5015a9fe8
+> **Review:** `docs/reviews/d00-t03-s15.json`
 
 ## 16. Read-Only Verification Across the Projects
 
