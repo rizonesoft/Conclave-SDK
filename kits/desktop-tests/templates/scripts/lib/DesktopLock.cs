@@ -989,23 +989,71 @@ namespace Conclave.DesktopTests
         private static HolderRecord ParseRecord(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return null;
-            string trimmed = text.Trim();
-            if (!trimmed.StartsWith("{", StringComparison.Ordinal) || !trimmed.EndsWith("}", StringComparison.Ordinal))
-                return null;
-            int pid;
-            long ticks;
-            if (!TryExtractInt(trimmed, "pid", out pid)) return null;
-            if (!TryExtractLong(trimmed, "start_ticks", out ticks)) return null;
-            string startUtc = ExtractString(trimmed, "start_utc");
-            string leaseId = ExtractString(trimmed, "lease_id");
-            string lockName = ExtractString(trimmed, "lock_name");
-            string label = ExtractString(trimmed, "label");
-            if (string.IsNullOrEmpty(startUtc) || string.IsNullOrEmpty(leaseId) || string.IsNullOrEmpty(lockName) || label == null)
+            int i = 0, n = text.Length;
+            SkipWs(text, ref i);
+            if (i >= n || text[i] != '{') return null;
+            i++;
+            var map = new Dictionary<string, object>(StringComparer.Ordinal);
+            SkipWs(text, ref i);
+            if (i < n && text[i] == '}') { i++; }
+            else
+            {
+                while (true)
+                {
+                    SkipWs(text, ref i);
+                    string key = ReadJsonString(text, ref i);
+                    if (key == null || map.ContainsKey(key)) return null;
+                    SkipWs(text, ref i);
+                    if (i >= n || text[i] != ':') return null;
+                    i++;
+                    SkipWs(text, ref i);
+                    if (i >= n) return null;
+                    object val;
+                    if (text[i] == '"')
+                    {
+                        string sv = ReadJsonString(text, ref i);
+                        if (sv == null) return null;
+                        val = sv;
+                    }
+                    else
+                    {
+                        int start = i;
+                        if (text[i] == '-') i++;
+                        int digits = i;
+                        while (i < n && text[i] >= '0' && text[i] <= '9') i++;
+                        if (i == digits) return null;
+                        long lv;
+                        if (!long.TryParse(text.Substring(start, i - start), NumberStyles.Integer, CultureInfo.InvariantCulture, out lv))
+                            return null;
+                        val = lv;
+                    }
+                    map[key] = val;
+                    SkipWs(text, ref i);
+                    if (i >= n) return null;
+                    if (text[i] == ',') { i++; continue; }
+                    if (text[i] == '}') { i++; break; }
+                    return null;
+                }
+            }
+            SkipWs(text, ref i);
+            if (i != n) return null;
+
+            object oPid, oTicks, oUtc, oLease, oLock, oLabel;
+            if (!map.TryGetValue("pid", out oPid) || !(oPid is long)) return null;
+            if (!map.TryGetValue("start_ticks", out oTicks) || !(oTicks is long)) return null;
+            if (!map.TryGetValue("start_utc", out oUtc) || !(oUtc is string)) return null;
+            if (!map.TryGetValue("lease_id", out oLease) || !(oLease is string)) return null;
+            if (!map.TryGetValue("lock_name", out oLock) || !(oLock is string)) return null;
+            if (!map.TryGetValue("label", out oLabel) || !(oLabel is string)) return null;
+            long pidL = (long)oPid;
+            if (pidL <= 0 || pidL > int.MaxValue) return null;
+            string startUtc = (string)oUtc, leaseId = (string)oLease, lockName = (string)oLock, label = (string)oLabel;
+            if (string.IsNullOrEmpty(startUtc) || string.IsNullOrEmpty(leaseId) || string.IsNullOrEmpty(lockName))
                 return null;
             return new HolderRecord
             {
-                Pid = pid,
-                StartTicks = ticks,
+                Pid = (int)pidL,
+                StartTicks = (long)oTicks,
                 StartUtc = startUtc,
                 LeaseId = leaseId,
                 LockName = lockName,
@@ -1013,48 +1061,43 @@ namespace Conclave.DesktopTests
             };
         }
 
-        private static bool TryExtractInt(string json, string key, out int value)
+        private static void SkipWs(string s, ref int i)
         {
-            value = 0;
-            Match m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(-?\\d+)");
-            return m.Success && int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
+            while (i < s.Length && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n')) i++;
         }
 
-        private static bool TryExtractLong(string json, string key, out long value)
+        private static string ReadJsonString(string s, ref int i)
         {
-            value = 0;
-            Match m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(-?\\d+)");
-            return m.Success && long.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out value);
-        }
-
-        private static string ExtractString(string json, string key)
-        {
-            Match m = Regex.Match(json, "\"" + Regex.Escape(key) + "\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"");
-            if (!m.Success) return null;
-            string raw = m.Groups[1].Value;
-            StringBuilder sb = new StringBuilder(raw.Length);
-            for (int i = 0; i < raw.Length; i++)
+            if (i >= s.Length || s[i] != '"') return null;
+            i++;
+            StringBuilder sb = new StringBuilder();
+            while (i < s.Length)
             {
-                if (raw[i] == '\\' && i + 1 < raw.Length)
+                char c = s[i++];
+                if (c == '"') return sb.ToString();
+                if (c < 0x20) return null;
+                if (c == '\\')
                 {
-                    char n = raw[++i];
-                    if (n == 'n') sb.Append('\n');
-                    else if (n == 'r') sb.Append('\r');
-                    else if (n == 't') sb.Append('\t');
-                    else if (n == 'u' && i + 4 < raw.Length)
+                    if (i >= s.Length) return null;
+                    char e = s[i++];
+                    if (e == '"' || e == '\\' || e == '/') sb.Append(e);
+                    else if (e == 'b') sb.Append('\b');
+                    else if (e == 'f') sb.Append('\f');
+                    else if (e == 'n') sb.Append('\n');
+                    else if (e == 'r') sb.Append('\r');
+                    else if (e == 't') sb.Append('\t');
+                    else if (e == 'u' && i + 4 <= s.Length)
                     {
                         int code;
-                        if (int.TryParse(raw.Substring(i + 1, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out code))
-                        {
-                            sb.Append((char)code);
-                            i += 4;
-                        }
+                        if (!int.TryParse(s.Substring(i, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out code)) return null;
+                        sb.Append((char)code);
+                        i += 4;
                     }
-                    else sb.Append(n);
+                    else return null;
                 }
-                else sb.Append(raw[i]);
+                else sb.Append(c);
             }
-            return sb.ToString();
+            return null;
         }
 
         internal static int StartProcessInJobHandle(IntPtr hJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)

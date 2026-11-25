@@ -1553,6 +1553,13 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.assertNotEqual(r_trunc.returncode, 0, "acquisition must refuse on truncated holder record")
         self.assertIn("holder record is malformed during handoff recovery", r_trunc.stdout + r_trunc.stderr)
         self.assertEqual(Path(rec5).read_bytes(), trunc, "truncated record must not be overwritten")
+        # Malformed JSON with all 6 fields but missing comma between pid and start_ticks must also refuse and preserve bytes.
+        no_comma = orig_bytes.decode("utf-8").replace(',"start_ticks"', ' "start_ticks"', 1).encode("utf-8")
+        Path(rec5).write_bytes(no_comma)
+        r_nc = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env5)
+        self.assertNotEqual(r_nc.returncode, 0, "acquisition must refuse on missing-comma holder record")
+        self.assertIn("holder record is malformed during handoff recovery", r_nc.stdout + r_nc.stderr)
+        self.assertEqual(Path(rec5).read_bytes(), no_comma, "missing-comma record must not be overwritten")
 
     def test_desktop_lock_inheritance_reused_pid_and_child_lifetime(self):
         # 1. Job-member child inherits immediately and disposing it does NOT release parent's lock.
