@@ -388,14 +388,27 @@ function Add-History($entry) {
         Write-AtomicText $historyPath (($lines -join "`n") + "`n")
         # Record completed scheduled nights separately so history_limit eviction never creates fake missed nights.
         if ($entry['mode'] -eq 'scheduled' -and $entry['night']) {
+            $floorDate = $null
             $nights = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
             if ([IO.File]::Exists($nightsPath)) {
                 $doc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
-                foreach ($d in @($doc)) { if ($d) { [void]$nights.Add([string]$d) } }
+                if ($doc -is [System.Array]) {
+                    foreach ($d in @($doc)) { if ($d) { [void]$nights.Add([string]$d) } }
+                } elseif ($doc) {
+                    if ($doc.PSObject.Properties['floor_date'] -and $doc.floor_date) { $floorDate = [string]$doc.floor_date }
+                    if ($doc.PSObject.Properties['dates']) {
+                        foreach ($d in @($doc.dates)) { if ($d) { [void]$nights.Add([string]$d) } }
+                    }
+                }
             }
             [void]$nights.Add([string]$entry['night'])
-            $sortedNights = @($nights | Sort-Object | Select-Object -Last 3650)
-            Write-AtomicText $nightsPath (ConvertTo-Json -InputObject $sortedNights -Compress)
+            $sortedNights = @($nights | Sort-Object)
+            if ($sortedNights.Count -gt 3650) {
+                $sortedNights = @($sortedNights | Select-Object -Last 3650)
+                $floorDate = $sortedNights[0]
+            }
+            $nPayload = [ordered]@{ floor_date = $floorDate; dates = $sortedNights }
+            Write-AtomicText $nightsPath (ConvertTo-Json -InputObject $nPayload -Compress)
         }
     } finally {
         try { $mtx.ReleaseMutex() } catch [ApplicationException] { }
@@ -432,8 +445,32 @@ function Get-DeskState {
 
 function Test-OwnedAutomationTask($taskObj) {
     if (-not $taskObj -or -not $taskObj.PSObject.Properties['command']) { return $false }
-    $joined = (@($taskObj.command) -join ' ')
-    return $joined -match 'smoke-input\.ps1'
+    $cmd = @($taskObj.command | ForEach-Object { [string]$_ })
+    if ($cmd.Count -lt 4) { return $false }
+    if ($cmd[0] -notin @('pwsh', 'pwsh.exe')) { return $false }
+    $hasScript = $false
+    $hasScheduled = $false
+    for ($i = 1; $i -lt $cmd.Count; $i++) {
+        if ($cmd[$i] -eq '-File' -and ($i + 1) -lt $cmd.Count) {
+            $norm = $cmd[$i + 1].Replace('\', '/')
+            if ($norm -eq 'scripts/smoke-input.ps1' -or $norm.EndsWith('/scripts/smoke-input.ps1')) {
+                $hasScript = $true
+            }
+        }
+        if ($cmd[$i] -eq '-Scheduled') { $hasScheduled = $true }
+    }
+    return $hasScript -and $hasScheduled
+}
+
+function Test-OwnedScheduledTask($schedTask, [string]$expectedScript) {
+    if (-not $schedTask -or -not $schedTask.Actions -or $schedTask.Actions.Count -ne 1) { return $false }
+    $act = $schedTask.Actions[0]
+    $exe = [string]$act.Execute
+    $argsStr = [string]$act.Arguments
+    if ($exe -notin @('pwsh', 'pwsh.exe')) { return $false }
+    $normArgs = $argsStr.Replace('/', '\')
+    $normScript = $expectedScript.Replace('/', '\')
+    return ($normArgs -match '(?i)(?:^|\s)-File\s+') -and ($normArgs.IndexOf($normScript, [StringComparison]::OrdinalIgnoreCase) -ge 0) -and ($normArgs -match '(?i)(?:^|\s)-Scheduled(?:\s|$)')
 }
 
 # ---- Install / Uninstall ---------------------------------------------------------------------------------------
@@ -532,10 +569,16 @@ if ($Install) {
         exit 0
     } else {
         if (-not $NoRegister) {
+            $scriptFull = Join-Path $here 'smoke-input.ps1'
+            $existingTask = Get-ScheduledTask -TaskPath "\$prefix\" -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($existingTask -and (-not (Test-OwnedScheduledTask $existingTask $scriptFull))) {
+                [Console]::Error.WriteLine("smoke-input: refusing to overwrite unrelated scheduled task '\$prefix\$taskName'")
+                exit 2
+            }
             $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
             $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
             $action = New-ScheduledTaskAction -Execute 'pwsh.exe' `
-                -Argument "-NoProfile -NonInteractive -File `"$(Join-Path $here 'smoke-input.ps1')`" -Scheduled" `
+                -Argument "-NoProfile -NonInteractive -File `"$scriptFull`" -Scheduled" `
                 -WorkingDirectory $repo
             $trigger = New-ScheduledTaskTrigger -Daily -At $cfg.window_opens
             $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
@@ -578,7 +621,15 @@ if ($Uninstall) {
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
     } elseif (-not $NoRegister) {
-        Unregister-ScheduledTask -TaskPath "\$prefix\" -TaskName $taskName -Confirm:$false -ErrorAction Ignore
+        $scriptFull = Join-Path $here 'smoke-input.ps1'
+        $existingTask = Get-ScheduledTask -TaskPath "\$prefix\" -TaskName $taskName -ErrorAction SilentlyContinue
+        if ($existingTask) {
+            if (-not (Test-OwnedScheduledTask $existingTask $scriptFull)) {
+                [Console]::Error.WriteLine("smoke-input: refusing to remove unrelated scheduled task '\$prefix\$taskName'")
+                exit 2
+            }
+            Unregister-ScheduledTask -TaskPath "\$prefix\" -TaskName $taskName -Confirm:$false -ErrorAction Stop
+        }
     }
     if (Test-Path -LiteralPath $installedPath) { Remove-Item -LiteralPath $installedPath -Force }
     "smoke-input: removed nightly task '$taskName'"
@@ -612,7 +663,17 @@ if ($Status) {
         }
         if ([IO.File]::Exists($nightsPath)) {
             $nDoc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
-            foreach ($nd in @($nDoc)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
+            if ($nDoc -is [System.Array]) {
+                foreach ($nd in @($nDoc)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
+            } elseif ($nDoc) {
+                if ($nDoc.PSObject.Properties['floor_date'] -and $nDoc.floor_date) {
+                    $floorDt = [DateTime]::ParseExact([string]$nDoc.floor_date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+                    if ($floorDt -gt $firstNight) { $firstNight = $floorDt }
+                }
+                if ($nDoc.PSObject.Properties['dates']) {
+                    foreach ($nd in @($nDoc.dates)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
+                }
+            }
         }
         $opens = Parse-HHMM $cfg.window_opens
         $lastExpected = if ($now.TimeOfDay -ge $opens) { $now.Date } else { $now.Date.AddDays(-1) }
@@ -644,21 +705,21 @@ $mode = if ($Scheduled) { 'scheduled' } else { 'on-demand' }
 $nightStr = $now.ToString('yyyy-MM-dd')
 $idleMin = [int]$cfg.idle_minutes
 
-function Check-Admission([bool]$isScheduled) {
+function Check-Admission {
     $cur = Get-NowLocal
-    if ($isScheduled -and (-not (Test-InWindow $cur $opens $closes))) {
+    if (-not (Test-InWindow $cur $opens $closes)) {
         return 'outside-window'
     }
     $desk = Get-DeskState
     if ($desk.Unknown) { return 'desktop-unknown' }
     if ($desk.Locked) { return 'desktop-locked' }
-    if ($isScheduled -and ($desk.IdleSeconds -lt ($idleMin * 60))) {
+    if ($desk.IdleSeconds -lt ($idleMin * 60)) {
         return "desktop-busy(idle=$([int]$desk.IdleSeconds)s<$(($idleMin * 60))s)"
     }
     return $null
 }
 
-$skipReason = Check-Admission ([bool]$Scheduled)
+$skipReason = Check-Admission
 if ($skipReason) {
     Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = $skipReason })
     if ($Scheduled) {
@@ -746,8 +807,8 @@ try {
         exit 1
     }
 
-    # Recheck full admission (including idle threshold) AFTER hooks are live to close the startup race.
-    $postSkip = Check-Admission ([bool]$Scheduled)
+    # Recheck full admission (including window and idle threshold) AFTER hooks are live to close the startup race.
+    $postSkip = Check-Admission
     if ($postSkip) {
         Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = $postSkip })
         if ($Scheduled) {
@@ -760,7 +821,7 @@ try {
     }
 
     $admittedEvent.Set() | Out-Null
-    $deadline = if ($Scheduled) { Get-WindowCloseDateTime $now $opens $closes } else { $now.AddHours(3) }
+    $deadline = Get-WindowCloseDateTime $now $opens $closes
 
     # Resolve runner command (unified command contract for discovery and class execution).
     $runnerExe = $null

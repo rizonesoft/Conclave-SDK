@@ -139,9 +139,15 @@ using Conclave.DesktopTests;
 
 public static class FixtureDriver {
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] struct MOUSEINPUT { public int dx, dy; public uint mouseData, dwFlags, time; public UIntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)] struct KEYBDINPUT { public ushort wVk, wScan; public uint dwFlags, time; public UIntPtr dwExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)] struct HARDWAREINPUT { public uint uMsg; public ushort wParamL, wParamH; }
+    [StructLayout(LayoutKind.Explicit)] struct InputUnion { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; [FieldOffset(0)] public HARDWAREINPUT hi; }
+    [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public InputUnion u; }
     [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT pt);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint n, INPUT[] inputs, int cbSize);
 
     private static AutomationElement WaitForWindow(int pid, int timeoutMs) {
         DateTime end = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -177,7 +183,13 @@ public static class FixtureDriver {
         }
         if (mode == "real-input-action") {
             SmokeInputGuard.Require(prefix, true, "SendKey");
-            Console.WriteLine("ADMITTED_OK tag=" + SmokeInputGuard.CurrentTag(prefix).ToString("X8"));
+            uint tag = SmokeInputGuard.CurrentTag(prefix);
+            var down = new INPUT { type = 1 };
+            down.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 0, dwExtraInfo = (UIntPtr)tag };
+            var up = new INPUT { type = 1 };
+            up.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 2, dwExtraInfo = (UIntPtr)tag };
+            uint sent = SendInput(2, new[] { down, up }, Marshal.SizeOf(typeof(INPUT)));
+            Console.WriteLine("ADMITTED_OK tag=" + tag.ToString("X8") + " sent=" + sent);
             return 0;
         }
         if (mode == "default-uia" || mode == "neg-focus" || mode == "neg-pointer" || mode == "neg-key") {
@@ -359,11 +371,20 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             "sys.exit(r.returncode)\n",
             encoding="utf-8",
         )
-        # On-demand also refuses locked desktop!
+        # On-demand enforces the SAME admission rules: outside-window, locked, and busy-below-idle all refuse!
+        ondem_outside = self.run_smoke("-TestProbes", "-NowOverride", "2026-11-25T14:00:00", "-RunnerCommand", str(runner_py))
+        self.assertEqual(ondem_outside.returncode, 1)
+        self.assertIn("outside-window", ondem_outside.stderr)
         (self.state / "probe-locked").write_text("1", encoding="utf-8")
-        ondem_locked = self.run_smoke("-TestProbes", "-RunnerCommand", str(runner_py))
+        ondem_locked = self.run_smoke("-TestProbes", "-NowOverride", "2026-11-25T03:00:00", "-RunnerCommand", str(runner_py))
         self.assertEqual(ondem_locked.returncode, 1)
         self.assertIn("desktop-locked", ondem_locked.stderr)
+        (self.state / "probe-locked").write_text("0", encoding="utf-8")
+        (self.state / "probe-idle").write_text("899", encoding="utf-8")
+        ondem_busy = self.run_smoke("-TestProbes", "-NowOverride", "2026-11-25T03:00:00", "-RunnerCommand", str(runner_py))
+        self.assertEqual(ondem_busy.returncode, 1)
+        self.assertIn("desktop-busy", ondem_busy.stderr)
+        (self.state / "probe-idle").write_text("1000", encoding="utf-8")
         # Scheduled refusals: outside window, unknown desktop, locked, busy (899s < 900s).
         for label, now_s, files, expected_reason in (
             ("outside-early", "2026-11-25T02:59:00", {"probe-locked": "0", "probe-idle": "1000"}, "outside-window"),
@@ -475,6 +496,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                 res = run_cmd(
                     [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "smoke-input.ps1"),
                      "-ProjectRoot", str(self.root), "-StateFolder", str(self.state), "-TestProbes",
+                     "-NowOverride", "2026-11-25T03:00:00",
                      "-Python", sys.executable, "-Watcher", str(proxy_watch), "-RunnerCommand", str(sleep_runner)],
                     cwd=self.root, env={**os.environ, **extra},
                 )
@@ -583,7 +605,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             ("nonzero", "class-exit-nonzero"),
         ):
             with self.subTest(mode=mode):
-                r = self.run_smoke("-TestProbes", "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": mode})
+                r = self.run_smoke("-TestProbes", "-NowOverride", "2026-11-25T03:00:00",
+                                   "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": mode})
                 self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
                 self.assertIn(needle, r.stdout + r.stderr)
         # Install on 2026-11-20 10:00 (first_expected_night = 2026-11-21); run scheduled night 2026-11-21!
@@ -594,7 +617,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.assertEqual(sched_ok.returncode, 0, sched_ok.stdout + sched_ok.stderr)
         # Run 5 on-demand runs to evict the 2026-11-21 scheduled entry from history_limit=4!
         for _ in range(5):
-            od = self.run_smoke("-TestProbes", "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": "ok"})
+            od = self.run_smoke("-TestProbes", "-NowOverride", "2026-11-25T03:00:00",
+                                "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": "ok"})
             self.assertEqual(od.returncode, 0, od.stdout + od.stderr)
         hist_lines = [l for l in (self.state / "input-history.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
         self.assertEqual(len(hist_lines), 4)
@@ -632,10 +656,11 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         null_res = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-25T10:00:00")
         self.assertEqual(null_res.returncode, 2, null_res.stdout + null_res.stderr)
         self.assertFalse((self.state / "installed.json").exists())
-        # Same-named unrelated task must NOT be overwritten or uninstalled.
+        # Same-named unrelated task (including one that merely passes smoke-input.ps1 as an argument) must NOT be touched.
         unrelated = {
             "schema_version": 1, "folder": "\\demo\\",
-            "tasks": [{"name": "demo-real-input-smoke", "description": "User task", "command": ["python", "mine.py"],
+            "tasks": [{"name": "demo-real-input-smoke", "description": "User backup task",
+                       "command": ["python", "backup.py", "scripts/smoke-input.ps1"],
                        "trigger": {"weekly": "Sunday", "at": "02:00"}, "timeout_minutes": 10}],
         }
         (auto_dir / "tasks.json").write_text(json.dumps(unrelated, indent=2), encoding="utf-8")
@@ -682,6 +707,61 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             kernel32.CloseHandle(handle)
         self.assertEqual(hist.read_text(encoding="utf-8"), seed)
         self.assertEqual(list(self.state.glob("input-history.jsonl.*.tmp")), [])
+
+    def test_real_windows_task_scheduler_install_ownership_and_uninstall(self):
+        # Exercises real Windows Task Scheduler registration, inspection, ownership refusal, and cleanup.
+        unique_prefix = f"conclave-dt-{os.getpid()}"
+        task_name = f"{unique_prefix}-real-input-smoke"
+        task_path = f"\\{unique_prefix}\\"
+        self.write_cfg(prefix=unique_prefix)
+        cleanup_ps = (
+            f"Unregister-ScheduledTask -TaskPath '{task_path}' -TaskName '{task_name}' -Confirm:$false -ErrorAction Ignore; "
+            f"$s = New-Object -ComObject Schedule.Service; $s.Connect(); "
+            f"try {{ $s.GetFolder('\\').DeleteFolder('{unique_prefix}', 0) }} catch {{ }}"
+        )
+        try:
+            # 1. Pre-existing unrelated scheduled task at the exact path/name must be refused on install and uninstall.
+            reg_other = run_cmd([
+                PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                f"$a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c echo other'; "
+                f"$t = New-ScheduledTaskTrigger -Daily -At '04:00'; "
+                f"Register-ScheduledTask -TaskPath '{task_path}' -TaskName '{task_name}' -Action $a -Trigger $t -Force | Out-Null",
+            ])
+            self.assertEqual(reg_other.returncode, 0, reg_other.stdout + reg_other.stderr)
+            ref_inst = self.run_smoke("-Install", "-NowOverride", "2026-11-25T10:00:00", include_watcher=False)
+            self.assertEqual(ref_inst.returncode, 2, ref_inst.stdout + ref_inst.stderr)
+            ref_uninst = self.run_smoke("-Uninstall", include_watcher=False)
+            self.assertEqual(ref_uninst.returncode, 2, ref_uninst.stdout + ref_uninst.stderr)
+            # Remove the unrelated task so we can test genuine owned install.
+            run_cmd([PWSH, "-NoProfile", "-NonInteractive", "-Command", cleanup_ps])
+            # 2. Owned standalone install registers a real Interactive Daily 03:00 3-hour task with StartWhenAvailable=False, WakeToRun=False.
+            inst = self.run_smoke("-Install", "-NowOverride", "2026-11-25T10:00:00", include_watcher=False)
+            self.assertEqual(inst.returncode, 0, inst.stdout + inst.stderr)
+            inspect = run_cmd([
+                PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                f"$t = Get-ScheduledTask -TaskPath '{task_path}' -TaskName '{task_name}'; "
+                f"[ordered]@{{ logon=[string]$t.Principal.LogonType; swa=$t.Settings.StartWhenAvailable; "
+                f"wake=$t.Settings.WakeToRun; lim=[string]$t.Settings.ExecutionTimeLimit; "
+                f"exe=[string]$t.Actions[0].Execute; args=[string]$t.Actions[0].Arguments }} | ConvertTo-Json",
+            ])
+            self.assertEqual(inspect.returncode, 0, inspect.stdout + inspect.stderr)
+            info = json.loads(inspect.stdout)
+            self.assertEqual(info["logon"], "Interactive")
+            self.assertIs(info["swa"], False)
+            self.assertIs(info["wake"], False)
+            self.assertEqual(info["lim"], "PT3H")
+            self.assertEqual(info["exe"].lower(), "pwsh.exe")
+            self.assertIn("-Scheduled", info["args"])
+            # 3. Owned uninstall removes it cleanly.
+            uninst = self.run_smoke("-Uninstall", include_watcher=False)
+            self.assertEqual(uninst.returncode, 0, uninst.stdout + uninst.stderr)
+            gone = run_cmd([
+                PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                f"if (Get-ScheduledTask -TaskPath '{task_path}' -TaskName '{task_name}' -ErrorAction SilentlyContinue) {{ exit 1 }}",
+            ])
+            self.assertEqual(gone.returncode, 0)
+        finally:
+            run_cmd([PWSH, "-NoProfile", "-NonInteractive", "-Command", cleanup_ps])
 
 
 if __name__ == "__main__":
