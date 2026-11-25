@@ -369,7 +369,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
     def test_admitted_run_and_admission_boundaries_and_custom_settings(self):
         runner_py = Path(self._tmp.name) / "real_runner.py"
         runner_py.write_text(
-            "import subprocess, sys\n"
+            "import os, subprocess, sys\n"
             f"DRV = {str(self.drv_exe)!r}\n"
             "if '--discover' in sys.argv:\n"
             "    print('DISCOVER RealSuite Case1')\n"
@@ -377,6 +377,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             "r = subprocess.run([DRV, 'real-input-action', 'demo'], capture_output=True, text=True)\n"
             "print(r.stdout.strip())\n"
             "if r.returncode == 0:\n"
+            "    if os.environ.get('CONCLAVE_TEST_LIVE_DESK') != '1' and 'live=False sent=0' not in r.stdout:\n"
+            "        sys.exit(13)\n"
             "    print('CASE PASS RealSuite Case1')\n"
             "sys.exit(r.returncode)\n",
             encoding="utf-8",
@@ -655,6 +657,20 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.assertEqual(sched2.returncode, 0, sched2.stdout + sched2.stderr)
         st_leg2 = self.run_smoke("-Status", "-NowOverride", "2026-11-24T08:00:00")
         self.assertEqual(json.loads(st_leg2.stdout)["missed_dates"], ["2026-11-23", "2026-11-24"])
+        # Legacy {floor_date, dates} ledger must enforce floor_date before and after migration write.
+        (self.state / "scheduled-nights.json").write_text(
+            json.dumps({"floor_date": "2026-11-22", "dates": ["2026-11-22"]}), encoding="utf-8"
+        )
+        st_fl1 = self.run_smoke("-Status", "-NowOverride", "2026-11-24T08:00:00")
+        self.assertEqual(st_fl1.returncode, 0, st_fl1.stdout + st_fl1.stderr)
+        self.assertEqual(json.loads(st_fl1.stdout)["missed_dates"], ["2026-11-23", "2026-11-24"])
+        sched3 = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-23T03:00:00",
+                                "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": "ok"})
+        self.assertEqual(sched3.returncode, 0, sched3.stdout + sched3.stderr)
+        st_fl2 = self.run_smoke("-Status", "-NowOverride", "2026-11-24T08:00:00")
+        self.assertEqual(json.loads(st_fl2.stdout)["missed_dates"], ["2026-11-24"])
+        migrated = json.loads((self.state / "scheduled-nights.json").read_text(encoding="utf-8"))
+        self.assertEqual(migrated.get("floor_date"), "2026-11-22")
 
     def test_automations_integration_ownership_and_standalone_modes(self):
         # Empty status before any run.

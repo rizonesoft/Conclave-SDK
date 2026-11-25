@@ -35,13 +35,18 @@ if ($LASTEXITCODE -ne 0) { throw 'tasks.json was refused (above); nothing was re
 $manifest = Get-Content -Raw -Path (Join-Path $here 'tasks.json') | ConvertFrom-Json
 $existing = @(Get-ScheduledTask | Where-Object TaskPath -eq $folder)
 
+$ownerTag = "[conclave-automations:$runner]"
+
 function Test-OwnedByManifest($schedTask) {
   if (-not $schedTask -or -not $schedTask.Actions -or $schedTask.Actions.Count -ne 1) { return $false }
   $act = $schedTask.Actions[0]
+  $exeName = [IO.Path]::GetFileName([string]$act.Execute)
   $expectedArgs = "`"$runner`" $($schedTask.TaskName)"
-  return ([string]$act.Execute -ieq $pythonw) -and
+  $desc = [string]$schedTask.Description
+  return ($exeName -ieq 'pythonw.exe') -and
          ([string]$act.Arguments -ceq $expectedArgs) -and
-         ([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\')
+         ([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\') -and
+         ($desc.EndsWith($ownerTag, [StringComparison]::OrdinalIgnoreCase))
 }
 
 if ($Uninstall) {
@@ -97,7 +102,8 @@ foreach ($task in $manifest.tasks) {
       -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   $settings.StartWhenAvailable = $startWhenAvail
   $settings.WakeToRun = $wakeToRun
-  Register-ScheduledTask -TaskPath $folder -TaskName $task.name -Description $task.description `
+  $taggedDesc = "$($task.description) $ownerTag"
+  Register-ScheduledTask -TaskPath $folder -TaskName $task.name -Description $taggedDesc `
       -Action $action -Trigger $t -Settings $settings -Principal $principal -Force | Out-Null
 }
 

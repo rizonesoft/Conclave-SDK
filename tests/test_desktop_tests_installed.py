@@ -120,12 +120,13 @@ class DesktopTestsInstalledTest(unittest.TestCase):
             manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             runner_py = str((target / ".conclave/automations/run.py").resolve())
             try:
-                # Register a manual task in the same folder whose arguments mention run.py (must be preserved!).
+                # Register a manual task in the same folder using pythonw.exe with the exact runner/cwd args
+                # but WITHOUT the conclave-automations ownership tag (must be preserved, not deleted!).
                 rc_m, out_m, err_m = _run_tree([
                     PWSH, "-NoProfile", "-NonInteractive", "-Command",
-                    f"$a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c echo \"{runner_py}\"' -WorkingDirectory '{target}'; "
+                    f"$a = New-ScheduledTaskAction -Execute 'pythonw.exe' -Argument '\"{runner_py}\" {manual_task}' -WorkingDirectory '{target}'; "
                     f"$t = New-ScheduledTaskTrigger -Daily -At '04:00'; "
-                    f"Register-ScheduledTask -TaskPath '{folder}' -TaskName '{manual_task}' -Action $a -Trigger $t -Force | Out-Null",
+                    f"Register-ScheduledTask -TaskPath '{folder}' -TaskName '{manual_task}' -Description 'User manual task' -Action $a -Trigger $t -Force | Out-Null",
                 ])
                 self.assertEqual(rc_m, 0, out_m + err_m)
                 # Real combined install WITHOUT -NoRegister (executes .conclave/automations/install.ps1).
