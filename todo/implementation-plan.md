@@ -179,7 +179,7 @@ Sections: 16 | Checklist items: 143
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 27 | Checklist items: 174
+Sections: 27 | Checklist items: 173
 
 | Status | Reference   | Deliverable                                                   | Needs        | Items |
 | ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
@@ -206,7 +206,7 @@ Sections: 27 | Checklist items: 174
 | [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                    | windows-host | 7     |
 | [x]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review       | none         | 8     |
 | [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops    | windows-host | 11    |
-| [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 7     |
+| [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 6     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
 | [x]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 6     |
 | [x]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 8     |
@@ -247,4 +247,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 124/155 verified sections, 10 ready to run now.
 
-Checklist: 1001/1173 items completed (includes Commit items).
+Checklist: 1001/1172 items completed (includes Commit items).
