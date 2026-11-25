@@ -279,7 +279,8 @@ public static class FixtureDriver {
                     } else if (mode == "neg-focus") {
                         Thread.Sleep(40);
                         if (!liveDesk || !obs.HasDesktopCursor) {
-                            obs.ObserveForegroundPid(pid);
+                            int hwndVal = (int)win.GetCurrentPropertyValue(AutomationElement.NativeWindowHandleProperty);
+                            obs.ObserveForegroundHandle(new IntPtr(hwndVal));
                         }
                     }
                     InvokePattern inv = (InvokePattern)btn.GetCurrentPattern(InvokePattern.Pattern);
@@ -388,12 +389,19 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
 
     def test_negative_fixtures_and_direct_bypass_refuse(self):
         # Negative fixtures (focus steal, pointer move-and-restore, injected key, untraited helper) all refuse.
-        for neg in ("neg-focus", "neg-pointer", "neg-key", "untraited-helper"):
+        for neg, expect_detail in (
+            ("neg-focus", "took the foreground window"),
+            ("neg-pointer", "pointer moved"),
+            ("neg-key", "injected keyboard input"),
+            ("untraited-helper", "RealInputRefusedException"),
+        ):
             with self.subTest(neg=neg):
                 r = run_cmd([str(self.drv_exe), neg, "demo", str(self.app_exe)])
                 self.assertNotEqual(r.returncode, 0, f"{neg} unexpectedly passed: {r.stdout}")
-                self.assertIn("REFUSED:" if neg != "untraited-helper" else "RealInputRefusedException",
-                              r.stdout + r.stderr)
+                combined = r.stdout + r.stderr
+                if neg != "untraited-helper":
+                    self.assertIn("REFUSED:", combined)
+                self.assertIn(expect_detail, combined)
         # Direct DEMO_SMOKE_INPUT=1 without admitted smoke-input.ps1 session must refuse.
         direct = run_cmd([str(self.drv_exe), "real-input-action", "demo"],
                          env={**os.environ, "DEMO_SMOKE_INPUT": "1"})

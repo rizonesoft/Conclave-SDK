@@ -273,11 +273,13 @@ namespace Conclave.DesktopTests
         private const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
         private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
         private const uint WM_QUIT = 0x0012;
+        private const uint WM_FLUSH = 0x0401;
         private readonly HashSet<int> _ownedPids = new HashSet<int>();
         private readonly List<string> _violations = new List<string>();
         private readonly object _gate = new object();
         private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
         private readonly ManualResetEventSlim _stop = new ManualResetEventSlim(false);
+        private readonly ManualResetEventSlim _flushed = new ManualResetEventSlim(false);
         private POINT _startCursor;
         private bool _hasCursor;
         private string _hookError;
@@ -354,15 +356,17 @@ namespace Conclave.DesktopTests
             if (ours) Record("owned process " + pid + " took the foreground window");
         }
 
+        public void ObserveForegroundHandle(IntPtr hwnd)
+        {
+            if (hwnd == IntPtr.Zero) return;
+            uint pid;
+            GetWindowThreadProcessId(hwnd, out pid);
+            ObserveForegroundPid((int)pid);
+        }
+
         private void CheckNow()
         {
-            IntPtr fg = GetForegroundWindow();
-            if (fg != IntPtr.Zero)
-            {
-                uint pid;
-                GetWindowThreadProcessId(fg, out pid);
-                ObserveForegroundPid((int)pid);
-            }
+            ObserveForegroundHandle(GetForegroundWindow());
             POINT now;
             if (GetCursorPos(out now))
             {
@@ -402,12 +406,7 @@ namespace Conclave.DesktopTests
             };
             WinEventDelegate fgEv = (hWinEventHook, eventType, hwnd, idObject, idChild, dwEventThread, dwmsEventTime) =>
             {
-                if (hwnd != IntPtr.Zero)
-                {
-                    uint pid;
-                    GetWindowThreadProcessId(hwnd, out pid);
-                    ObserveForegroundPid((int)pid);
-                }
+                ObserveForegroundHandle(hwnd);
             };
             IntPtr mod = GetModuleHandle(null);
             IntPtr hKb = SetWindowsHookEx(WH_KEYBOARD_LL, kb, mod, 0);
@@ -426,10 +425,15 @@ namespace Conclave.DesktopTests
             try
             {
                 MSG msg;
-                while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0) DispatchMessage(ref msg);
+                while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
+                {
+                    if (msg.message == WM_FLUSH) _flushed.Set();
+                    else DispatchMessage(ref msg);
+                }
             }
             finally
             {
+                _flushed.Set();
                 UnhookWindowsHookEx(hKb);
                 UnhookWindowsHookEx(hMs);
                 UnhookWinEvent(hFg);
@@ -441,6 +445,14 @@ namespace Conclave.DesktopTests
 
         public void VerifyClean(string testName)
         {
+            if (_hookThreadId != 0 && !_disposed)
+            {
+                _flushed.Reset();
+                if (PostThreadMessage(_hookThreadId, WM_FLUSH, IntPtr.Zero, IntPtr.Zero))
+                {
+                    _flushed.Wait(1000);
+                }
+            }
             CheckNow();
             List<string> found;
             lock (_gate) { found = new List<string>(_violations); }
@@ -461,6 +473,7 @@ namespace Conclave.DesktopTests
             if (_hookThread != null) _hookThread.Join(2000);
             _ready.Dispose();
             _stop.Dispose();
+            _flushed.Dispose();
         }
 
         private delegate IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam);
