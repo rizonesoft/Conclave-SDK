@@ -294,18 +294,24 @@ class DesktopTestsInstalledTest(unittest.TestCase):
                     time.sleep(0.05)
                 self.assertTrue(ready_file.exists(), "proj-alpha did not acquire default desktop lock")
 
-                # proj-beta with a DIFFERENT prefix and NO override must refuse and not create -Out.
+                # proj-beta with a DIFFERENT prefix and NO override must refuse and not run its command.
                 beta_out = base / "beta-capture.txt"
+                beta_cmd = base / "beta-write.py"
+                beta_cmd.write_text(
+                    "import pathlib, sys\npathlib.Path(sys.argv[1]).write_text('captured', encoding='utf-8')\n",
+                    encoding="utf-8",
+                )
                 env_b = {**clean_env, "BETA_DESKTOP_WAIT_S": "0"}
                 proc_b = subprocess.run(
                     [PWSH, "-NoProfile", "-NonInteractive", "-File", str(beta / "scripts/capture-window.ps1"),
-                     "-ProjectRoot", str(beta), "-Python", sys.executable, "-Out", str(beta_out)],
+                     "-ProjectRoot", str(beta), "-Python", sys.executable,
+                     "-Command", sys.executable, str(beta_cmd), str(beta_out)],
                     cwd=beta, env=env_b, capture_output=True, text=True, timeout=60, creationflags=NO_WINDOW,
                 )
                 self.assertEqual(proc_b.returncode, 1, proc_b.stdout + proc_b.stderr)
                 self.assertIn("Global\\conclave-desktop-lock", proc_b.stderr)
                 self.assertIn(f"pid={proc_a.pid}", proc_b.stderr)
-                self.assertFalse(beta_out.exists(), "capture output must not be created while lock is busy")
+                self.assertFalse(beta_out.exists(), "capture command must not run while lock is busy")
             finally:
                 release_file.write_text("go", encoding="utf-8")
                 try:
@@ -316,11 +322,12 @@ class DesktopTestsInstalledTest(unittest.TestCase):
                     out_a, err_a = proc_a.communicate()
             self.assertEqual(proc_a.returncode, 0, out_a + err_a)
 
-            # After proj-alpha releases, proj-beta succeeds and writes -Out.
+            # After proj-alpha releases, proj-beta succeeds and runs its capture command cleanly (fast exit!).
             beta_out2 = base / "beta-capture-ok.txt"
             proc_b2 = subprocess.run(
                 [PWSH, "-NoProfile", "-NonInteractive", "-File", str(beta / "scripts/capture-window.ps1"),
-                 "-ProjectRoot", str(beta), "-Python", sys.executable, "-Out", str(beta_out2)],
+                 "-ProjectRoot", str(beta), "-Python", sys.executable,
+                 "-Command", sys.executable, str(beta_cmd), str(beta_out2)],
                 cwd=beta, env={**clean_env, "BETA_DESKTOP_WAIT_S": "5"},
                 capture_output=True, text=True, timeout=60, creationflags=NO_WINDOW,
             )

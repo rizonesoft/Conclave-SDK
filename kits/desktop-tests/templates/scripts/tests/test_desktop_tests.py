@@ -388,7 +388,10 @@ public static class FixtureDriver {
                     liveLock = DesktopLock.Acquire(prefix, mode);
                 }
                 using (DeskObserver obs = new DeskObserver(new int[0])) {
-                    pid = obs.LaunchNoActivate(appExe, forceActivate ? "--activate" : "", null);
+                    Action<IntPtr> jobAssign = (liveLock != null && !liveLock.Inherited)
+                        ? (Action<IntPtr>)(hProc => liveLock.AssignProcessToJob(hProc))
+                        : null;
+                    pid = obs.LaunchNoActivate(appExe, forceActivate ? "--activate" : "", null, jobAssign);
                     AutomationElement win = WaitForWindow(pid, 45000);
                     AutomationElement btn = win.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ActionButton"));
@@ -441,7 +444,6 @@ public static class FixtureDriver {
                 Console.Error.WriteLine("REFUSED: " + ex.Message);
                 return 11;
             } finally {
-                if (liveLock != null) liveLock.Dispose();
                 if (pid > 0) {
                     try {
                         using (Process p = Process.GetProcessById(pid)) {
@@ -449,6 +451,7 @@ public static class FixtureDriver {
                         }
                     } catch (ArgumentException) { }
                 }
+                if (liveLock != null) liveLock.Dispose();
             }
         }
         return 2;
@@ -476,6 +479,8 @@ public static class LockDriver {
     private static extern IntPtr OpenMutexW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr OpenEventW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenJobObjectW(uint dwDesiredAccess, bool bInheritHandle, string lpName);
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr hObject);
     [DllImport("kernel32.dll")]
@@ -533,13 +538,19 @@ public static class LockDriver {
             }
             if (cmd == "wait-acquire") {
                 bool holdUntilStdin = args.Length > 2 && args[2] == "hold";
-                Console.WriteLine("WAITING");
-                Console.Out.Flush();
-                using (var h = DesktopLock.Acquire(prefix, "lock-driver-wait")) {
-                    Console.WriteLine("ACQUIRED pid=" + h.HolderPid + " ticks=" + h.HolderStartTicks
-                        + " inherited=" + h.Inherited + " record=" + h.RecordPath + " lock=" + h.LockName);
+                DesktopLock.BeforeWaitForMutexForTest = () => {
+                    Console.WriteLine("WAITING");
                     Console.Out.Flush();
-                    if (holdUntilStdin) Console.In.ReadLine();
+                };
+                try {
+                    using (var h = DesktopLock.Acquire(prefix, "lock-driver-wait")) {
+                        Console.WriteLine("ACQUIRED pid=" + h.HolderPid + " ticks=" + h.HolderStartTicks
+                            + " inherited=" + h.Inherited + " record=" + h.RecordPath + " lock=" + h.LockName);
+                        Console.Out.Flush();
+                        if (holdUntilStdin) Console.In.ReadLine();
+                    }
+                } finally {
+                    DesktopLock.BeforeWaitForMutexForTest = null;
                 }
                 Console.WriteLine("DONE");
                 return 0;
@@ -548,16 +559,20 @@ public static class LockDriver {
                 using (var h = DesktopLock.Acquire(prefix, "lock-driver-dacl")) {
                     IntPtr hm = OpenMutexW(READ_CONTROL, false, h.LockName);
                     IntPtr he = OpenEventW(READ_CONTROL, false, h.LeaseEventName);
-                    if (hm == IntPtr.Zero || he == IntPtr.Zero)
+                    IntPtr hj = OpenJobObjectW(READ_CONTROL, false, h.JobName);
+                    if (hm == IntPtr.Zero || he == IntPtr.Zero || hj == IntPtr.Zero)
                         throw new InvalidOperationException("failed to reopen handles with READ_CONTROL");
                     try {
                         string mSddl = ReadDaclSddl(hm);
                         string eSddl = ReadDaclSddl(he);
+                        string jSddl = ReadDaclSddl(hj);
                         Console.WriteLine("MUTEX_DACL=" + mSddl);
                         Console.WriteLine("LEASE_DACL=" + eSddl);
+                        Console.WriteLine("JOB_DACL=" + jSddl);
                     } finally {
                         CloseHandle(hm);
                         CloseHandle(he);
+                        CloseHandle(hj);
                     }
                 }
                 return 0;
@@ -1393,6 +1408,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.assertIn("(A;;0x100001;;;AU)", lines["MUTEX_DACL"])
         self.assertNotIn("WD", lines["MUTEX_DACL"].split(";;;AU")[0].split("(")[-1])
         self.assertIn("(A;;0x100000;;;AU)", lines["LEASE_DACL"])
+        # SDDL renders access mask 0x00000004 (JOB_OBJECT_QUERY) as 'LC'.
+        self.assertIn("(A;;LC;;;AU)", lines["JOB_DACL"])
 
     def test_desktop_lock_kill_recovery_late_successor_failed_publish_and_two_reader_handoff(self):
         # 1. Synchronized kill test: Process 2 already open & waiting before Process 1 is killed acquires at once.
@@ -1434,7 +1451,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                     p2.kill()
                     p2.communicate()
 
-        # 2. Late-arriving successor after last handle close drains prior desktop job before acquiring.
+        # 2. Late-arriving successor after last handle close drains prior desktop job BEFORE publishing/returning.
         lock2 = f"conclave-dt-late-{os.getpid()}-{time.time_ns()}"
         env2 = {**os.environ, "DEMO_DESKTOP_LOCK": lock2, "DEMO_DESKTOP_WAIT_S": "5"}
         p_parent = subprocess.Popen([str(self.lock_drv_exe), "hold-with-job-child", "demo"],
@@ -1443,19 +1460,30 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         ready = self._parse_kv(p_parent.stdout.readline())
         p_parent.kill()
         p_parent.communicate(timeout=10)
-        # Late-arriving successor enters AFTER p_parent closed all handles.
-        late = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env2)
-        self.assertEqual(late.returncode, 0, late.stdout + late.stderr)
-        self.assertIn("ACQUIRED ", late.stdout)
-        # Verify the prior job child is dead.
-        child_pid = int(ready["child_pid"])
+        # Hold the late-arriving successor at BEFORE_PUBLISH (right after DrainPriorJobFromRecord returned) while verifying child_pid is dead!
+        late_resume = Path(self._tmp.name) / "late-resume.txt"
+        p_late = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(late_resume)],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  text=True, env=env2, creationflags=NO_WINDOW)
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        h_ch = kernel32.OpenProcess(0x1000, False, child_pid)
-        if h_ch:
-            ec = ctypes.c_uint(0)
-            kernel32.GetExitCodeProcess(h_ch, ctypes.byref(ec))
-            kernel32.CloseHandle(h_ch)
-            self.assertNotEqual(ec.value, 259, "prior desktop job child must have exited before successor entered")
+        try:
+            self.assertEqual(p_late.stdout.readline().strip(), "BEFORE_PUBLISH")
+            child_pid = int(ready["child_pid"])
+            h_ch = kernel32.OpenProcess(0x1000, False, child_pid)
+            if h_ch:
+                ec = ctypes.c_uint(0)
+                kernel32.GetExitCodeProcess(h_ch, ctypes.byref(ec))
+                kernel32.CloseHandle(h_ch)
+                self.assertNotEqual(ec.value, 259, "prior desktop job child must have exited before successor publishes")
+        finally:
+            late_resume.write_text("go", encoding="utf-8")
+            try:
+                p_late.stdin.write("quit\n")
+                p_late.stdin.flush()
+                p_late.communicate(timeout=10)
+            except Exception:
+                p_late.kill()
+                p_late.communicate()
 
         # 3. Failed record publication rolls back mutex so Process 2 acquires while Process 1 stays alive.
         lock3 = f"conclave-dt-failpub-{os.getpid()}-{time.time_ns()}"
@@ -1624,30 +1652,42 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                     else:
                         pa.kill()
                         pa.communicate(timeout=10)
-                    # New Owner B acquires the lock, then opens the barrier; the old child must NEVER act.
-                    rb = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env_l)
-                    self.assertEqual(rb.returncode, 0, rb.stdout + rb.stderr)
-                    go.write_text("go", encoding="utf-8")
-                    time.sleep(0.25)
-                    self.assertFalse(acted.exists(), f"old child acted after owner {stop_kind} and new owner entry")
+                    # New Owner B acquires AND HOLDS the lock while the observer opens the barrier; old child must NEVER act while B holds it.
+                    pb = subprocess.Popen([str(self.lock_drv_exe), "wait-acquire", "demo", "hold"],
+                                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                          text=True, env=env_l, creationflags=NO_WINDOW)
+                    try:
+                        self.assertEqual(pb.stdout.readline().strip(), "WAITING")
+                        self.assertTrue(pb.stdout.readline().strip().startswith("ACQUIRED "))
+                        go.write_text("go", encoding="utf-8")
+                        time.sleep(0.25)
+                        self.assertFalse(acted.exists(), f"old child acted after owner {stop_kind} while new owner held lock")
+                    finally:
+                        try:
+                            pb.stdin.write("release\n")
+                            pb.stdin.flush()
+                            pb.communicate(timeout=10)
+                        except Exception:
+                            pb.kill()
+                            pb.communicate()
                 finally:
                     if pa.poll() is None:
                         pa.kill()
                         pa.communicate()
 
     def test_smoke_input_capture_window_and_live_fixture_lock_enforcement(self):
-        # Use a hyphenated project prefix to prove MY_APP_DESKTOP_* env-name mapping end-to-end.
-        self.write_cfg(prefix="my-app")
+        # Use repeated AND trailing hyphens ('my--app-') to prove 1-to-1 MY__APP__DESKTOP_* mapping across Python & C#.
+        self.write_cfg(prefix="my--app-")
         lk = f"conclave-dt-smoke-{os.getpid()}-{time.time_ns()}"
-        env_hold = {**os.environ, "MY_APP_DESKTOP_LOCK": lk}
-        holder = subprocess.Popen([str(self.lock_drv_exe), "hold", "my-app"],
+        env_hold = {**os.environ, "MY__APP__DESKTOP_LOCK": lk}
+        holder = subprocess.Popen([str(self.lock_drv_exe), "hold", "my--app-"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env=env_hold, creationflags=NO_WINDOW)
         runner_called = Path(self._tmp.name) / "runner-called.txt"
         runner_py = Path(self._tmp.name) / "smoke-lock-runner.py"
         runner_py.write_text(
             "import os, pathlib, sys\n"
-            f"pathlib.Path({str(runner_called)!r}).write_text(os.environ.get('MY_APP_DESKTOP_HELD', ''), encoding='utf-8')\n"
+            f"pathlib.Path({str(runner_called)!r}).write_text(os.environ.get('MY__APP__DESKTOP_HELD', ''), encoding='utf-8')\n"
             "if '--discover' in sys.argv:\n"
             "    print('DISCOVER C1 t1')\n"
             "elif '--run-class' in sys.argv:\n"
@@ -1656,7 +1696,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         )
         try:
             held_info = self._parse_kv(holder.stdout.readline())
-            contend_env = {"MY_APP_DESKTOP_LOCK": lk, "MY_APP_DESKTOP_WAIT_S": "0"}
+            contend_env = {"MY__APP__DESKTOP_LOCK": lk, "MY__APP__DESKTOP_WAIT_S": "0"}
             # 1. Scheduled smoke-input under contention: exit 0, skipped desktop-locked-by-other, holder in history, 0 runner starts.
             r_sched = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:15:00",
                                      "-RunnerCommand", str(runner_py), extra_env=contend_env)
@@ -1673,11 +1713,12 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             self.assertEqual(r_ond.returncode, 1, r_ond.stdout + r_ond.stderr)
             self.assertIn("desktop-locked-by-other", r_ond.stderr)
             self.assertFalse(runner_called.exists())
-            # 3. capture-window.ps1 under contention: exit 1, no output file created.
-            cap_out = Path(self._tmp.name) / "cap-busy.txt"
+            # 3. capture-window.ps1 under contention: exit 1, no PNG file created.
+            cap_out = Path(self._tmp.name) / "cap-busy.png"
             r_cap = run_cmd(
                 [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "capture-window.ps1"),
-                 "-ProjectRoot", str(self.root), "-Python", sys.executable, "-Out", str(cap_out)],
+                 "-ProjectRoot", str(self.root), "-Python", sys.executable,
+                 "-WindowPid", str(os.getpid()), "-Out", str(cap_out)],
                 cwd=self.root, env={**os.environ, **contend_env},
             )
             self.assertEqual(r_cap.returncode, 1, r_cap.stdout + r_cap.stderr)
@@ -1685,7 +1726,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             self.assertFalse(cap_out.exists())
             # 4. Live-desk negative fixture under contention: exit 21 with LOCK_BUSY and zero desktop calls.
             r_live = run_cmd(
-                [str(self.drv_exe), "neg-focus", "my-app", str(self.app_exe)],
+                [str(self.drv_exe), "neg-focus", "my--app-", str(self.app_exe)],
                 env={**os.environ, "CONCLAVE_TEST_LIVE_DESK": "1", **contend_env},
             )
             self.assertEqual(r_live.returncode, 21, r_live.stdout + r_live.stderr)
@@ -1699,18 +1740,43 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                 holder.kill()
                 holder.communicate()
 
-        # After release: capture-window.ps1 succeeds and creates -Out, and smoke-input.ps1 runs & exports MY_APP_DESKTOP_HELD!
-        cap_ok = Path(self._tmp.name) / "cap-ok.txt"
-        r_cap2 = run_cmd(
-            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "capture-window.ps1"),
-             "-ProjectRoot", str(self.root), "-Python", sys.executable, "-Out", str(cap_ok)],
-            cwd=self.root, env={**os.environ, "MY_APP_DESKTOP_LOCK": lk, "MY_APP_DESKTOP_WAIT_S": "5"},
-        )
-        self.assertEqual(r_cap2.returncode, 0, r_cap2.stdout + r_cap2.stderr)
-        self.assertTrue(cap_ok.exists())
+        si_noact = subprocess.STARTUPINFO()
+        si_noact.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si_noact.wShowWindow = 4  # SW_SHOWNOACTIVATE
+        fixture_app = subprocess.Popen([str(self.app_exe)], startupinfo=si_noact, creationflags=NO_WINDOW)
+        try:
+            # -Out without -WindowPid or -Command must refuse with exit 2 (no fake text receipt).
+            no_target = Path(self._tmp.name) / "no-target.png"
+            r_nt = run_cmd(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "capture-window.ps1"),
+                 "-ProjectRoot", str(self.root), "-Python", sys.executable, "-Out", str(no_target)],
+                cwd=self.root, env={**os.environ, "MY__APP__DESKTOP_LOCK": lk, "MY__APP__DESKTOP_WAIT_S": "5"},
+            )
+            self.assertEqual(r_nt.returncode, 2, r_nt.stdout + r_nt.stderr)
+            self.assertFalse(no_target.exists())
+
+            # After release: capture-window.ps1 captures a real PNG of FixtureApp.exe (valid PNG signature + size > 100 bytes).
+            time.sleep(0.5)
+            cap_ok = Path(self._tmp.name) / "cap-ok.png"
+            r_cap2 = run_cmd(
+                [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "capture-window.ps1"),
+                 "-ProjectRoot", str(self.root), "-Python", sys.executable,
+                 "-WindowPid", str(fixture_app.pid), "-Out", str(cap_ok)],
+                cwd=self.root, env={**os.environ, "MY__APP__DESKTOP_LOCK": lk, "MY__APP__DESKTOP_WAIT_S": "5"},
+            )
+            self.assertEqual(r_cap2.returncode, 0, r_cap2.stdout + r_cap2.stderr)
+            self.assertTrue(cap_ok.exists())
+            png_bytes = cap_ok.read_bytes()
+            self.assertTrue(png_bytes.startswith(b"\x89PNG\r\n\x1a\n"), "captured file must be a real PNG")
+            self.assertGreater(len(png_bytes), 100)
+        finally:
+            if fixture_app.poll() is None:
+                fixture_app.kill()
+                fixture_app.communicate()
+
         r_run = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:20:00",
                                "-RunnerCommand", str(runner_py),
-                               extra_env={"MY_APP_DESKTOP_LOCK": lk, "MY_APP_DESKTOP_WAIT_S": "5"})
+                               extra_env={"MY__APP__DESKTOP_LOCK": lk, "MY__APP__DESKTOP_WAIT_S": "5"})
         self.assertEqual(r_run.returncode, 0, r_run.stdout + r_run.stderr)
         self.assertTrue(runner_called.exists())
         self.assertIn(f":Global\\{lk}", runner_called.read_text(encoding="utf-8"))

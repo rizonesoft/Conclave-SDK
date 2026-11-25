@@ -187,6 +187,13 @@ namespace Conclave.DesktopTests
         public static int StartNoActivateTracked(
             string exePath, string arguments, string workingDirectory, Action<int> onPidBeforeResume)
         {
+            return StartNoActivateTracked(exePath, arguments, workingDirectory, onPidBeforeResume, null);
+        }
+
+        public static int StartNoActivateTracked(
+            string exePath, string arguments, string workingDirectory,
+            Action<int> onPidBeforeResume, Action<IntPtr> onProcessHandleBeforeResume)
+        {
             STARTUPINFO si = new STARTUPINFO();
             si.cb = Marshal.SizeOf(typeof(STARTUPINFO));
             si.dwFlags = STARTF_USESHOWWINDOW;
@@ -194,7 +201,8 @@ namespace Conclave.DesktopTests
             PROCESS_INFORMATION pi;
             string cmdLine = "\"" + exePath + "\"" + (string.IsNullOrEmpty(arguments) ? "" : " " + arguments);
             var cmdBuf = new StringBuilder(cmdLine);
-            uint flags = onPidBeforeResume != null ? CREATE_SUSPENDED : 0u;
+            bool needSuspend = onPidBeforeResume != null || onProcessHandleBeforeResume != null;
+            uint flags = needSuspend ? CREATE_SUSPENDED : 0u;
             if (!CreateProcessW(exePath, cmdBuf, IntPtr.Zero, IntPtr.Zero, false, flags, IntPtr.Zero,
                     string.IsNullOrEmpty(workingDirectory) ? null : workingDirectory, ref si, out pi))
             {
@@ -202,9 +210,10 @@ namespace Conclave.DesktopTests
             }
             try
             {
-                if (onPidBeforeResume != null)
+                if (needSuspend)
                 {
-                    onPidBeforeResume((int)pi.dwProcessId);
+                    if (onProcessHandleBeforeResume != null) onProcessHandleBeforeResume(pi.hProcess);
+                    if (onPidBeforeResume != null) onPidBeforeResume((int)pi.dwProcessId);
                     if (ResumeThread(pi.hThread) == unchecked((uint)-1))
                     {
                         throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
@@ -398,7 +407,12 @@ namespace Conclave.DesktopTests
 
         public int LaunchNoActivate(string exePath, string arguments, string workingDirectory)
         {
-            return LaunchShow.StartNoActivateTracked(exePath, arguments, workingDirectory, TrackPid);
+            return LaunchShow.StartNoActivateTracked(exePath, arguments, workingDirectory, TrackPid, null);
+        }
+
+        public int LaunchNoActivate(string exePath, string arguments, string workingDirectory, Action<IntPtr> onProcessHandleBeforeResume)
+        {
+            return LaunchShow.StartNoActivateTracked(exePath, arguments, workingDirectory, TrackPid, onProcessHandleBeforeResume);
         }
 
         private void Record(string violation)

@@ -23,7 +23,7 @@ Every project setting lives in `.conclave/desktop-tests.json` (validated by `pyt
 - Validate config: `python scripts/lib/desktop_tests.py show`
 - Run default UI Automation tests (local and Windows CI): `python -m unittest discover -s scripts/tests -p "test_desktop_tests.py"`
 - Run real-input tests on demand: `pwsh -NoProfile -File scripts/smoke-input.ps1`
-- Capture a window or run a desktop capture command under the machine-wide lock: `pwsh -NoProfile -File scripts/capture-window.ps1 -Out <path>`
+- Capture a window or run a desktop capture command under the machine-wide lock: `pwsh -NoProfile -File scripts/capture-window.ps1 -WindowPid <pid> -Out <path.png>` (or `-Command <exe> [args...]`)
 - Install or remove the nightly 03:00 task (updates `.conclave/automations/tasks.json` when the `automations` kit is installed, or registers directly standalone): `pwsh -NoProfile -File scripts/smoke-input.ps1 -Install` / `-Uninstall`
 - Read nightly and on-demand history: `pwsh -NoProfile -File scripts/smoke-input.ps1 -Status`
 

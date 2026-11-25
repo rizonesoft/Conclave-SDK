@@ -91,11 +91,8 @@ try {
         $childEnv["$($envPrefix)_DESKTOP_HELD"] = $lockHandle.HeldToken
         $argStr = ($CommandArgs | ForEach-Object { Quote-WinArg $_ }) -join ' '
         if (-not $lockHandle.Inherited) {
-            $childPid = $lockHandle.StartProcessInJob($Command, $argStr, $repo, $childEnv)
-            $proc = [Diagnostics.Process]::GetProcessById($childPid)
-            $proc.WaitForExit()
-            $exitCode = $proc.ExitCode
-            $proc.Dispose()
+            # Keeps the child process handle open across wait + exit-code retrieval (no fast-exit PID lookup race).
+            $exitCode = $lockHandle.RunProcessInJob($Command, $argStr, $repo, $childEnv)
             exit $exitCode
         } else {
             $psi = [Diagnostics.ProcessStartInfo]::new($Command, $argStr)
@@ -113,30 +110,51 @@ try {
 
     if ($WindowPid -gt 0 -and $Out) {
         Add-Type -AssemblyName System.Drawing
-        $target = [Diagnostics.Process]::GetProcessById($WindowPid)
-        $hwnd = $target.MainWindowHandle
-        if ($hwnd -eq [IntPtr]::Zero) {
-            [Console]::Error.WriteLine("capture-window: process $WindowPid has no main window handle")
-            exit 1
-        }
         if (-not ('ConclaveCaptureNative' -as [type])) {
             Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public static class ConclaveCaptureNative {
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+    public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+    public static IntPtr FindVisibleWindow(int targetPid) {
+        IntPtr found = IntPtr.Zero;
+        EnumWindows((h, lp) => {
+            uint pid;
+            GetWindowThreadProcessId(h, out pid);
+            if ((int)pid == targetPid && IsWindowVisible(h)) { found = h; return false; }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
 }
 "@
+        }
+        $target = [Diagnostics.Process]::GetProcessById($WindowPid)
+        $hwnd = $target.MainWindowHandle
+        if ($hwnd -eq [IntPtr]::Zero) {
+            $hwnd = [ConclaveCaptureNative]::FindVisibleWindow($WindowPid)
+        }
+        if ($hwnd -eq [IntPtr]::Zero) {
+            [Console]::Error.WriteLine("capture-window: process $WindowPid has no visible window handle")
+            exit 1
         }
         $rect = New-Object ConclaveCaptureNative+RECT
         if (-not [ConclaveCaptureNative]::GetWindowRect($hwnd, [ref]$rect)) {
             [Console]::Error.WriteLine("capture-window: GetWindowRect failed for pid $WindowPid")
             exit 1
         }
-        $w = [Math]::Max(1, $rect.Right - $rect.Left)
-        $h = [Math]::Max(1, $rect.Bottom - $rect.Top)
+        $w = $rect.Right - $rect.Left
+        $h = $rect.Bottom - $rect.Top
+        if ($w -le 0 -or $h -le 0) {
+            [Console]::Error.WriteLine("capture-window: window for pid $WindowPid has non-positive size (${w}x${h})")
+            exit 1
+        }
         $outDir = Split-Path -Parent $Out
         if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
         $bmp = New-Object System.Drawing.Bitmap($w, $h)
@@ -145,12 +163,17 @@ public static class ConclaveCaptureNative {
             try {
                 $hdc = $g.GetHdc()
                 try {
-                    [void][ConclaveCaptureNative]::PrintWindow($hwnd, $hdc, 2)
+                    $printed = [ConclaveCaptureNative]::PrintWindow($hwnd, $hdc, 2)
+                    if (-not $printed) { $printed = [ConclaveCaptureNative]::PrintWindow($hwnd, $hdc, 0) }
                 } finally {
                     $g.ReleaseHdc($hdc)
                 }
             } finally {
                 $g.Dispose()
+            }
+            if (-not $printed) {
+                [Console]::Error.WriteLine("capture-window: PrintWindow failed for pid $WindowPid")
+                exit 1
             }
             $lockHandle.EnsureStillHeld()
             $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
@@ -161,16 +184,7 @@ public static class ConclaveCaptureNative {
         exit 0
     }
 
-    if ($Out) {
-        $outDir = Split-Path -Parent $Out
-        if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
-        $lockHandle.EnsureStillHeld()
-        [IO.File]::WriteAllText($Out, "captured pid=$($lockHandle.HolderPid) lock=$($lockHandle.LockName)`n", [Text.UTF8Encoding]::new($false))
-        "capture-window: wrote $Out"
-        exit 0
-    }
-
-    [Console]::Error.WriteLine('capture-window: specify -Command or -Out')
+    [Console]::Error.WriteLine('capture-window: specify -Command <exe> [args...] or both -WindowPid <pid> and -Out <path.png>')
     exit 2
 } finally {
     if ($lockHandle) { $lockHandle.Dispose() }

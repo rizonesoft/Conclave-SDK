@@ -117,6 +117,14 @@ namespace Conclave.DesktopTests
             return DesktopLock.StartProcessInJobHandle(_hJob, exePath, arguments, workingDirectory, env);
         }
 
+        public int RunProcessInJob(string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
+        {
+            if (_disposed) throw new ObjectDisposedException("DesktopLockHandle");
+            if (_inherited || _hJob == IntPtr.Zero)
+                throw new InvalidOperationException("only the owning DesktopLockHandle can run processes in the desktop job");
+            return DesktopLock.RunProcessInJobHandle(_hJob, exePath, arguments, workingDirectory, env);
+        }
+
         public void EnsureStillHeld()
         {
             if (_disposed) throw new DesktopLockLostException("desktop lock handle has already been disposed");
@@ -213,12 +221,13 @@ namespace Conclave.DesktopTests
         // READ_CONTROL | SYNCHRONIZE (0x00120000) so only the creator's private CreateEventExW handle can SetEvent.
         private const string SddlMutex = "D:(A;;0x001F0001;;;OW)(A;;0x00100001;;;AU)";
         private const string SddlLeaseEvent = "D:(A;;0x00120000;;;OW)(A;;0x00100000;;;AU)";
-        private const string SddlJob = "D:(A;;0x001F001F;;;OW)(A;;0x00100004;;;AU)";
+        private const string SddlJob = "D:(A;;0x001F001F;;;OW)(A;;0x00000004;;;AU)";
         private const string SddlRecordDir = "D:(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)(A;OICI;0x001301BF;;;AU)";
 
         internal enum LeaseState { Active, Inactive, Unknown }
 
         // Test-only hooks (default null/false in production).
+        internal static Action BeforeWaitForMutexForTest { get; set; }
         internal static Action BeforeRecordPublishForTest { get; set; }
         internal static bool FailRecordPublishForTest { get; set; }
 
@@ -246,9 +255,10 @@ namespace Conclave.DesktopTests
         {
             if (string.IsNullOrWhiteSpace(prefix))
                 throw new ArgumentException("prefix must be non-empty", "prefix");
-            string mapped = Regex.Replace(prefix.Trim().ToUpperInvariant(), "[^A-Z0-9]+", "_").Trim('_');
-            if (string.IsNullOrEmpty(mapped))
-                throw new ArgumentException("prefix produced empty environment prefix: " + prefix, "prefix");
+            // Match desktop_tests.py 1-to-1: prefix.upper().replace("-", "_") preserves repeated and trailing hyphens.
+            string mapped = prefix.Trim().ToUpperInvariant().Replace('-', '_');
+            if (!Regex.IsMatch(mapped, "^[A-Z][A-Z0-9_]*$"))
+                throw new ArgumentException("prefix produced invalid environment prefix: " + prefix, "prefix");
             return mapped;
         }
 
@@ -353,6 +363,8 @@ namespace Conclave.DesktopTests
                     return inherited;
                 }
 
+                Action beforeWait = BeforeWaitForMutexForTest;
+                if (beforeWait != null) beforeWait();
                 uint waitMs = checked((uint)waitSeconds * 1000u);
                 uint rc = WaitForSingleObject(hMutex, waitMs);
                 if (rc != WAIT_OBJECT_0 && rc != WAIT_ABANDONED)
@@ -878,28 +890,34 @@ namespace Conclave.DesktopTests
         private static void EnsureRecordDirectory(string dir)
         {
             if (string.IsNullOrEmpty(dir)) return;
-            bool existed = Directory.Exists(dir);
-            Directory.CreateDirectory(dir);
-            if (!existed)
+            string parent = Path.GetDirectoryName(dir);
+            if (!string.IsNullOrEmpty(parent) && !Directory.Exists(parent))
             {
-                IntPtr sd;
-                if (ConvertStringSecurityDescriptorToSecurityDescriptorW(SddlRecordDir, 1, out sd, IntPtr.Zero))
+                Directory.CreateDirectory(parent);
+            }
+            IntPtr sd;
+            SECURITY_ATTRIBUTES sa = MakeSecurityAttributes(SddlRecordDir, out sd);
+            try
+            {
+                if (!CreateDirectoryW(dir, ref sa))
                 {
-                    try
+                    int err = Marshal.GetLastWin32Error();
+                    if (err != 183) // ERROR_ALREADY_EXISTS
+                        throw new Win32Exception(err, "CreateDirectoryW failed for " + dir);
+                    // Directory already existed: verify/repair its DACL if we own it (ignore ACCESS_DENIED when owned by another account).
+                    bool present, defaulted;
+                    IntPtr dacl;
+                    if (GetSecurityDescriptorDacl(sd, out present, out dacl, out defaulted) && present)
                     {
-                        bool present, defaulted;
-                        IntPtr dacl;
-                        if (GetSecurityDescriptorDacl(sd, out present, out dacl, out defaulted) && present)
-                        {
-                            // Best-effort ACL on newly created shared directory; ignore ACCESS_DENIED if pre-owned.
-                            SetNamedSecurityInfoW(dir, 1 /* SE_FILE_OBJECT */, 4 /* DACL_SECURITY_INFORMATION */, IntPtr.Zero, IntPtr.Zero, dacl, IntPtr.Zero);
-                        }
-                    }
-                    finally
-                    {
-                        LocalFree(sd);
+                        uint rc = SetNamedSecurityInfoW(dir, 1 /* SE_FILE_OBJECT */, 4 /* DACL_SECURITY_INFORMATION */, IntPtr.Zero, IntPtr.Zero, dacl, IntPtr.Zero);
+                        if (rc != 0 && rc != 5) // 0=OK, 5=ERROR_ACCESS_DENIED (already created by another account)
+                            throw new Win32Exception((int)rc, "SetNamedSecurityInfoW failed for " + dir);
                     }
                 }
+            }
+            finally
+            {
+                if (sd != IntPtr.Zero) LocalFree(sd);
             }
         }
 
@@ -1102,6 +1120,35 @@ namespace Conclave.DesktopTests
 
         internal static int StartProcessInJobHandle(IntPtr hJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
         {
+            IntPtr hProc;
+            int pid = SpawnProcessInJobHandle(hJob, exePath, arguments, workingDirectory, env, out hProc);
+            CloseHandle(hProc);
+            return pid;
+        }
+
+        internal static int RunProcessInJobHandle(IntPtr hJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
+        {
+            IntPtr hProc;
+            SpawnProcessInJobHandle(hJob, exePath, arguments, workingDirectory, env, out hProc);
+            try
+            {
+                uint w = WaitForSingleObject(hProc, 0xFFFFFFFFu);
+                if (w != WAIT_OBJECT_0)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject failed on child process");
+                uint code;
+                if (!GetExitCodeProcess(hProc, out code))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "GetExitCodeProcess failed on child process");
+                return unchecked((int)code);
+            }
+            finally
+            {
+                CloseHandle(hProc);
+            }
+        }
+
+        private static int SpawnProcessInJobHandle(IntPtr hJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env, out IntPtr processHandle)
+        {
+            processHandle = IntPtr.Zero;
             StringBuilder cmd = new StringBuilder();
             cmd.Append('"').Append(exePath).Append('"');
             if (!string.IsNullOrEmpty(arguments)) cmd.Append(' ').Append(arguments);
@@ -1134,6 +1181,7 @@ namespace Conclave.DesktopTests
                 if (envBlock != IntPtr.Zero) Marshal.FreeHGlobal(envBlock);
             }
 
+            bool ok = false;
             try
             {
                 if (!AssignProcessToJobObject(hJob, pi.hProcess))
@@ -1148,12 +1196,14 @@ namespace Conclave.DesktopTests
                     TerminateProcess(pi.hProcess, 1);
                     throw new Win32Exception(err, "ResumeThread failed for child pid " + pi.dwProcessId);
                 }
+                processHandle = pi.hProcess;
+                ok = true;
                 return (int)pi.dwProcessId;
             }
             finally
             {
                 CloseHandle(pi.hThread);
-                CloseHandle(pi.hProcess);
+                if (!ok) CloseHandle(pi.hProcess);
             }
         }
 
@@ -1288,6 +1338,9 @@ namespace Conclave.DesktopTests
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool MoveFileExW(string lpExistingFileName, string lpNewFileName, uint dwFlags);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CreateDirectoryW(string lpPathName, ref SECURITY_ATTRIBUTES lpSecurityAttributes);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern bool CreateProcessW(
