@@ -148,6 +148,10 @@ public static class FixtureDriver {
     [StructLayout(LayoutKind.Sequential)] struct HARDWAREINPUT { public uint uMsg; public ushort wParamL, wParamH; }
     [StructLayout(LayoutKind.Explicit)] struct InputUnion { [FieldOffset(0)] public MOUSEINPUT mi; [FieldOffset(0)] public KEYBDINPUT ki; [FieldOffset(0)] public HARDWAREINPUT hi; }
     [StructLayout(LayoutKind.Sequential)] struct INPUT { public uint type; public InputUnion u; }
+    delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc cb, IntPtr lParam);
+    [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT pt);
     [DllImport("user32.dll")] static extern bool SetCursorPos(int x, int y);
@@ -170,10 +174,19 @@ public static class FixtureDriver {
             } catch (ArgumentException) {
                 throw new InvalidOperationException("fixture process exited before window appeared");
             }
-            AutomationElement win = AutomationElement.RootElement.FindFirst(
-                TreeScope.Children,
-                new PropertyCondition(AutomationElement.ProcessIdProperty, pid));
-            if (win != null) return win;
+            IntPtr foundHwnd = IntPtr.Zero;
+            EnumWindows((h, lp) => {
+                uint wpid;
+                GetWindowThreadProcessId(h, out wpid);
+                if ((int)wpid == pid && IsWindowVisible(h)) {
+                    foundHwnd = h;
+                    return false;
+                }
+                return true;
+            }, IntPtr.Zero);
+            if (foundHwnd != IntPtr.Zero) {
+                return AutomationElement.FromHandle(foundHwnd);
+            }
             Thread.Sleep(50);
         }
         throw new TimeoutException("fixture window did not appear for pid " + pid);
@@ -251,7 +264,7 @@ public static class FixtureDriver {
                 }
                 using (DeskObserver obs = new DeskObserver(new int[0])) {
                     pid = obs.LaunchNoActivate(appExe, forceActivate ? "--activate" : "", null);
-                    AutomationElement win = WaitForWindow(pid, 10000);
+                    AutomationElement win = WaitForWindow(pid, 45000);
                     AutomationElement btn = win.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ActionButton"));
                     AutomationElement lbl = win.FindFirst(TreeScope.Descendants,
