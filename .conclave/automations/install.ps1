@@ -38,9 +38,8 @@ $existing = @(Get-ScheduledTask | Where-Object TaskPath -eq $folder)
 function Test-OwnedByManifest($schedTask) {
   if (-not $schedTask -or -not $schedTask.Actions -or $schedTask.Actions.Count -ne 1) { return $false }
   $act = $schedTask.Actions[0]
-  $exeName = [IO.Path]::GetFileName([string]$act.Execute)
   $expectedArgs = "`"$runner`" $($schedTask.TaskName)"
-  return ($exeName -ieq 'pythonw.exe') -and
+  return ([string]$act.Execute -ieq $pythonw) -and
          ([string]$act.Arguments -ceq $expectedArgs) -and
          ([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\')
 }

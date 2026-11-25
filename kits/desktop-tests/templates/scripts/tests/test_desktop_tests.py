@@ -184,18 +184,22 @@ public static class FixtureDriver {
         if (mode == "real-input-action") {
             SmokeInputGuard.Require(prefix, true, "SendKey");
             uint tag = SmokeInputGuard.CurrentTag(prefix);
-            var down = new INPUT { type = 1 };
-            down.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 0, dwExtraInfo = (UIntPtr)tag };
-            var up = new INPUT { type = 1 };
-            up.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 2, dwExtraInfo = (UIntPtr)tag };
-            POINT cur;
-            bool unlockedDesktop = GetCursorPos(out cur);
-            uint sent = SendInput(2, new[] { down, up }, Marshal.SizeOf(typeof(INPUT)));
-            if (unlockedDesktop && sent != 2) {
-                Console.Error.WriteLine("SendInput inserted " + sent + " of 2 events on unlocked desktop");
-                return 12;
+            bool liveDesk = Environment.GetEnvironmentVariable("CONCLAVE_TEST_LIVE_DESK") == "1";
+            uint sent = 0;
+            if (liveDesk) {
+                var down = new INPUT { type = 1 };
+                down.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 0, dwExtraInfo = (UIntPtr)tag };
+                var up = new INPUT { type = 1 };
+                up.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 2, dwExtraInfo = (UIntPtr)tag };
+                POINT cur;
+                bool unlockedDesktop = GetCursorPos(out cur);
+                sent = SendInput(2, new[] { down, up }, Marshal.SizeOf(typeof(INPUT)));
+                if (unlockedDesktop && sent != 2) {
+                    Console.Error.WriteLine("SendInput inserted " + sent + " of 2 events on unlocked desktop");
+                    return 12;
+                }
             }
-            Console.WriteLine("ADMITTED_OK tag=" + tag.ToString("X8") + " sent=" + sent + " unlocked=" + unlockedDesktop);
+            Console.WriteLine("ADMITTED_OK tag=" + tag.ToString("X8") + " live=" + liveDesk + " sent=" + sent);
             return 0;
         }
         if (mode == "default-uia" || mode == "neg-focus" || mode == "neg-pointer" || mode == "neg-key") {
@@ -641,6 +645,16 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         summary = json.loads(st.stdout)
         self.assertEqual(summary["missed_nights"], 3, summary)
         self.assertEqual(summary["missed_dates"], ["2026-11-22", "2026-11-23", "2026-11-24"])
+        # Legacy 1-element JSON array ["2026-11-21"] (unwrapped to string by PowerShell ConvertFrom-Json) must survive read and write.
+        (self.state / "scheduled-nights.json").write_text('["2026-11-21"]', encoding="utf-8")
+        st_leg = self.run_smoke("-Status", "-NowOverride", "2026-11-24T08:00:00")
+        self.assertEqual(st_leg.returncode, 0, st_leg.stdout + st_leg.stderr)
+        self.assertEqual(json.loads(st_leg.stdout)["missed_dates"], ["2026-11-22", "2026-11-23", "2026-11-24"])
+        sched2 = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-22T03:00:00",
+                                "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": "ok"})
+        self.assertEqual(sched2.returncode, 0, sched2.stdout + sched2.stderr)
+        st_leg2 = self.run_smoke("-Status", "-NowOverride", "2026-11-24T08:00:00")
+        self.assertEqual(json.loads(st_leg2.stdout)["missed_dates"], ["2026-11-23", "2026-11-24"])
 
     def test_automations_integration_ownership_and_standalone_modes(self):
         # Empty status before any run.

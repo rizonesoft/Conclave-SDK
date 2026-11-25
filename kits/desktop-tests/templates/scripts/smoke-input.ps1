@@ -390,11 +390,17 @@ function Add-History($entry) {
         # so history_limit eviction never creates fake missed nights and earlier genuine misses are never hidden.
         if ($entry['mode'] -eq 'scheduled' -and $entry['night']) {
             $ranges = [Collections.Generic.List[object]]::new()
+            $legacyFloor = $null
             if ([IO.File]::Exists($nightsPath)) {
                 $doc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
-                if ($doc -is [System.Array]) {
+                if ($doc -is [string]) {
+                    if ($doc) { $ranges.Add(@($doc, $doc)) }
+                } elseif ($doc -is [System.Array]) {
                     foreach ($d in @($doc)) { if ($d) { $ranges.Add(@([string]$d, [string]$d)) } }
                 } elseif ($doc) {
+                    if ($doc.PSObject.Properties['floor_date'] -and $doc.floor_date) {
+                        $legacyFloor = [string]$doc.floor_date
+                    }
                     if ($doc.PSObject.Properties['ranges']) {
                         foreach ($r in @($doc.ranges)) {
                             if ($r -and $r.Count -eq 2) { $ranges.Add(@([string]$r[0], [string]$r[1])) }
@@ -425,6 +431,7 @@ function Add-History($entry) {
                 }
             }
             $nPayload = [ordered]@{ ranges = @($merged) }
+            if ($legacyFloor) { $nPayload['floor_date'] = $legacyFloor }
             Write-AtomicText $nightsPath (ConvertTo-Json -InputObject $nPayload -Depth 4 -Compress)
         }
     } finally {
@@ -672,9 +679,15 @@ if ($Status) {
         $schedRanges = [Collections.Generic.List[object]]::new()
         if ([IO.File]::Exists($nightsPath)) {
             $nDoc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
-            if ($nDoc -is [System.Array]) {
+            if ($nDoc -is [string]) {
+                if ($nDoc) { [void]$schedDates.Add($nDoc) }
+            } elseif ($nDoc -is [System.Array]) {
                 foreach ($nd in @($nDoc)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
             } elseif ($nDoc) {
+                if ($nDoc.PSObject.Properties['floor_date'] -and $nDoc.floor_date) {
+                    $floorDt = [DateTime]::ParseExact([string]$nDoc.floor_date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+                    if ($floorDt -gt $firstNight) { $firstNight = $floorDt }
+                }
                 if ($nDoc.PSObject.Properties['ranges']) {
                     foreach ($r in @($nDoc.ranges)) {
                         if ($r -and $r.Count -eq 2) {
