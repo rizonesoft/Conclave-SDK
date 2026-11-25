@@ -488,6 +488,18 @@ function Test-OwnedScheduledTask($schedTask, [string]$expectedScript) {
            ([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\')
 }
 
+function Get-ScheduledTaskOrFailClosed([string]$tPath, [string]$tName, [string]$context) {
+    $schedErr = $null
+    $task = Get-ScheduledTask -TaskPath $tPath -TaskName $tName -ErrorVariable schedErr -ErrorAction SilentlyContinue
+    foreach ($e in @($schedErr)) {
+        if ($e -and ([string]$e.CategoryInfo.Category -ne 'ObjectNotFound')) {
+            [Console]::Error.WriteLine("smoke-input: failed to query Task Scheduler ($($e.Exception.Message)); $context")
+            exit 2
+        }
+    }
+    return $task
+}
+
 # ---- Install / Uninstall ---------------------------------------------------------------------------------------
 $taskName = "$prefix-real-input-smoke"
 $autoDir = Join-Path $repo '.conclave\automations'
@@ -585,7 +597,7 @@ if ($Install) {
     } else {
         if (-not $NoRegister) {
             $scriptFull = Join-Path $here 'smoke-input.ps1'
-            $existingTask = Get-ScheduledTask -TaskPath "\$prefix\" -TaskName $taskName -ErrorAction SilentlyContinue
+            $existingTask = Get-ScheduledTaskOrFailClosed "\$prefix\" $taskName 'install aborted'
             if ($existingTask -and (-not (Test-OwnedScheduledTask $existingTask $scriptFull))) {
                 [Console]::Error.WriteLine("smoke-input: refusing to overwrite unrelated scheduled task '\$prefix\$taskName'")
                 exit 2
@@ -629,15 +641,7 @@ if ($Uninstall) {
         }
         if ($removedTask -and (-not $NoRegister) -and $doc.PSObject.Properties['folder'] -and $doc.folder) {
             # Verify ownership of any live task at ($doc.folder, $taskName) BEFORE mutating tasks.json.
-            $schedErr = $null
-            $existingLive = Get-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -ErrorVariable schedErr -ErrorAction SilentlyContinue
-            if ($schedErr -and $schedErr.Count -gt 0) {
-                $cat = [string]$schedErr[0].CategoryInfo.Category
-                if ($cat -ne 'ObjectNotFound') {
-                    [Console]::Error.WriteLine("smoke-input: failed to query Task Scheduler ($($schedErr[0].Exception.Message)); manifest retained")
-                    exit 2
-                }
-            }
+            $existingLive = Get-ScheduledTaskOrFailClosed ([string]$doc.folder) $taskName 'manifest retained'
             if ($existingLive) {
                 $ownerTag = "[conclave-automations:$autoRunner]"
                 $act = if ($existingLive.Actions -and $existingLive.Actions.Count -eq 1) { $existingLive.Actions[0] } else { $null }
@@ -667,7 +671,7 @@ if ($Uninstall) {
         }
     } elseif (-not $NoRegister) {
         $scriptFull = Join-Path $here 'smoke-input.ps1'
-        $existingTask = Get-ScheduledTask -TaskPath "\$prefix\" -TaskName $taskName -ErrorAction SilentlyContinue
+        $existingTask = Get-ScheduledTaskOrFailClosed "\$prefix\" $taskName 'installed state retained'
         if ($existingTask) {
             if (-not (Test-OwnedScheduledTask $existingTask $scriptFull)) {
                 [Console]::Error.WriteLine("smoke-input: refusing to remove unrelated scheduled task '\$prefix\$taskName'")
