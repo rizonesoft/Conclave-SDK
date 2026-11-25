@@ -221,10 +221,10 @@ With §1 installed, a pin names its user interface, style, asset, icon and desig
 
 ## 7. Design Lint Where a Project Has None
 
-Two Windows projects and the WSL project have no token or literal lint; the base kit ships `scripts/design-lint.py` with `--self-test`, `--staged` and a baseline that only shrinks unless `--allow-add --reason` is given. One of the two has its interface in XAML and C# with generated theme files checked by its own `--check` scripts; the other is C++ with no XAML. Two more projects use a narrower linter of their own, which is kept. One project's linter covers only one of its two interface roots.
+Two Windows projects and the WSL project have no token or literal lint; the base kit ships `scripts/design-lint.py` with `--self-test`, `--staged` and a baseline that only shrinks unless `--allow-add --reason` is given. One of the two has its interface in XAML and C# with generated theme files checked by its own `--check` scripts; the other is C++ with no XAML. Two more projects use a narrower linter of their own, which is kept. One project's linter covers only one of its two interface roots. **Parked 2026-11-25 (owner):** `RasterFold` (the WSL project) has an active campaign (`14` dirty files and `build/unattended-launch.lock`); per owner rule (2026-11-25), sections updating other repos stay parked until every target repo is safe to update.
 
 **Phase:** 9
-**Needs:** windows-host
+**Needs:** third-party
 **Surface:** no
 
 **Build order:**
@@ -244,7 +244,9 @@ Two Windows projects and the WSL project have no token or literal lint; the base
 
 ## 8. Resolute on Three-Pass
 
-Resolute's pin is a rotation schedule and its `scripts/review-dispatch.py` knows neither `policy` nor conditional entries; it has no `scripts/review_pin.py` and its `scripts/todo-graph.py` is its own 1,677-line tool with no `stamp`. Follow "Moving an existing pin to three-pass" in `kits/reviewer/README.md`. Keep the Astra route, medium effort for plan and round, low for completion and reconciliation, `pass_cap = 33` and `blocking = ["P1", "P2"]`. One section there is mid-review (`D00 T04 §43`): it finishes under the rotation pin and is not migrated.
+> **Started:** 2026-11-25T11:13Z
+
+Resolute's pin is a rotation schedule and its `scripts/review-dispatch.py` knows neither `policy` nor conditional entries; it has no `scripts/review_pin.py` and its `scripts/todo-graph.py` is its own 1,677-line tool with no `stamp`. Follow "Moving an existing pin to three-pass" in `kits/reviewer/README.md`. Keep the Astra route, medium effort for plan and round, low for completion and reconciliation, `pass_cap = 33` and `blocking = ["P1", "P2"]`. One section there is mid-review (`D00 T04 §43`): it finishes under the rotation pin and is not migrated. **Verified 2026-11-25:** `Resolute` has a clean working tree (`git status --short` empty) and no active campaign (`.git/run-guard/state.json` is `"active": false, "status": "ended"`). Rotation-schedule lines in `Resolute`: `AGENTS.md:143`, `.claude/skills/independent-review/SKILL.md:28`, `.agents/skills/independent-review/SKILL.md:28`, `.claude/skills/review-todo-section/SKILL.md:57,72`, `.agents/skills/review-todo-section/SKILL.md:57,72`, and `scripts/tests/test_review_dispatch.py:872,911,916,1053,1152,1167,1262`. Local edits in `Resolute/scripts/review-dispatch.py` to preserve when upgrading to the kit's current dispatcher: `build/review-in-flight/` marker (read by `scripts/lib/run_guard.py:38`) and `--writer-model` support (`AGENTS.md:143`, `scripts/tests/test_review_dispatch.py`). `D00 T04 §43` (`todo/00-workspace/TODO-04-self-correction.md §43`, moved 2026-11-07 to `AGENTS.md`, `status [ ]`) remains unmigrated under rotation.
 
 **Phase:** 9
 **Needs:** windows-host
@@ -287,10 +289,10 @@ Only projects with C++ of their own get the entry: Resolute-SDK, Resolute and th
 
 ## 10. Reviewer Scripts Current in the WSL Project
 
-RasterFold took the base and reviewer kits long ago and keeps its own TODO system (`AGENTS.md` there says the todo kit is not installed). Measured 2026-11-17: no `scripts/review_pin.py`, no conditional handling in `scripts/review-dispatch.py`, a three-pass pin routing `gemini`, and a 12,996-line `scripts/todo-graph.py` whose `schedule_ok` replays `dispatch.scheduled` without changed paths. Its only rendered surface today is the documentation site under `docs/`.
+RasterFold took the base and reviewer kits long ago and keeps its own TODO system (`AGENTS.md` there says the todo kit is not installed). Measured 2026-11-17: no `scripts/review_pin.py`, no conditional handling in `scripts/review-dispatch.py`, a three-pass pin routing `gemini`, and a 12,996-line `scripts/todo-graph.py` whose `schedule_ok` replays `dispatch.scheduled` without changed paths. Its only rendered surface today is the documentation site under `docs/`. **Parked 2026-11-25 (owner):** `RasterFold` has an active campaign (`14` dirty files and `build/unattended-launch.lock`); per owner rule (2026-11-25), stay parked until `RasterFold` is free and clean.
 
 **Phase:** 9
-**Needs:** none
+**Needs:** third-party
 **Surface:** no
 
 **Build order:**
