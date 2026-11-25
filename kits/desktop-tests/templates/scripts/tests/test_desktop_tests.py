@@ -98,7 +98,11 @@ public static class FixtureApp {
     [STAThread]
     public static void Main(string[] args) {
         bool forceActivate = args.Length > 0 && args[0] == "--activate";
-        bool activate = forceActivate || LaunchShow.FirstWindowActivates();
+        bool activatesFromStartup = LaunchShow.FirstWindowActivates();
+        if (!forceActivate && activatesFromStartup) {
+            Environment.Exit(14);
+        }
+        bool activate = forceActivate || activatesFromStartup;
         int clicks = 0;
         var win = new Window {
             Title = "ConclaveUiaFixtureWindow",
@@ -234,34 +238,7 @@ public static class FixtureDriver {
             bool liveDesk = Environment.GetEnvironmentVariable("CONCLAVE_TEST_LIVE_DESK") == "1";
             bool forceActivate = mode == "neg-focus" && liveDesk;
             int pid = 0;
-            System.Windows.Forms.Form anchorForm = null;
-            Thread anchorThread = null;
             try {
-                // On an unlocked empty desktop (e.g. Windows CI with no open user window), run a real
-                // message-pumping anchor Form in this driver's own PID so Windows has an active foreground
-                // window to keep in front when FixtureApp launches with SW_SHOWNOACTIVATE.
-                POINT curCheck;
-                if (GetForegroundWindow() == IntPtr.Zero && GetCursorPos(out curCheck)) {
-                    var anchorReady = new ManualResetEventSlim(false);
-                    anchorThread = new Thread(() => {
-                        anchorForm = new System.Windows.Forms.Form {
-                            Text = "ConclaveOperatorAnchor",
-                            Width = 160,
-                            Height = 80,
-                            ShowInTaskbar = false,
-                        };
-                        anchorForm.Shown += (s, e) => {
-                            SetForegroundWindow(anchorForm.Handle);
-                            anchorReady.Set();
-                        };
-                        System.Windows.Forms.Application.Run(anchorForm);
-                    });
-                    anchorThread.SetApartmentState(ApartmentState.STA);
-                    anchorThread.IsBackground = true;
-                    anchorThread.Start();
-                    anchorReady.Wait(3000);
-                    Thread.Sleep(50);
-                }
                 using (DeskObserver obs = new DeskObserver(new int[0])) {
                     pid = obs.LaunchNoActivate(appExe, forceActivate ? "--activate" : "", null);
                     AutomationElement win = WaitForWindow(pid, 45000);
@@ -312,10 +289,6 @@ public static class FixtureDriver {
                 Console.Error.WriteLine("REFUSED: " + ex.Message);
                 return 11;
             } finally {
-                if (anchorForm != null) {
-                    try { anchorForm.BeginInvoke((Action)(() => anchorForm.Close())); } catch (InvalidOperationException) { }
-                    if (anchorThread != null) anchorThread.Join(2000);
-                }
                 if (pid > 0) {
                     try {
                         using (Process p = Process.GetProcessById(pid)) {

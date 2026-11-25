@@ -358,12 +358,15 @@ namespace Conclave.DesktopTests
 
         private void CheckNow()
         {
-            IntPtr fg = GetForegroundWindow();
-            if (fg != IntPtr.Zero)
+            if (_initialFg != IntPtr.Zero)
             {
-                uint pid;
-                GetWindowThreadProcessId(fg, out pid);
-                ObserveForegroundPid((int)pid);
+                IntPtr fg = GetForegroundWindow();
+                if (fg != IntPtr.Zero)
+                {
+                    uint pid;
+                    GetWindowThreadProcessId(fg, out pid);
+                    ObserveForegroundPid((int)pid);
+                }
             }
             POINT now;
             if (GetCursorPos(out now))
@@ -404,7 +407,7 @@ namespace Conclave.DesktopTests
             };
             WinEventDelegate fgEv = (hWinEventHook, eventType, hwnd, idObject, idChild, dwEventThread, dwmsEventTime) =>
             {
-                if (hwnd != IntPtr.Zero && (_initialFg != IntPtr.Zero || GetForegroundWindow() == hwnd))
+                if (hwnd != IntPtr.Zero && _initialFg != IntPtr.Zero)
                 {
                     uint pid;
                     GetWindowThreadProcessId(hwnd, out pid);
