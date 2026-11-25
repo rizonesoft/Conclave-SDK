@@ -614,7 +614,7 @@ namespace Conclave.DesktopTests
         private static bool ReadHolderRecordForRecovery(string path, out HolderRecord rec)
         {
             rec = null;
-            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return false;
+            if (string.IsNullOrEmpty(path)) return false;
             try
             {
                 using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
@@ -622,6 +622,14 @@ namespace Conclave.DesktopTests
                 {
                     rec = ParseRecord(sr.ReadToEnd());
                 }
+            }
+            catch (FileNotFoundException)
+            {
+                return false;
+            }
+            catch (DirectoryNotFoundException)
+            {
+                return false;
             }
             catch (IOException ex)
             {
@@ -981,18 +989,27 @@ namespace Conclave.DesktopTests
         private static HolderRecord ParseRecord(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return null;
+            string trimmed = text.Trim();
+            if (!trimmed.StartsWith("{", StringComparison.Ordinal) || !trimmed.EndsWith("}", StringComparison.Ordinal))
+                return null;
             int pid;
             long ticks;
-            if (!TryExtractInt(text, "pid", out pid)) return null;
-            if (!TryExtractLong(text, "start_ticks", out ticks)) return null;
+            if (!TryExtractInt(trimmed, "pid", out pid)) return null;
+            if (!TryExtractLong(trimmed, "start_ticks", out ticks)) return null;
+            string startUtc = ExtractString(trimmed, "start_utc");
+            string leaseId = ExtractString(trimmed, "lease_id");
+            string lockName = ExtractString(trimmed, "lock_name");
+            string label = ExtractString(trimmed, "label");
+            if (string.IsNullOrEmpty(startUtc) || string.IsNullOrEmpty(leaseId) || string.IsNullOrEmpty(lockName) || label == null)
+                return null;
             return new HolderRecord
             {
                 Pid = pid,
                 StartTicks = ticks,
-                StartUtc = ExtractString(text, "start_utc"),
-                LeaseId = ExtractString(text, "lease_id"),
-                LockName = ExtractString(text, "lock_name"),
-                Label = ExtractString(text, "label")
+                StartUtc = startUtc,
+                LeaseId = leaseId,
+                LockName = lockName,
+                Label = label
             };
         }
 

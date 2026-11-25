@@ -1528,20 +1528,31 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                         p.kill()
                         p.communicate()
 
-        # 5. Unreadable holder record (sharing violation denying read) refuses recovery fail-closed before replacement!
+        # 5. Unreadable holder record (delete-sharing permitted for replacement, read-sharing denied) refuses
+        # recovery fail-closed before replacement and preserves original bytes; truncated record also refuses!
         lock5 = f"conclave-dt-unreadable-{os.getpid()}-{time.time_ns()}"
         env5 = {**os.environ, "DEMO_DESKTOP_LOCK": lock5, "DEMO_DESKTOP_WAIT_S": "1"}
         r_seed = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env5)
         self.assertEqual(r_seed.returncode, 0, r_seed.stdout + r_seed.stderr)
         rec5 = self._parse_kv([ln for ln in r_seed.stdout.splitlines() if ln.startswith("ACQUIRED ")][0])["record"]
-        # Open exclusively (share=0) so reading during handoff hits a sharing violation!
-        h_excl = kernel32.CreateFileW(rec5, 0x80000000, 0, None, 3, 0x80, None)
-        self.assertNotEqual(h_excl, ctypes.c_void_p(-1).value)
+        orig_bytes = Path(rec5).read_bytes()
+        # Open with FILE_SHARE_DELETE (0x04) only: allows MoveFileExW replacement, denies reading -> proves recovery guard!
+        h_noread = kernel32.CreateFileW(rec5, 0x80000000, 0x00000004, None, 3, 0x80, None)
+        self.assertNotEqual(h_noread, ctypes.c_void_p(-1).value)
         try:
             r_unr = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env5)
             self.assertNotEqual(r_unr.returncode, 0, "acquisition must refuse when holder record is unreadable")
+            self.assertIn("holder record is unreadable during handoff recovery", r_unr.stdout + r_unr.stderr)
         finally:
-            kernel32.CloseHandle(h_excl)
+            kernel32.CloseHandle(h_noread)
+        self.assertEqual(Path(rec5).read_bytes(), orig_bytes, "unreadable record must not be replaced")
+        # Truncated JSON ending right after lease_id (missing closing brace) must refuse and preserve bytes.
+        trunc = orig_bytes.decode("utf-8").split(',"lock_name"')[0].encode("utf-8")
+        Path(rec5).write_bytes(trunc)
+        r_trunc = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env5)
+        self.assertNotEqual(r_trunc.returncode, 0, "acquisition must refuse on truncated holder record")
+        self.assertIn("holder record is malformed during handoff recovery", r_trunc.stdout + r_trunc.stderr)
+        self.assertEqual(Path(rec5).read_bytes(), trunc, "truncated record must not be overwritten")
 
     def test_desktop_lock_inheritance_reused_pid_and_child_lifetime(self):
         # 1. Job-member child inherits immediately and disposing it does NOT release parent's lock.
