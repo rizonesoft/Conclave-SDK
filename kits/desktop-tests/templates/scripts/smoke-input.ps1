@@ -386,29 +386,41 @@ function Add-History($entry) {
         }
         $lines = @($all | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 6 })
         Write-AtomicText $historyPath (($lines -join "`n") + "`n")
-        # Record completed scheduled nights separately so history_limit eviction never creates fake missed nights.
+        # Record completed scheduled nights as lossless merged inclusive [start, end] date ranges
+        # so history_limit eviction never creates fake missed nights and earlier genuine misses are never hidden.
         if ($entry['mode'] -eq 'scheduled' -and $entry['night']) {
-            $floorDate = $null
-            $nights = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            $ranges = [Collections.Generic.List[object]]::new()
             if ([IO.File]::Exists($nightsPath)) {
                 $doc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
                 if ($doc -is [System.Array]) {
-                    foreach ($d in @($doc)) { if ($d) { [void]$nights.Add([string]$d) } }
-                } elseif ($doc) {
-                    if ($doc.PSObject.Properties['floor_date'] -and $doc.floor_date) { $floorDate = [string]$doc.floor_date }
-                    if ($doc.PSObject.Properties['dates']) {
-                        foreach ($d in @($doc.dates)) { if ($d) { [void]$nights.Add([string]$d) } }
+                    foreach ($d in @($doc)) { if ($d) { $ranges.Add(@([string]$d, [string]$d)) } }
+                } elseif ($doc -and $doc.PSObject.Properties['ranges']) {
+                    foreach ($r in @($doc.ranges)) {
+                        if ($r -and $r.Count -eq 2) { $ranges.Add(@([string]$r[0], [string]$r[1])) }
                     }
                 }
             }
-            [void]$nights.Add([string]$entry['night'])
-            $sortedNights = @($nights | Sort-Object)
-            if ($sortedNights.Count -gt 3650) {
-                $sortedNights = @($sortedNights | Select-Object -Last 3650)
-                $floorDate = $sortedNights[0]
+            $nStr = [string]$entry['night']
+            $ranges.Add(@($nStr, $nStr))
+            $sorted = @($ranges | Sort-Object { $_[0] }, { $_[1] })
+            $merged = [Collections.Generic.List[object]]::new()
+            foreach ($rng in $sorted) {
+                if ($merged.Count -eq 0) {
+                    $merged.Add(@([string]$rng[0], [string]$rng[1]))
+                } else {
+                    $last = $merged[$merged.Count - 1]
+                    $lastEnd = [DateTime]::ParseExact($last[1], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+                    $curStart = [DateTime]::ParseExact($rng[0], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+                    $curEnd = [DateTime]::ParseExact($rng[1], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+                    if ($curStart -le $lastEnd.AddDays(1)) {
+                        if ($curEnd -gt $lastEnd) { $last[1] = $curEnd.ToString('yyyy-MM-dd') }
+                    } else {
+                        $merged.Add(@([string]$rng[0], [string]$rng[1]))
+                    }
+                }
             }
-            $nPayload = [ordered]@{ floor_date = $floorDate; dates = $sortedNights }
-            Write-AtomicText $nightsPath (ConvertTo-Json -InputObject $nPayload -Compress)
+            $nPayload = [ordered]@{ ranges = @($merged) }
+            Write-AtomicText $nightsPath (ConvertTo-Json -InputObject $nPayload -Depth 4 -Compress)
         }
     } finally {
         try { $mtx.ReleaseMutex() } catch [ApplicationException] { }
@@ -446,31 +458,22 @@ function Get-DeskState {
 function Test-OwnedAutomationTask($taskObj) {
     if (-not $taskObj -or -not $taskObj.PSObject.Properties['command']) { return $false }
     $cmd = @($taskObj.command | ForEach-Object { [string]$_ })
-    if ($cmd.Count -lt 4) { return $false }
-    if ($cmd[0] -notin @('pwsh', 'pwsh.exe')) { return $false }
-    $hasScript = $false
-    $hasScheduled = $false
-    for ($i = 1; $i -lt $cmd.Count; $i++) {
-        if ($cmd[$i] -eq '-File' -and ($i + 1) -lt $cmd.Count) {
-            $norm = $cmd[$i + 1].Replace('\', '/')
-            if ($norm -eq 'scripts/smoke-input.ps1' -or $norm.EndsWith('/scripts/smoke-input.ps1')) {
-                $hasScript = $true
-            }
-        }
-        if ($cmd[$i] -eq '-Scheduled') { $hasScheduled = $true }
-    }
-    return $hasScript -and $hasScheduled
+    if ($cmd.Count -ne 6) { return $false }
+    return ($cmd[0] -ceq 'pwsh' -or $cmd[0] -ceq 'pwsh.exe') -and
+           ($cmd[1] -ceq '-NoProfile') -and
+           ($cmd[2] -ceq '-NonInteractive') -and
+           ($cmd[3] -ceq '-File') -and
+           ($cmd[4].Replace('\', '/') -ceq 'scripts/smoke-input.ps1') -and
+           ($cmd[5] -ceq '-Scheduled')
 }
 
 function Test-OwnedScheduledTask($schedTask, [string]$expectedScript) {
     if (-not $schedTask -or -not $schedTask.Actions -or $schedTask.Actions.Count -ne 1) { return $false }
     $act = $schedTask.Actions[0]
-    $exe = [string]$act.Execute
-    $argsStr = [string]$act.Arguments
-    if ($exe -notin @('pwsh', 'pwsh.exe')) { return $false }
-    $normArgs = $argsStr.Replace('/', '\')
-    $normScript = $expectedScript.Replace('/', '\')
-    return ($normArgs -match '(?i)(?:^|\s)-File\s+') -and ($normArgs.IndexOf($normScript, [StringComparison]::OrdinalIgnoreCase) -ge 0) -and ($normArgs -match '(?i)(?:^|\s)-Scheduled(?:\s|$)')
+    $expectedArgs = "-NoProfile -NonInteractive -File `"$expectedScript`" -Scheduled"
+    return ([string]$act.Execute -ieq 'pwsh.exe') -and
+           ([string]$act.Arguments -ceq $expectedArgs) -and
+           ([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\')
 }
 
 # ---- Install / Uninstall ---------------------------------------------------------------------------------------
@@ -661,17 +664,19 @@ if ($Status) {
             $d = if ($r.PSObject.Properties['night'] -and $r.night) { [string]$r.night } else { ([DateTime]::Parse([string]$r.at, [Globalization.CultureInfo]::InvariantCulture)).ToString('yyyy-MM-dd') }
             [void]$schedDates.Add($d)
         }
+        $schedRanges = [Collections.Generic.List[object]]::new()
         if ([IO.File]::Exists($nightsPath)) {
             $nDoc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
             if ($nDoc -is [System.Array]) {
                 foreach ($nd in @($nDoc)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
-            } elseif ($nDoc) {
-                if ($nDoc.PSObject.Properties['floor_date'] -and $nDoc.floor_date) {
-                    $floorDt = [DateTime]::ParseExact([string]$nDoc.floor_date, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
-                    if ($floorDt -gt $firstNight) { $firstNight = $floorDt }
-                }
-                if ($nDoc.PSObject.Properties['dates']) {
-                    foreach ($nd in @($nDoc.dates)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
+            } elseif ($nDoc -and $nDoc.PSObject.Properties['ranges']) {
+                foreach ($r in @($nDoc.ranges)) {
+                    if ($r -and $r.Count -eq 2) {
+                        $schedRanges.Add(@(
+                            [DateTime]::ParseExact([string]$r[0], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture),
+                            [DateTime]::ParseExact([string]$r[1], 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
+                        ))
+                    }
                 }
             }
         }
@@ -679,7 +684,13 @@ if ($Status) {
         $lastExpected = if ($now.TimeOfDay -ge $opens) { $now.Date } else { $now.Date.AddDays(-1) }
         for ($d = $firstNight; $d -le $lastExpected; $d = $d.AddDays(1)) {
             $ds = $d.ToString('yyyy-MM-dd')
-            if (-not $schedDates.Contains($ds)) { $missedDates.Add($ds) }
+            $covered = $schedDates.Contains($ds)
+            if (-not $covered) {
+                foreach ($rng in $schedRanges) {
+                    if ($d -ge $rng[0] -and $d -le $rng[1]) { $covered = $true; break }
+                }
+            }
+            if (-not $covered) { $missedDates.Add($ds) }
         }
     }
     $skipped = @($sched | Where-Object { $_.outcome -eq 'skipped' })

@@ -35,10 +35,31 @@ if ($LASTEXITCODE -ne 0) { throw 'tasks.json was refused (above); nothing was re
 $manifest = Get-Content -Raw -Path (Join-Path $here 'tasks.json') | ConvertFrom-Json
 $existing = @(Get-ScheduledTask | Where-Object TaskPath -eq $folder)
 
+function Test-OwnedByManifest($schedTask) {
+  if (-not $schedTask -or -not $schedTask.Actions -or $schedTask.Actions.Count -ne 1) { return $false }
+  $act = $schedTask.Actions[0]
+  return ([string]$act.Arguments).IndexOf($runner, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+         ([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\')
+}
+
 if ($Uninstall) {
-  foreach ($task in $existing) { Unregister-ScheduledTask -TaskPath $folder -TaskName $task.TaskName -Confirm:$false }
-  Write-Host "Removed $($existing.Count) task(s) from $folder"
+  $removed = 0
+  foreach ($task in $existing) {
+    if (Test-OwnedByManifest $task) {
+      Unregister-ScheduledTask -TaskPath $folder -TaskName $task.TaskName -Confirm:$false
+      $removed++
+    }
+  }
+  Write-Host "Removed $removed task(s) from $folder"
   return
+}
+
+$existingByName = @{}
+foreach ($e in $existing) { $existingByName[$e.TaskName] = $e }
+foreach ($task in $manifest.tasks) {
+  if ($existingByName.ContainsKey($task.name) -and (-not (Test-OwnedByManifest $existingByName[$task.name]))) {
+    throw "Refusing to replace task '$($task.name)' in $folder that this repository's automations did not create"
+  }
 }
 
 $user = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
@@ -80,7 +101,7 @@ foreach ($task in $manifest.tasks) {
 
 $listed = @($manifest.tasks | ForEach-Object { $_.name })
 foreach ($task in $existing) {
-  if ($listed -notcontains $task.TaskName) {
+  if ($listed -notcontains $task.TaskName -and (Test-OwnedByManifest $task)) {
     Unregister-ScheduledTask -TaskPath $folder -TaskName $task.TaskName -Confirm:$false
     Write-Host "Removed $($task.TaskName): tasks.json no longer lists it"
   }

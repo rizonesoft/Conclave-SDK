@@ -188,8 +188,14 @@ public static class FixtureDriver {
             down.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 0, dwExtraInfo = (UIntPtr)tag };
             var up = new INPUT { type = 1 };
             up.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 2, dwExtraInfo = (UIntPtr)tag };
+            POINT cur;
+            bool unlockedDesktop = GetCursorPos(out cur);
             uint sent = SendInput(2, new[] { down, up }, Marshal.SizeOf(typeof(INPUT)));
-            Console.WriteLine("ADMITTED_OK tag=" + tag.ToString("X8") + " sent=" + sent);
+            if (unlockedDesktop && sent != 2) {
+                Console.Error.WriteLine("SendInput inserted " + sent + " of 2 events on unlocked desktop");
+                return 12;
+            }
+            Console.WriteLine("ADMITTED_OK tag=" + tag.ToString("X8") + " sent=" + sent + " unlocked=" + unlockedDesktop);
             return 0;
         }
         if (mode == "default-uia" || mode == "neg-focus" || mode == "neg-pointer" || mode == "neg-key") {
@@ -401,13 +407,16 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                 res = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", now_s, "-RunnerCommand", str(runner_py))
                 self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
                 self.assertIn(expected_reason, res.stdout)
-        # Eligible scheduled run at 03:00 with exactly 900s idle executes real case and passes!
+        # Eligible scheduled AND on-demand runs at 03:00 with exactly 900s idle execute real case and pass!
         (self.state / "probe-unknown").unlink(missing_ok=True)
         (self.state / "probe-locked").write_text("0", encoding="utf-8")
         (self.state / "probe-idle").write_text("900", encoding="utf-8")
         ok = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:00:00", "-RunnerCommand", str(runner_py))
         self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
         self.assertIn("smoke-input: passed (1 case(s) across 1 class(es))", ok.stdout)
+        od_ok = self.run_smoke("-TestProbes", "-NowOverride", "2026-11-25T03:00:00", "-RunnerCommand", str(runner_py))
+        self.assertEqual(od_ok.returncode, 0, od_ok.stdout + od_ok.stderr)
+        self.assertIn("smoke-input: passed (1 case(s) across 1 class(es))", od_ok.stdout)
         # Changed settings (window 01:00-02:00, idle 5m=300s) take effect.
         self.write_cfg(window_opens="01:00", window_closes="02:00", idle_minutes=5)
         (self.state / "probe-idle").write_text("300", encoding="utf-8")
@@ -720,10 +729,11 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             f"try {{ $s.GetFolder('\\').DeleteFolder('{unique_prefix}', 0) }} catch {{ }}"
         )
         try:
-            # 1. Pre-existing unrelated scheduled task at the exact path/name must be refused on install and uninstall.
+            # 1. Pre-existing unrelated scheduled task (even one mentioning smoke-input.ps1 and -Scheduled!) must be refused.
+            script_path = str(self.root / "scripts" / "smoke-input.ps1")
             reg_other = run_cmd([
                 PWSH, "-NoProfile", "-NonInteractive", "-Command",
-                f"$a = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument '/c echo other'; "
+                f"$a = New-ScheduledTaskAction -Execute 'pwsh.exe' -Argument '-File backup.ps1 \"{script_path}\" -Scheduled'; "
                 f"$t = New-ScheduledTaskTrigger -Daily -At '04:00'; "
                 f"Register-ScheduledTask -TaskPath '{task_path}' -TaskName '{task_name}' -Action $a -Trigger $t -Force | Out-Null",
             ])
@@ -742,7 +752,10 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                 f"$t = Get-ScheduledTask -TaskPath '{task_path}' -TaskName '{task_name}'; "
                 f"[ordered]@{{ logon=[string]$t.Principal.LogonType; swa=$t.Settings.StartWhenAvailable; "
                 f"wake=$t.Settings.WakeToRun; lim=[string]$t.Settings.ExecutionTimeLimit; "
-                f"exe=[string]$t.Actions[0].Execute; args=[string]$t.Actions[0].Arguments }} | ConvertTo-Json",
+                f"exe=[string]$t.Actions[0].Execute; args=[string]$t.Actions[0].Arguments; "
+                f"wd=[string]$t.Actions[0].WorkingDirectory; "
+                f"trigClass=[string]$t.Triggers[0].CimClass.CimClassName; "
+                f"trigStart=[string]$t.Triggers[0].StartBoundary }} | ConvertTo-Json",
             ])
             self.assertEqual(inspect.returncode, 0, inspect.stdout + inspect.stderr)
             info = json.loads(inspect.stdout)
@@ -751,7 +764,10 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             self.assertIs(info["wake"], False)
             self.assertEqual(info["lim"], "PT3H")
             self.assertEqual(info["exe"].lower(), "pwsh.exe")
-            self.assertIn("-Scheduled", info["args"])
+            self.assertEqual(info["args"], f'-NoProfile -NonInteractive -File "{script_path}" -Scheduled')
+            self.assertEqual(Path(info["wd"]).resolve(), self.root.resolve())
+            self.assertEqual(info["trigClass"], "MSFT_TaskDailyTrigger")
+            self.assertIn("T03:00:00", info["trigStart"])
             # 3. Owned uninstall removes it cleanly.
             uninst = self.run_smoke("-Uninstall", include_watcher=False)
             self.assertEqual(uninst.returncode, 0, uninst.stdout + uninst.stderr)
