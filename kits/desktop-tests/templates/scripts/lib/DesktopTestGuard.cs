@@ -280,7 +280,6 @@ namespace Conclave.DesktopTests
         private readonly ManualResetEventSlim _stop = new ManualResetEventSlim(false);
         private POINT _startCursor;
         private bool _hasCursor;
-        private IntPtr _initialFg;
         private string _hookError;
         private Thread _hookThread;
         private Thread _pollThread;
@@ -290,7 +289,6 @@ namespace Conclave.DesktopTests
         public DeskObserver(IEnumerable<int> ownedPids)
         {
             foreach (int pid in ownedPids) _ownedPids.Add(pid);
-            _initialFg = GetForegroundWindow();
             _hasCursor = GetCursorPos(out _startCursor);
             _hookThread = new Thread(RunHooks) { IsBackground = true, Name = "DeskObserver-Hooks" };
             _hookThread.Start();
@@ -358,15 +356,12 @@ namespace Conclave.DesktopTests
 
         private void CheckNow()
         {
-            if (_initialFg != IntPtr.Zero)
+            IntPtr fg = GetForegroundWindow();
+            if (fg != IntPtr.Zero)
             {
-                IntPtr fg = GetForegroundWindow();
-                if (fg != IntPtr.Zero)
-                {
-                    uint pid;
-                    GetWindowThreadProcessId(fg, out pid);
-                    ObserveForegroundPid((int)pid);
-                }
+                uint pid;
+                GetWindowThreadProcessId(fg, out pid);
+                ObserveForegroundPid((int)pid);
             }
             POINT now;
             if (GetCursorPos(out now))
@@ -407,7 +402,7 @@ namespace Conclave.DesktopTests
             };
             WinEventDelegate fgEv = (hWinEventHook, eventType, hwnd, idObject, idChild, dwEventThread, dwmsEventTime) =>
             {
-                if (hwnd != IntPtr.Zero && _initialFg != IntPtr.Zero)
+                if (hwnd != IntPtr.Zero)
                 {
                     uint pid;
                     GetWindowThreadProcessId(hwnd, out pid);
