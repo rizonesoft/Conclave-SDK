@@ -1,0 +1,88 @@
+{
+  "ref": "D04 T04 \u00a72",
+  "title": "One owner of the visual desktop at a time",
+  "implementation_sha": "fe0760763a8397bc630d319ca845572a3b40c452",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/04-tooling/D04-T04-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "kit-desktop-tests 16/16 PASS (164.1s), tests.test_desktop_tests_installed 4/4 OK (41.5s), CI tests.yml 7/7 green at https://github.com/rizonesoft/Conclave-SDK/actions/runs/45595812764"
+  ],
+  "completion": {
+    "report": "docs/reviews/04-tooling/D04-T04-s2.md",
+    "verdict": "reconciled",
+    "candidate": "fe0760763a8397bc630d319ca845572a3b40c452",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/04-tooling/D04-T04-s2.md",
+    "candidate": "3a53edd035aef9f9a41a02cfd702c8ca0998ccc9",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "3a53edd035aef9f9a41a02cfd702c8ca0998ccc9",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 13,
+  "pass_cap": 33
+}

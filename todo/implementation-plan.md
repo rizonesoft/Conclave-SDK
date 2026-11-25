@@ -207,7 +207,7 @@ Sections: 27 | Checklist items: 173
 | [x]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review       | none         | 8     |
 | [x]    | D02 T02 §12 | Writable run windows, Watch and Stop links, finished stops    | windows-host | 11    |
 | [x]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 6     |
-| [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
+| [x]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
 | [x]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 6     |
 | [x]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 8     |
 
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 125/155 verified sections, 9 ready to run now.
+Progress: 126/155 verified sections, 8 ready to run now.
 
 Checklist: 1011/1172 items completed (includes Commit items).

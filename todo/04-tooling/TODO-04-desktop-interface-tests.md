@@ -2,7 +2,7 @@
 schema_version: 1
 id: desktop-interface-tests
 domain: 04-tooling
-status: active
+status: done
 title: "TODO-04 -- Desktop interface tests that never take the operator's desk"
 ---
 
@@ -37,7 +37,7 @@ title: "TODO-04 -- Desktop interface tests that never take the operator's desk"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Interface tests split by whether they take the desk | -- | [x] |
-| 2 | §2 | One owner of the visual desktop at a time | -- | [ ] |
+| 2 | §2 | One owner of the visual desktop at a time | -- | [x] |
 
 ## 1. Interface tests split by whether they take the desk
 
@@ -87,6 +87,9 @@ Every visual smoke run and window capture, in any repository or session, holds o
 - [x] Commit: `tooling: one owner of the visual desktop at a time`
 
 **Test checkpoint:** `python forge.py check-all --only kit-desktop-tests` and `python -m unittest tests.test_desktop_tests_installed -v` pass on Windows; removing the live ancestor creation-time check makes the reused-id descendant test fail.
+
+> **Verified:** 2026-11-25 | §2 | fe0760763a8397bc630d319ca845572a3b40c452
+> **Review:** `docs/reviews/d04-t04-s2.json`
 
 ## Verification
 

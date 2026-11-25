@@ -10,8 +10,6 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | 00 | 00-reviewer/TODO-03-design-and-safety-lenses.md | Design and safety lenses by path, in every project |
 | 00 | 00-reviewer/TODO-04-gemini-neon-writer.md | Gemini 4 Neon replaces Orchestrator (Carbon) in every kit |
 | 02 | 02-unattended/TODO-02-unattended-kit.md | Unattended kit (§12 reopened it: the run's windows and links) |
-| 04 | 04-tooling/TODO-04-desktop-interface-tests.md | Interface tests that never take the desk; one desktop lock |
-| 07 | 07-launchers/TODO-01-project-launchers.md | Launchers kit: profile, overlay icons, agent and site links |
 | 07 | 07-launchers/TODO-02-wordpress-dashboard-login.md | One-use ticket login: plugin, opener, install, removal |
 | 06 | 06-global/TODO-03-private-overlay.md | Public core, private overlay, and the owner material moved into it |
 | 06 | 06-global/TODO-04-findings-triage.md | Every open finding scheduled, fixed or closed with its reason |
@@ -28,6 +26,8 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | 04 | 04-tooling/TODO-01-lsp-kit.md | Server table, client, Claude plugin, MCP bridge, skill | 2026-11-15 |
 | 04 | 04-tooling/TODO-02-toolchain-kits.md | Tool pins, compile database, cache, clangd and skills | 2026-11-15 |
 | 04 | 04-tooling/TODO-03-cpp-memory-safety.md | Hardening policy, compile and image checks, doctor rows | 2026-11-17 |
+| 04 | 04-tooling/TODO-04-desktop-interface-tests.md | Non-disruptive desktop UI tests; one desktop lock | 2026-11-25 |
 | 05 | 05-base/TODO-01-operating-directive.md | Operating directive, git rules, init --goal, --acceptance | 2026-11-15 |
 | 06 | 06-global/TODO-01-imported-material.md | Plugins from plugins/, retired copies removed | 2026-11-16 |
 | 06 | 06-global/TODO-02-bosun-guidance.md | Bosun reference page and queue rule parity | 2026-11-15 |
+| 07 | 07-launchers/TODO-01-project-launchers.md | Launchers kit: profile, icons, agent and site links | 2026-11-25 |
