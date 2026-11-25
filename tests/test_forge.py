@@ -4703,13 +4703,6 @@ class LaunchersPageTests(unittest.TestCase):
         assert m is not None, f"missing single-line powershell command under {heading!r}"
         return shlex.split(m.group(1).strip())
 
-    @staticmethod
-    def _decode_encoded_command(args: str) -> str:
-        m = re.search(r"-EncodedCommand\s+([A-Za-z0-9+/=]+)", args)
-        if not m:
-            return ""
-        return base64.b64decode(m.group(1)).decode("utf-16le", errors="replace")
-
     @unittest.skipUnless(os.name == "nt", "Windows shortcut creation, removal, and ShellLink read-back run on Windows")
     def test_launchers_page_windows_creation_rerun_invalid_removal_and_readback(self):
         pwsh = shutil.which("pwsh")
@@ -4788,20 +4781,21 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertTrue(ic.is_file(), f"IconPath does not exist for {name}: {ic}")
                 self.assertEqual(ic.parent.resolve(), icon_dir.resolve())
                 self.assertTrue(ic.name.startswith(f"launcher-{slug}-"), f"wrong icon slug for {name}: {ic.name}")
-            # Verify each saved link's exact target, argument form, and decoded executable payload.
+            # Verify each saved link's exact target, argument form, and exact executable payload.
+            pwsh_resolved = pathlib.Path(pwsh).resolve()
+            target_resolved = target.resolve()
             for agent_label, agent_name in (("Claude", "claude"), ("Codex", "codex")):
                 rec = recs[f"Shop App ({agent_label}).lnk"]
                 tgt_low = rec["Target"].lower()
                 if tgt_low.endswith("wt.exe"):
-                    m_wt = re.match(
-                        r"^-d\s+(?:\"[^\"]+\"|\S+)\s+(?:\"[^\"]*pwsh\.exe\"|\S*pwsh\.exe)\s+"
-                        r"-NoLogo\s+-NoExit\s+-Command\s+(\S+)$",
-                        rec["Arguments"],
-                        re.I,
-                    )
-                    self.assertIsNotNone(m_wt, f"unexpected wt.exe argument form for {agent_label}: {rec}")
-                    self.assertEqual(m_wt.group(1), agent_name)
+                    tokens = [tok.strip('"') for tok in shlex.split(rec["Arguments"], posix=False)]
+                    self.assertEqual(len(tokens), 7, f"unexpected wt.exe tokens for {agent_label}: {tokens!r}")
+                    self.assertEqual(tokens[0], "-d")
+                    self.assertEqual(pathlib.Path(tokens[1]).resolve(), target_resolved)
+                    self.assertEqual(pathlib.Path(tokens[2]).resolve(), pwsh_resolved)
+                    self.assertEqual(tokens[3:], ["-NoLogo", "-NoExit", "-Command", agent_name])
                 elif tgt_low.endswith("pwsh.exe"):
+                    self.assertEqual(pathlib.Path(rec["Target"]).resolve(), pwsh_resolved)
                     self.assertEqual(rec["Arguments"], f"-NoLogo -NoExit -Command {agent_name}")
                 else:
                     self.fail(f"unexpected target executable for {agent_label}: {rec}")
@@ -4811,16 +4805,22 @@ class LaunchersPageTests(unittest.TestCase):
             self.assertEqual(site_rec["Arguments"], f"url.dll,FileProtocolHandler {site_url}")
             run_cmd = next(lnk["run"] for lnk in example["links"] if lnk["label"] == "App Check")
             check_rec = recs["Shop App (App Check).lnk"]
-            self.assertTrue(check_rec["Target"].lower().endswith("pwsh.exe"), check_rec)
-            m_check = re.match(
-                r'^-NoLogo -NoProfile -Command "& \'[^\']*pwsh\.exe\' -NoLogo -NoProfile '
-                r'-EncodedCommand ([A-Za-z0-9+/=]+); if \(\$LASTEXITCODE -ne 0\) \{ .*\}"$',
-                check_rec["Arguments"],
-                re.I,
+            self.assertEqual(pathlib.Path(check_rec["Target"]).resolve(), pwsh_resolved, check_rec)
+            expected_encoded = base64.b64encode(
+                f"$ErrorActionPreference = 'Stop'\n{run_cmd}\n".encode("utf-16le")
+            ).decode("ascii")
+            expected_prefix = '-NoLogo -NoProfile -Command "& \''
+            expected_suffix = (
+                f"' -NoLogo -NoProfile -EncodedCommand {expected_encoded}; "
+                "if ($LASTEXITCODE -ne 0) { Write-Host "
+                "'App Check did not start: the reason is above. Press Enter to close.'; "
+                '[void][Console]::ReadLine() }"'
             )
-            self.assertIsNotNone(m_check, f"unexpected App Check wrapper arguments: {check_rec}")
-            inner_payload = base64.b64decode(m_check.group(1)).decode("utf-16le", errors="strict")
-            self.assertEqual(inner_payload, f"$ErrorActionPreference = 'Stop'\n{run_cmd}\n")
+            self.assertTrue(check_rec["Arguments"].startswith(expected_prefix), check_rec["Arguments"])
+            self.assertTrue(check_rec["Arguments"].endswith(expected_suffix), check_rec["Arguments"])
+            quoted_child = check_rec["Arguments"][len(expected_prefix):-len(expected_suffix)]
+            self.assertNotIn("'", quoted_child.replace("''", ""), f"unquoted apostrophe in child path: {quoted_child!r}")
+            self.assertEqual(pathlib.Path(quoted_child.replace("''", "'")).resolve(), pwsh_resolved)
             self.assertNotIn("Other App (Site).lnk", recs, "read-back must ignore another project's shortcut")
             self.assertIn("Keep Me.lnk", recs, "read-back must surface unreadable shortcut errors")
             self.assertTrue(recs["Keep Me.lnk"].get("Error"), recs["Keep Me.lnk"])
