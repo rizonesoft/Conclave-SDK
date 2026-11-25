@@ -849,8 +849,10 @@ namespace Conclave.DesktopTests
 
         private static int QueryJobActiveProcessCount(IntPtr hJob, List<IntPtr> collectSyncHandles)
         {
-            // Dynamically grow JOBOBJECT_BASIC_PROCESS_ID_LIST buffer on ERROR_MORE_DATA so large process trees
-            // never skip SYNCHRONIZE handle collection.
+            // Dynamically grow JOBOBJECT_BASIC_PROCESS_ID_LIST buffer on ERROR_MORE_DATA or partial list
+            // (inList < assigned) so large process trees never skip SYNCHRONIZE handle collection; fail closed
+            // if the list still exceeds the safety cap.
+            const int MaxCapacity = 65536;
             int capacity = 64;
             while (true)
             {
@@ -865,14 +867,22 @@ namespace Conclave.DesktopTests
                         int err = Marshal.GetLastWin32Error();
                         if (err == 234) // ERROR_MORE_DATA
                         {
-                            if (capacity >= 4096) return capacity + 1;
-                            capacity *= 2;
+                            if (capacity >= MaxCapacity)
+                                throw new InvalidOperationException("desktop job process list exceeded enumeration cap (" + MaxCapacity + "); refusing lock acquisition");
+                            capacity = Math.Min(MaxCapacity, capacity * 2);
                             continue;
                         }
                         throw new Win32Exception(err, "QueryInformationJobObject failed");
                     }
                     int assigned = Marshal.ReadInt32(buf, 0);
                     int inList = Marshal.ReadInt32(buf, 4);
+                    if (inList < assigned)
+                    {
+                        if (capacity >= MaxCapacity)
+                            throw new InvalidOperationException("desktop job process list remained incomplete (" + inList + " of " + assigned + "); refusing lock acquisition");
+                        capacity = Math.Min(MaxCapacity, Math.Max(capacity * 2, assigned + 16));
+                        continue;
+                    }
                     if (collectSyncHandles != null && inList > 0)
                     {
                         int limit = Math.Min(inList, capacity);
