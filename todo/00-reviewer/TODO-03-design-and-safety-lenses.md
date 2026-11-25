@@ -290,7 +290,7 @@ Only projects with C++ of their own get the entry: Resolute-SDK, Resolute and th
 - [x] In the tool repository, commit and push as its own rules say. Done when: `git status -sb` prints exactly `## main...origin/main`.
 - [x] Commit: `review: thread-safety and memory-safety lenses by path` in each project.
 
-**Test checkpoint:** in each C++ project, `python scripts/review_pin.py --lenses round --paths <C++ file>` prints `thread-safety` and `memory-safety`, and prints neither for `README.md`.
+**Test checkpoint:** in each C++ project (`Resolute-SDK`, `Resolute`, `RegStudio`), `python scripts/review_pin.py --check --all` prints `ok`, 100% of tracked project-owned C++ files match the configured prefixes, `python scripts/review_pin.py --lenses <kind> --no-surface --paths <path>` exits 0 for all four pass kinds (`plan`, `round`, `completion`, `reconciliation`) printing both `thread-safety` and `memory-safety` with verbatim questions from `kits/reviewer/templates/.conclave/reviewers.toml:103-104` on `round` and `reconciliation` only for every C++ prefix and neither on `plan`, `completion`, or excluded paths (`shared/lucide/icons/alert-triangle.svg`, `shared/lucide/CMakeLists.txt`, and `README.md` in `Resolute-SDK`; `README.md`, `DESIGN.md`, and `scripts/review_pin.py` in `Resolute`; `README.md`, `DESIGN.md`, and `sdk.json` in `RegStudio`), and in `RegStudio` `git status -sb` prints `## main...origin/main` with `HEAD == origin/main`.
 
 ## 10. Reviewer Scripts Current in the WSL Project
 
