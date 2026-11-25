@@ -172,6 +172,7 @@ public static class FixtureDriver {
     [DllImport("user32.dll")] static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
     [DllImport("user32.dll", SetLastError = true)] static extern uint SendInput(uint n, INPUT[] inputs, int cbSize);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
 
     private static AutomationElement WaitForWindow(int pid, int timeoutMs) {
         DateTime end = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -221,6 +222,33 @@ public static class FixtureDriver {
         if (mode == "untraited-helper") {
             SmokeInputGuard.Require(prefix, false, "SendKey");
             return 0;
+        }
+        if (mode == "neg-flush-timeout") {
+            try {
+                using (DeskObserver obs = new DeskObserver(new int[0], flushTimeoutMs: 100)) {
+                    obs.DelayHookQueueForTest(350);
+                    obs.VerifyClean(mode);
+                }
+                return 0;
+            } catch (RealInputRefusedException ex) {
+                Console.Error.WriteLine("REFUSED: " + ex.Message);
+                return 11;
+            }
+        }
+        if (mode == "neg-focus-destroyed") {
+            try {
+                int selfPid = Process.GetCurrentProcess().Id;
+                uint selfTid = GetCurrentThreadId();
+                using (DeskObserver obs = new DeskObserver(new[] { selfPid })) {
+                    // Simulate a destroyed HWND where GetWindowThreadProcessId returns 0 while eventThreadId identifies the owned thread.
+                    obs.ObserveForegroundHandle(new IntPtr(0x12340000), selfTid);
+                    obs.VerifyClean(mode);
+                }
+                return 0;
+            } catch (RealInputRefusedException ex) {
+                Console.Error.WriteLine("REFUSED: " + ex.Message);
+                return 11;
+            }
         }
         if (mode == "real-input-action") {
             SmokeInputGuard.Require(prefix, true, "SendKey");
@@ -391,6 +419,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         # Negative fixtures (focus steal, pointer move-and-restore, injected key, untraited helper) all refuse.
         for neg, expect_detail in (
             ("neg-focus", "took the foreground window"),
+            ("neg-focus-destroyed", "took the foreground window"),
+            ("neg-flush-timeout", "timed out waiting for hook-thread flush acknowledgement"),
             ("neg-pointer", "pointer moved"),
             ("neg-key", "injected keyboard input"),
             ("untraited-helper", "RealInputRefusedException"),

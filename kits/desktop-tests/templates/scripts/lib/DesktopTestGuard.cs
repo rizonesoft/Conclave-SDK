@@ -274,23 +274,29 @@ namespace Conclave.DesktopTests
         private const uint WINEVENT_OUTOFCONTEXT = 0x0000;
         private const uint WM_QUIT = 0x0012;
         private const uint WM_FLUSH = 0x0401;
+        private const uint WM_HOLD = 0x0402;
+        private const uint THREAD_QUERY_LIMITED_INFORMATION = 0x0800;
         private readonly HashSet<int> _ownedPids = new HashSet<int>();
+        private readonly HashSet<uint> _ownedTids = new HashSet<uint>();
         private readonly List<string> _violations = new List<string>();
         private readonly object _gate = new object();
         private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
         private readonly ManualResetEventSlim _stop = new ManualResetEventSlim(false);
         private readonly ManualResetEventSlim _flushed = new ManualResetEventSlim(false);
+        private readonly int _flushTimeoutMs;
         private POINT _startCursor;
         private bool _hasCursor;
         private string _hookError;
         private Thread _hookThread;
         private Thread _pollThread;
-        private uint _hookThreadId;
+        private volatile uint _hookThreadId;
         private bool _disposed;
 
-        public DeskObserver(IEnumerable<int> ownedPids)
+        public DeskObserver(IEnumerable<int> ownedPids, int flushTimeoutMs = 2000)
         {
+            _flushTimeoutMs = flushTimeoutMs > 0 ? flushTimeoutMs : 2000;
             foreach (int pid in ownedPids) _ownedPids.Add(pid);
+            SnapshotOwnedThreads();
             _hasCursor = GetCursorPos(out _startCursor);
             _hookThread = new Thread(RunHooks) { IsBackground = true, Name = "DeskObserver-Hooks" };
             _hookThread.Start();
@@ -310,6 +316,39 @@ namespace Conclave.DesktopTests
         public void TrackPid(int pid)
         {
             lock (_gate) { _ownedPids.Add(pid); }
+            SnapshotOwnedThreads();
+        }
+
+        private void SnapshotOwnedThreads()
+        {
+            List<int> pids;
+            lock (_gate) { pids = new List<int>(_ownedPids); }
+            foreach (int pid in pids)
+            {
+                try
+                {
+                    using (Process proc = Process.GetProcessById(pid))
+                    {
+                        foreach (ProcessThread th in proc.Threads)
+                        {
+                            uint tid = (uint)th.Id;
+                            lock (_gate) { _ownedTids.Add(tid); }
+                        }
+                    }
+                }
+                catch (ArgumentException) { }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
+            }
+        }
+
+        internal void DelayHookQueueForTest(int milliseconds)
+        {
+            uint tid = _hookThreadId;
+            if (tid != 0 && milliseconds > 0)
+            {
+                PostThreadMessage(tid, WM_HOLD, new IntPtr(milliseconds), IntPtr.Zero);
+            }
         }
 
         public int LaunchNoActivate(string exePath, string arguments, string workingDirectory)
@@ -356,16 +395,58 @@ namespace Conclave.DesktopTests
             if (ours) Record("owned process " + pid + " took the foreground window");
         }
 
-        public void ObserveForegroundHandle(IntPtr hwnd)
+        public void ObserveForegroundHandle(IntPtr hwnd, uint eventThreadId = 0)
         {
-            if (hwnd == IntPtr.Zero) return;
-            uint pid;
-            GetWindowThreadProcessId(hwnd, out pid);
-            ObserveForegroundPid((int)pid);
+            if (hwnd != IntPtr.Zero)
+            {
+                uint pid = 0;
+                uint tid = GetWindowThreadProcessId(hwnd, out pid);
+                if (tid != 0 && pid != 0)
+                {
+                    bool ours;
+                    lock (_gate)
+                    {
+                        ours = _ownedPids.Contains((int)pid);
+                        if (ours) _ownedTids.Add(tid);
+                    }
+                    if (ours) Record("owned process " + pid + " took the foreground window");
+                    return;
+                }
+            }
+            if (eventThreadId != 0)
+            {
+                int threadPid = ResolveProcessIdFromThread(eventThreadId);
+                if (threadPid != 0)
+                {
+                    ObserveForegroundPid(threadPid);
+                    return;
+                }
+                bool ownedTid;
+                lock (_gate) { ownedTid = _ownedTids.Contains(eventThreadId); }
+                if (ownedTid)
+                {
+                    Record("owned thread " + eventThreadId + " took the foreground window");
+                }
+            }
+        }
+
+        private static int ResolveProcessIdFromThread(uint threadId)
+        {
+            IntPtr hThread = OpenThread(THREAD_QUERY_LIMITED_INFORMATION, false, threadId);
+            if (hThread == IntPtr.Zero) return 0;
+            try
+            {
+                return (int)GetProcessIdOfThread(hThread);
+            }
+            finally
+            {
+                CloseHandle(hThread);
+            }
         }
 
         private void CheckNow()
         {
+            SnapshotOwnedThreads();
             ObserveForegroundHandle(GetForegroundWindow());
             POINT now;
             if (GetCursorPos(out now))
@@ -406,7 +487,7 @@ namespace Conclave.DesktopTests
             };
             WinEventDelegate fgEv = (hWinEventHook, eventType, hwnd, idObject, idChild, dwEventThread, dwmsEventTime) =>
             {
-                ObserveForegroundHandle(hwnd);
+                ObserveForegroundHandle(hwnd, dwEventThread);
             };
             IntPtr mod = GetModuleHandle(null);
             IntPtr hKb = SetWindowsHookEx(WH_KEYBOARD_LL, kb, mod, 0);
@@ -418,6 +499,7 @@ namespace Conclave.DesktopTests
                 if (hKb != IntPtr.Zero) UnhookWindowsHookEx(hKb);
                 if (hMs != IntPtr.Zero) UnhookWindowsHookEx(hMs);
                 if (hFg != IntPtr.Zero) UnhookWinEvent(hFg);
+                _hookThreadId = 0;
                 _ready.Set();
                 return;
             }
@@ -428,12 +510,13 @@ namespace Conclave.DesktopTests
                 while (GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
                 {
                     if (msg.message == WM_FLUSH) _flushed.Set();
+                    else if (msg.message == WM_HOLD) Thread.Sleep((int)msg.wParam.ToInt64());
                     else DispatchMessage(ref msg);
                 }
             }
             finally
             {
-                _flushed.Set();
+                _hookThreadId = 0;
                 UnhookWindowsHookEx(hKb);
                 UnhookWindowsHookEx(hMs);
                 UnhookWinEvent(hFg);
@@ -445,12 +528,21 @@ namespace Conclave.DesktopTests
 
         public void VerifyClean(string testName)
         {
-            if (_hookThreadId != 0 && !_disposed)
+            uint tid = _hookThreadId;
+            if (_disposed || tid == 0)
+            {
+                Record("hook thread is not running; cannot verify clean desk");
+            }
+            else
             {
                 _flushed.Reset();
-                if (PostThreadMessage(_hookThreadId, WM_FLUSH, IntPtr.Zero, IntPtr.Zero))
+                if (!PostThreadMessage(tid, WM_FLUSH, IntPtr.Zero, IntPtr.Zero))
                 {
-                    _flushed.Wait(1000);
+                    Record("failed to post flush barrier to hook thread (err=" + Marshal.GetLastWin32Error() + ")");
+                }
+                else if (!_flushed.Wait(_flushTimeoutMs))
+                {
+                    Record("timed out waiting for hook-thread flush acknowledgement");
                 }
             }
             CheckNow();
@@ -468,7 +560,8 @@ namespace Conclave.DesktopTests
             if (_disposed) return;
             _disposed = true;
             _stop.Set();
-            if (_hookThreadId != 0) PostThreadMessage(_hookThreadId, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
+            uint tid = _hookThreadId;
+            if (tid != 0) PostThreadMessage(tid, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
             if (_pollThread != null) _pollThread.Join(2000);
             if (_hookThread != null) _hookThread.Join(2000);
             _ready.Dispose();
@@ -504,5 +597,8 @@ namespace Conclave.DesktopTests
         [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint idThread, uint msg, IntPtr wParam, IntPtr lParam);
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string lpModuleName);
         [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
+        [DllImport("kernel32.dll", SetLastError = true)] private static extern IntPtr OpenThread(uint dwDesiredAccess, bool bInheritHandle, uint dwThreadId);
+        [DllImport("kernel32.dll", SetLastError = true)] private static extern uint GetProcessIdOfThread(IntPtr hThread);
+        [DllImport("kernel32.dll", SetLastError = true)] private static extern bool CloseHandle(IntPtr hObject);
     }
 }
