@@ -76,15 +76,15 @@ Every visual smoke run and window capture, in any repository or session, holds o
 
 **Build order:**
 
-1. The lock and its holder record. Done when: a second taker refuses naming the holder.
-2. Inheritance for children. Done when: the checkpoint passes.
+1. The machine-wide lock (`DesktopLock.cs`) and shared holder record. Done when: two projects with different prefixes contend on the default lock and the second refuses naming the holder.
+2. Bounded wait, release contract, inheritance with lifetime enforcement, and capture/smoke entry points (`capture-window.ps1`, `smoke-input.ps1`). Done when: the checkpoint passes.
 
-- [ ] Ship a named mutex (`Local\<prefix>-desktop`, overridable by `<PREFIX>_DESKTOP_LOCK`) held for a whole visual smoke run and for each window capture, with a holder record naming the process by id and start time, so a reused id never passes for the holder. Done when: a test holds the lock in one process and finds a second wait, then refuse naming the holder's id and start time.
-- [ ] Bound the wait (`<PREFIX>_DESKTOP_WAIT_S`) and release on handle close or process end. Done when: a test kills the holder and finds the next taker gets the lock at once.
-- [ ] Let children inherit the hold through `<PREFIX>_DESKTOP_HELD`, checked against an ancestor's id and start time, so a runner holding the lock across test classes never deadlocks its own children. Done when: a child of the holder takes the lock at once and an unrelated process with the variable set does not.
+- [ ] Ship `scripts/lib/DesktopLock.cs` with one machine-wide default named mutex (`Global\conclave-desktop-lock`, overridable by `<PREFIX>_DESKTOP_LOCK` using the project's `env_prefix`) and a shared holder record in `%ProgramData%\Conclave\desktop-locks\<sha256(lock-name)>.json` naming the holder by process id and kernel creation time (`GetProcessTimes`), held across every `smoke-input.ps1` run, every `scripts/capture-window.ps1` capture, and live-desk negative fixtures, with `forge.py doctor` checking both files. Done when: two installed projects with different prefixes and no overrides contend on the default lock, a second taker waits then refuses naming the holder's id and start time (or reports holder identity unavailable without attributing a stale record), and `smoke-input.ps1` preserves its scheduled exit 0 / on-demand exit 1 / `desktop-locked-by-other` history contract and rechecks admission after waiting.
+- [ ] Bound `<PREFIX>_DESKTOP_WAIT_S` to `[0, 86400]` (failing closed on negative, invalid, or excessive values), enforce same-thread acquire/release, roll back the mutex if record publication fails, and unconditionally release the mutex on handle close (even if record cleanup hits a locked file) or process end (`AbandonedMutexException`). Done when: a synchronized waiter already blocking on the mutex acquires at once when the holder is killed and publishes its replacement record, and failed-publication and clean-disposal tests let a second process acquire while the first stays alive.
+- [ ] Let children inherit the hold through `<PREFIX>_DESKTOP_HELD` (`<pid>:<start_ticks>:<lock_name>`), verified against a live ancestor's id and kernel creation time plus live mutex contention and matching holder record, with owner Job Object cleanup and child-side `EnsureStillHeld()` preventing an inherited child from acting after the owner exits or releases. Done when: a child of the holder takes the lock at once without releasing it on dispose, an unrelated process or a real descendant with a mismatched ancestor creation time in both token and record is refused by production `DesktopLock.Acquire`, and killing the owner blocks a paused child from performing a subsequent desktop action after a new owner enters.
 - [ ] Commit: `tooling: one owner of the visual desktop at a time`
 
-**Test checkpoint:** `python forge.py check-all --only kit-desktop-tests` passes on Windows; removing the start-time check makes the reused-id test fail.
+**Test checkpoint:** `python forge.py check-all --only kit-desktop-tests` and `python -m unittest tests.test_desktop_tests_installed -v` pass on Windows; removing the live ancestor creation-time check makes the reused-id descendant test fail.
 
 ## Verification
 
