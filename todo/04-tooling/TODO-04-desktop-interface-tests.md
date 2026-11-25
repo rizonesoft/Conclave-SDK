@@ -36,7 +36,7 @@ title: "TODO-04 -- Desktop interface tests that never take the operator's desk"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Interface tests split by whether they take the desk | -- | [ ] |
+| 1 | §1 | Interface tests split by whether they take the desk | -- | [x] |
 | 2 | §2 | One owner of the visual desktop at a time | -- | [ ] |
 
 ## 1. Interface tests split by whether they take the desk
@@ -62,6 +62,9 @@ A default run (and CI) drives the UI without real input; real input is opt-in, n
 - [x] Commit: `tooling: interface tests split by whether they take the desk`
 
 **Test checkpoint:** on Windows, `python forge.py check-all --only kit-desktop-tests`, `python forge.py check-all --only kit-automations`, and `python -m unittest tests.test_desktop_tests_installed -v` pass with nonzero executed Windows UIA cases; bypassing admission, moving pointer/focus/key in a default test, dropping a case, or sending foreign-tagged input fails its test. **Corrected 2026-11-25:** live `SendInput`, cursor, and focus perturbation runs on unlocked desktops with `CONCLAVE_TEST_LIVE_DESK=1`, while locked or headless runners verify the positive WPF+UIA fixture, guard/tag/observer refusal logic, and real Windows Task Scheduler registration.
+
+> **Verified:** 2026-11-25 | §1 | 3350cac0e4acc0199e01ce4a2e808083b1dd6109
+> **Review:** `docs/reviews/d04-t04-s1.json`
 
 ## 2. One owner of the visual desktop at a time
 
