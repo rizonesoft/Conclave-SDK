@@ -271,6 +271,8 @@ Resolute's pin is a rotation schedule and its `scripts/review-dispatch.py` knows
 
 ## 9. C++ Lens Entries in the C++ Projects
 
+> **Started:** 2026-11-25T12:52Z
+
 Only projects with C++ of their own get the entry: Resolute-SDK, Resolute and the one tool repository that holds any. The other 77 tool repositories keep their byte-identical pin until they hold C++. Read each tree for its real source paths and leave out the vendored toolchain, third-party code and build output.
 
 **Phase:** 9
