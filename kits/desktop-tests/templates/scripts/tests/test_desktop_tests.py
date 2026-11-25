@@ -80,6 +80,7 @@ class ConfigValidationTests(unittest.TestCase):
 # Real WPF fixture app honoring LaunchShow.FirstWindowActivates() with a native UIA Button and TextBlock.
 FIXTURE_APP_CS = r'''
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -89,9 +90,10 @@ using Conclave.DesktopTests;
 
 public static class FixtureApp {
     private const int WS_POPUP = unchecked((int)0x80000000);
-    private const int WS_VISIBLE = 0x10000000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_NOACTIVATE = 0x08000000;
+    private const int SW_SHOWNOACTIVATE = 4;
+    [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hwnd, int nCmdShow);
 
     [STAThread]
     public static void Main(string[] args) {
@@ -111,18 +113,19 @@ public static class FixtureApp {
         panel.Children.Add(lbl);
         panel.Children.Add(btn);
         if (!activate) {
-            // Pass WS_EX_NOACTIVATE directly to CreateWindowEx via HwndSource so Win32 never activates
-            // this window even on an empty desktop, while exposing the full WPF UIA tree.
+            // Create hidden with WS_EX_NOACTIVATE and show via SW_SHOWNOACTIVATE so Win32 never
+            // activates the window or emits EVENT_SYSTEM_FOREGROUND, while exposing the full WPF UIA tree.
             var p = new HwndSourceParameters("ConclaveUiaFixtureWindow") {
                 PositionX = 40,
                 PositionY = 40,
                 Width = 260,
                 Height = 140,
-                WindowStyle = WS_POPUP | WS_VISIBLE,
+                WindowStyle = WS_POPUP,
                 ExtendedWindowStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
             };
             using (var src = new HwndSource(p)) {
                 src.RootVisual = panel;
+                ShowWindow(src.Handle, SW_SHOWNOACTIVATE);
                 Dispatcher.Run();
             }
             return;
