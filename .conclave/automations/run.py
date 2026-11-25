@@ -374,6 +374,12 @@ def systemd_units(manifest: dict, root: str, python: str) -> dict[str, str]:
         if "weekly" in trigger:
             when = [f"OnCalendar={trigger['weekly'][:3]} *-*-* {trigger['at']}:00", "Persistent=true",
                     "RandomizedDelaySec=300"]
+        elif trigger.get("daily"):
+            when = [f"OnCalendar=*-*-* {trigger['at']}:00"]
+            if task.get("start_when_available", True):
+                when.append("Persistent=true")
+            delay = int(trigger.get("random_delay_minutes", 0))
+            when.append(f"RandomizedDelaySec={delay * 60}")
         else:
             when = [f"OnStartupSec={trigger['at_logon_delay_minutes']}min",
                     f"OnUnitActiveSec={trigger['every_minutes']}min"]

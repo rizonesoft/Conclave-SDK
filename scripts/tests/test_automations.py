@@ -664,6 +664,20 @@ class InstallSh(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse((self.config / "systemd" / "user").exists())
 
+    def test_daily_trigger_renders_systemd_timer_cleanly(self):
+        daily_task = {
+            **fixture_task("demo-nightly"),
+            "trigger": {"daily": True, "at": "03:00", "random_delay_minutes": 0},
+            "start_when_available": False,
+            "wake_to_run": False,
+            "exact_timeout": True,
+        }
+        units = run.systemd_units({"schema_version": 1, "folder": "\\Demo\\", "tasks": [daily_task]}, str(self.root))
+        timer = units["demo-nightly.timer"]
+        self.assertIn("OnCalendar=*-*-* 03:00:00", timer)
+        self.assertIn("RandomizedDelaySec=0", timer)
+        self.assertNotIn("Persistent=true", timer)
+
 
 if __name__ == "__main__":
     unittest.main()

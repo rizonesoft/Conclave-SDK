@@ -1,63 +1,76 @@
 <#
 .SYNOPSIS
-    Runs real-input desktop UI tests on demand or nightly on an idle, unlocked desktop (D04 T04 s1).
+    Admitted runner for opt-in real-input Windows desktop UI tests (D04 T04 s1).
 .DESCRIPTION
-    Reads .conclave/desktop-tests.json (prefix, window_opens, window_closes, idle_minutes, history_limit,
-    log_limit, test_command). Exports <PREFIX>_SMOKE_INPUT=1, <PREFIX>_SMOKE_ADMITTED, <PREFIX>_SMOKE_PERSON_EVENT,
-    and a fresh per-run <PREFIX>_SMOKE_TAG so tests cannot send real input outside an admitted, actively watched run.
-    Exit codes: 0 passed or skipped by admission guard; 1 failed, interrupted, or reconciliation error; 2 invalid config/args.
+    Reads .conclave/desktop-tests.json, enforces admission (unlocked desktop, idle threshold, nightly
+    window when -Scheduled, and live watcher readiness), runs discovery and each test class inside
+    Windows Job Objects assigned before the child's first instruction, streams output to bounded logs,
+    reconciles discovered cases case-sensitively, and records atomic mutex-guarded history.
 #>
+[CmdletBinding()]
 param(
     [switch]$Scheduled,
+    [switch]$Status,
     [switch]$Install,
     [switch]$Uninstall,
-    [switch]$Status,
-    [string]$ProjectRoot = '',
-    [string]$StateFolder = '',
-    [string]$Python = '',
-    [string]$RunnerCommand = '',
-    [string]$Watcher = '',
-    [switch]$TestProbes,
     [switch]$NoRegister,
-    [string]$NowOverride = ''
+    [string]$ProjectRoot,
+    [string]$StateFolder,
+    [string]$Python,
+    [string]$Watcher,
+    [string]$RunnerCommand,
+    [string]$NowOverride,
+    [switch]$TestProbes
 )
-$ErrorActionPreference = 'Stop'
+
 Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-$here = $PSScriptRoot
-$repo = if ($ProjectRoot) { (Resolve-Path -LiteralPath $ProjectRoot).ProviderPath } else { Split-Path $here -Parent }
-if (-not $Python) {
-    $pyCmd = Get-Command python -CommandType Application -ErrorAction Ignore | Select-Object -First 1
-    if (-not $pyCmd) { Write-Error 'smoke-input: python is not on PATH'; exit 2 }
-    $Python = $pyCmd.Source
-}
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repo = if ($ProjectRoot) { [IO.Path]::GetFullPath($ProjectRoot) } else { [IO.Path]::GetFullPath((Join-Path $here '..')) }
+$pyExe = if ($Python) { $Python } else { 'python' }
+$cfgLoader = Join-Path $here 'lib\desktop_tests.py'
 
-# Validate .conclave/desktop-tests.json (exit 2 on invalid settings).
-$cfgJson = & $Python -B (Join-Path $here 'lib\desktop_tests.py') show --root $repo 2>&1
+# Load and validate .conclave/desktop-tests.json (exit 2 on invalid or unset config).
+$cfgJson = & $pyExe -B $cfgLoader show --root $repo 2>&1
 if ($LASTEXITCODE -ne 0) {
-    ($cfgJson | Out-String).Trim() | Write-Error
+    [Console]::Error.WriteLine(($cfgJson | Out-String).Trim())
     exit 2
 }
-$cfg = ($cfgJson | Select-Object -Last 1) | ConvertFrom-Json
+$cfg = ($cfgJson | Out-String) | ConvertFrom-Json
 $prefix = [string]$cfg.prefix
 $envPrefix = [string]$cfg.env_prefix
 $historyLimit = [int]$cfg.history_limit
 $logLimit = [int]$cfg.log_limit
-$idleMinutes = [int]$cfg.idle_minutes
+
+# Refuse test-harness overrides when executing the real configured test_command.
+if ((-not $Status) -and (-not $Install) -and (-not $Uninstall) -and (-not $RunnerCommand)) {
+    if ($NowOverride -or $TestProbes -or $Watcher) {
+        [Console]::Error.WriteLine('smoke-input: -NowOverride, -TestProbes, and -Watcher require -RunnerCommand in run mode')
+        exit 2
+    }
+}
 
 if (-not $StateFolder) {
-    $StateFolder = Join-Path $env:LOCALAPPDATA "$prefix\desktop-tests"
+    $localApp = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [IO.Path]::GetTempPath() }
+    $StateFolder = Join-Path $localApp "$prefix-desktop-tests"
 }
 New-Item -ItemType Directory -Force -Path $StateFolder | Out-Null
 $historyPath = Join-Path $StateFolder 'input-history.jsonl'
 $installedPath = Join-Path $StateFolder 'installed.json'
+$nightsPath = Join-Path $StateFolder 'scheduled-nights.json'
 $logsDir = Join-Path $StateFolder 'logs'
 
 if (-not ('ConclaveSmokeDesk' -as [type])) {
     Add-Type @'
 using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
 
 public static class ConclaveSmokeDesk {
     [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
@@ -88,6 +101,26 @@ public static class ConclaveSmokeDesk {
         public IO_COUNTERS IoInfo;
         public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
     }
+    [StructLayout(LayoutKind.Sequential)]
+    struct SECURITY_ATTRIBUTES {
+        public int nLength;
+        public IntPtr lpSecurityDescriptor;
+        public int bInheritHandle;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct STARTUPINFO {
+        public int cb;
+        public IntPtr lpReserved, lpDesktop, lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_INFORMATION {
+        public IntPtr hProcess, hThread;
+        public uint dwProcessId, dwThreadId;
+    }
+
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateJobObjectW(IntPtr attr, string name);
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -98,21 +131,172 @@ public static class ConclaveSmokeDesk {
     public static extern bool TerminateJobObject(IntPtr job, uint code);
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CreatePipe(out IntPtr readPipe, out IntPtr writePipe, ref SECURITY_ATTRIBUTES sa, uint size);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetHandleInformation(IntPtr hObject, uint dwMask, uint dwFlags);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool CreateProcessW(
+        string appName, StringBuilder cmdLine, IntPtr procAttr, IntPtr threadAttr, bool inheritHandles,
+        uint creationFlags, IntPtr envBlock, string curDir, ref STARTUPINFO si, out PROCESS_INFORMATION pi);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint ResumeThread(IntPtr hThread);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool TerminateProcess(IntPtr hProcess, uint exitCode);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
+    public sealed class JobChild : IDisposable {
+        public IntPtr ProcessHandle;
+        public int Pid;
+        public StreamReader StdOut;
+        public StreamReader StdErr;
+        private bool _disposed;
+
+        public bool HasExited {
+            get { return WaitForSingleObject(ProcessHandle, 0) == 0; }
+        }
+        public int ExitCode {
+            get {
+                uint code;
+                if (!GetExitCodeProcess(ProcessHandle, out code)) return -1;
+                return unchecked((int)code);
+            }
+        }
+        public bool WaitForExit(int ms) {
+            return WaitForSingleObject(ProcessHandle, (uint)ms) == 0;
+        }
+        public void Dispose() {
+            if (_disposed) return;
+            _disposed = true;
+            if (StdOut != null) StdOut.Dispose();
+            if (StdErr != null) StdErr.Dispose();
+            if (ProcessHandle != IntPtr.Zero) { CloseHandle(ProcessHandle); ProcessHandle = IntPtr.Zero; }
+        }
+    }
 
     public static IntPtr NewKillOnCloseJob() {
         IntPtr job = CreateJobObjectW(IntPtr.Zero, null);
-        if (job == IntPtr.Zero) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         var lim = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
         lim.BasicLimitInformation.LimitFlags = 0x2000; // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
         if (!SetInformationJobObject(job, 9, ref lim, (uint)Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)))) {
             int err = Marshal.GetLastWin32Error();
             CloseHandle(job);
-            throw new System.ComponentModel.Win32Exception(err);
+            throw new Win32Exception(err);
         }
         return job;
     }
+
+    private static IntPtr BuildEnvBlock(IDictionary<string, string> env) {
+        var sorted = new SortedDictionary<string, string>(env, StringComparer.OrdinalIgnoreCase);
+        var sb = new StringBuilder();
+        foreach (var kv in sorted) {
+            sb.Append(kv.Key).Append('=').Append(kv.Value ?? "").Append('\0');
+        }
+        sb.Append('\0');
+        return Marshal.StringToHGlobalUni(sb.ToString());
+    }
+
+    // Starts a child suspended, assigns it to job BEFORE its first instruction runs, then resumes it.
+    public static JobChild StartInJob(IntPtr job, string cmdLine, string workDir, IDictionary<string, string> envOverrides) {
+        var sa = new SECURITY_ATTRIBUTES { nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), bInheritHandle = 1 };
+        IntPtr outR = IntPtr.Zero, outW = IntPtr.Zero, errR = IntPtr.Zero, errW = IntPtr.Zero;
+        if (!CreatePipe(out outR, out outW, ref sa, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
+        if (!CreatePipe(out errR, out errW, ref sa, 0)) {
+            CloseHandle(outR); CloseHandle(outW);
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        SetHandleInformation(outR, 1, 0);
+        SetHandleInformation(errR, 1, 0);
+
+        var envMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (System.Collections.DictionaryEntry de in Environment.GetEnvironmentVariables()) {
+            envMap[(string)de.Key] = (string)de.Value;
+        }
+        if (envOverrides != null) {
+            foreach (var kv in envOverrides) envMap[kv.Key] = kv.Value;
+        }
+        IntPtr envPtr = BuildEnvBlock(envMap);
+        var si = new STARTUPINFO();
+        si.cb = Marshal.SizeOf(typeof(STARTUPINFO));
+        si.dwFlags = 0x100; // STARTF_USESTDHANDLES
+        si.hStdOutput = outW;
+        si.hStdError = errW;
+        PROCESS_INFORMATION pi;
+        uint flags = 0x4 | 0x400 | 0x08000000; // CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW
+        bool ok;
+        int err = 0;
+        try {
+            ok = CreateProcessW(null, new StringBuilder(cmdLine), IntPtr.Zero, IntPtr.Zero, true, flags, envPtr, workDir, ref si, out pi);
+            if (!ok) err = Marshal.GetLastWin32Error();
+        } finally {
+            Marshal.FreeHGlobal(envPtr);
+            CloseHandle(outW);
+            CloseHandle(errW);
+        }
+        if (!ok) {
+            CloseHandle(outR); CloseHandle(errR);
+            throw new Win32Exception(err);
+        }
+        if (!AssignProcessToJobObject(job, pi.hProcess)) {
+            int jerr = Marshal.GetLastWin32Error();
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            CloseHandle(outR); CloseHandle(errR);
+            throw new Win32Exception(jerr, "AssignProcessToJobObject failed before child resumed");
+        }
+        if (ResumeThread(pi.hThread) == unchecked((uint)-1)) {
+            int rerr = Marshal.GetLastWin32Error();
+            TerminateProcess(pi.hProcess, 1);
+            CloseHandle(pi.hThread);
+            CloseHandle(pi.hProcess);
+            CloseHandle(outR); CloseHandle(errR);
+            throw new Win32Exception(rerr);
+        }
+        CloseHandle(pi.hThread);
+        var utf8 = new UTF8Encoding(false);
+        return new JobChild {
+            ProcessHandle = pi.hProcess,
+            Pid = (int)pi.dwProcessId,
+            StdOut = new StreamReader(new FileStream(new SafeFileHandle(outR, true), FileAccess.Read), utf8),
+            StdErr = new StreamReader(new FileStream(new SafeFileHandle(errR, true), FileAccess.Read), utf8),
+        };
+    }
 }
 '@
+}
+
+function Quote-WinArg([string]$a) {
+    if ($null -eq $a -or $a.Length -eq 0) { return '""' }
+    if ($a -notmatch '[\s"]') { return $a }
+    $sb = [Text.StringBuilder]::new('"')
+    $bs = 0
+    for ($i = 0; $i -lt $a.Length; $i++) {
+        $ch = $a[$i]
+        if ($ch -eq '\') {
+            $bs++
+        } elseif ($ch -eq '"') {
+            [void]$sb.Append('\', $bs * 2 + 1).Append('"')
+            $bs = 0
+        } else {
+            if ($bs -gt 0) { [void]$sb.Append('\', $bs); $bs = 0 }
+            [void]$sb.Append($ch)
+        }
+    }
+    if ($bs -gt 0) { [void]$sb.Append('\', $bs * 2) }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
+function Build-WinCmdLine([string]$exe, [string[]]$argList) {
+    $parts = [Collections.Generic.List[string]]::new()
+    $parts.Add((Quote-WinArg $exe))
+    foreach ($a in @($argList)) { $parts.Add((Quote-WinArg $a)) }
+    return ($parts -join ' ')
 }
 
 function Get-NowLocal {
@@ -138,7 +322,6 @@ function Test-InWindow([DateTime]$nowLocal, [TimeSpan]$opens, [TimeSpan]$closes)
     if ($opens -lt $closes) {
         return ($t -ge $opens) -and ($t -lt $closes)
     }
-    # Overnight wrap (e.g. 23:00 to 02:00).
     return ($t -ge $opens) -or ($t -lt $closes)
 }
 
@@ -150,9 +333,11 @@ function Get-WindowCloseDateTime([DateTime]$nowLocal, [TimeSpan]$opens, [TimeSpa
 }
 
 function Read-History {
-    if (-not (Test-Path -LiteralPath $historyPath)) { return @() }
+    if (-not [IO.File]::Exists($historyPath)) { return @() }
+    # Fail closed on transient read errors so Add-History never overwrites readable history with an empty list.
+    $rawLines = [IO.File]::ReadAllLines($historyPath, [Text.UTF8Encoding]::new($false))
     $items = [Collections.Generic.List[object]]::new()
-    foreach ($line in @(Get-Content -LiteralPath $historyPath -ErrorAction Ignore)) {
+    foreach ($line in $rawLines) {
         if (-not $line.Trim()) { continue }
         try {
             $rec = $line | ConvertFrom-Json
@@ -180,10 +365,18 @@ function Write-AtomicText([string]$dest, [string]$content) {
     }
 }
 
+function Open-StateMutex([string]$key) {
+    try {
+        return [Threading.Mutex]::new($false, "Global\$prefix-smoke-history-$key")
+    } catch [UnauthorizedAccessException] {
+        return [Threading.Mutex]::new($false, "Local\$prefix-smoke-history-$key")
+    }
+}
+
 function Add-History($entry) {
     $hashBytes = [Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($historyPath)).ToLowerInvariant()))
     $key = [Convert]::ToHexString($hashBytes).Substring(0, 16)
-    $mtx = [Threading.Mutex]::new($false, "Local\$prefix-smoke-history-$key")
+    $mtx = Open-StateMutex $key
     try {
         try { [void]$mtx.WaitOne() } catch [Threading.AbandonedMutexException] { }
         $existing = @(Read-History)
@@ -193,8 +386,19 @@ function Add-History($entry) {
         }
         $lines = @($all | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 6 })
         Write-AtomicText $historyPath (($lines -join "`n") + "`n")
+        # Record completed scheduled nights separately so history_limit eviction never creates fake missed nights.
+        if ($entry['mode'] -eq 'scheduled' -and $entry['night']) {
+            $nights = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+            if ([IO.File]::Exists($nightsPath)) {
+                $doc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
+                foreach ($d in @($doc)) { if ($d) { [void]$nights.Add([string]$d) } }
+            }
+            [void]$nights.Add([string]$entry['night'])
+            $sortedNights = @($nights | Sort-Object | Select-Object -Last 3650)
+            Write-AtomicText $nightsPath (ConvertTo-Json -InputObject $sortedNights -Compress)
+        }
     } finally {
-        try { $mtx.ReleaseMutex() } catch { }
+        try { $mtx.ReleaseMutex() } catch [ApplicationException] { }
         $mtx.Dispose()
     }
 }
@@ -226,10 +430,17 @@ function Get-DeskState {
     return [pscustomobject]@{ Unknown = $false; Locked = [ConclaveSmokeDesk]::IsLocked(); IdleSeconds = $idleSec }
 }
 
+function Test-OwnedAutomationTask($taskObj) {
+    if (-not $taskObj -or -not $taskObj.PSObject.Properties['command']) { return $false }
+    $joined = (@($taskObj.command) -join ' ')
+    return $joined -match 'smoke-input\.ps1'
+}
+
 # ---- Install / Uninstall ---------------------------------------------------------------------------------------
 $taskName = "$prefix-real-input-smoke"
 $autoDir = Join-Path $repo '.conclave\automations'
 $autoManifest = Join-Path $autoDir 'tasks.json'
+$autoRunner = Join-Path $autoDir 'run.py'
 
 if ($Install) {
     $now = Get-NowLocal
@@ -237,20 +448,41 @@ if ($Install) {
     $closes = Parse-HHMM $cfg.window_closes
     $durationMin = [int]((Get-WindowCloseDateTime ($now.Date.Add($opens)) $opens $closes) - ($now.Date.Add($opens))).TotalMinutes
     if ($durationMin -le 0) { $durationMin = 180 }
+
+    # Preserve existing first_expected_night on reinstall so genuine missed nights are never erased.
     $firstNight = if ($now.TimeOfDay -ge $opens) { $now.Date.AddDays(1).ToString('yyyy-MM-dd') } else { $now.Date.ToString('yyyy-MM-dd') }
+    if ([IO.File]::Exists($installedPath)) {
+        try {
+            $prevInst = [IO.File]::ReadAllText($installedPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
+            if ($prevInst.PSObject.Properties['first_expected_night'] -and $prevInst.first_expected_night) {
+                $firstNight = [string]$prevInst.first_expected_night
+            }
+        } catch { }
+    }
+
     $installRec = [ordered]@{
         installed_at = $now.ToString('O')
         first_expected_night = $firstNight
         task_name = $taskName
         mode = if (Test-Path -LiteralPath $autoManifest) { 'automations' } else { 'standalone' }
     }
-    Write-AtomicText $installedPath ($installRec | ConvertTo-Json -Depth 4)
 
     if (Test-Path -LiteralPath $autoManifest) {
-        $doc = Get-Content -Raw -LiteralPath $autoManifest | ConvertFrom-Json
+        $doc = [IO.File]::ReadAllText($autoManifest, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
+        if (-not $doc.PSObject.Properties['folder'] -or [string]::IsNullOrWhiteSpace([string]$doc.folder)) {
+            [Console]::Error.WriteLine("smoke-input: .conclave/automations/tasks.json has no folder set; configure folder before installing")
+            exit 2
+        }
         $tasks = [Collections.Generic.List[object]]::new()
         foreach ($t in @($doc.tasks)) {
-            if ($t.name -ne $taskName) { $tasks.Add($t) }
+            if ($t.name -eq $taskName) {
+                if (-not (Test-OwnedAutomationTask $t)) {
+                    [Console]::Error.WriteLine("smoke-input: refusing to overwrite unrelated automation task '$taskName'")
+                    exit 2
+                }
+                continue
+            }
+            $tasks.Add($t)
         }
         $tasks.Add([ordered]@{
             name = $taskName
@@ -271,11 +503,31 @@ if ($Install) {
             folder = $doc.folder
             tasks = @($tasks)
         }
-        Write-AtomicText $autoManifest (($newDoc | ConvertTo-Json -Depth 8) + "`n")
+        $candidateText = ($newDoc | ConvertTo-Json -Depth 8) + "`n"
+        # Validate candidate manifest BEFORE replacing tasks.json or installed.json.
+        if (Test-Path -LiteralPath $autoRunner) {
+            $tmpCheck = Join-Path $autoDir "tasks.$PID.check.json"
+            try {
+                [IO.File]::WriteAllText($tmpCheck, $candidateText, [Text.UTF8Encoding]::new($false))
+                $valOut = & $pyExe -B -c "import importlib.util, sys; s=importlib.util.spec_from_file_location('r', sys.argv[1]); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); m.load_manifest(sys.argv[2], launchers=False)" $autoRunner $tmpCheck 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    [Console]::Error.WriteLine("smoke-input: candidate automations manifest failed validation: $($valOut | Out-String)")
+                    exit 2
+                }
+            } finally {
+                if (Test-Path -LiteralPath $tmpCheck) { Remove-Item -LiteralPath $tmpCheck -Force -ErrorAction Ignore }
+            }
+        }
+        $prevManifestText = [IO.File]::ReadAllText($autoManifest, [Text.UTF8Encoding]::new($false))
+        Write-AtomicText $autoManifest $candidateText
         if (-not $NoRegister) {
             & pwsh -NoProfile -NonInteractive -File (Join-Path $autoDir 'install.ps1')
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($LASTEXITCODE -ne 0) {
+                Write-AtomicText $autoManifest $prevManifestText
+                exit $LASTEXITCODE
+            }
         }
+        Write-AtomicText $installedPath ($installRec | ConvertTo-Json -Depth 4)
         "smoke-input: installed nightly task '$taskName' in .conclave/automations/tasks.json"
         exit 0
     } else {
@@ -295,6 +547,7 @@ if ($Install) {
                 -Description "Nightly real-input desktop UI tests for $prefix" `
                 -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force | Out-Null
         }
+        Write-AtomicText $installedPath ($installRec | ConvertTo-Json -Depth 4)
         "smoke-input: installed standalone nightly task '$taskName'"
         exit 0
     }
@@ -302,8 +555,18 @@ if ($Install) {
 
 if ($Uninstall) {
     if (Test-Path -LiteralPath $autoManifest) {
-        $doc = Get-Content -Raw -LiteralPath $autoManifest | ConvertFrom-Json
-        $kept = @($doc.tasks | Where-Object { $_.name -ne $taskName })
+        $doc = [IO.File]::ReadAllText($autoManifest, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
+        $kept = [Collections.Generic.List[object]]::new()
+        foreach ($t in @($doc.tasks)) {
+            if ($t.name -eq $taskName) {
+                if (-not (Test-OwnedAutomationTask $t)) {
+                    [Console]::Error.WriteLine("smoke-input: refusing to remove unrelated automation task '$taskName'")
+                    exit 2
+                }
+                continue
+            }
+            $kept.Add($t)
+        }
         $newDoc = [ordered]@{
             schema_version = $doc.schema_version
             folder = $doc.folder
@@ -329,9 +592,9 @@ if ($Status) {
     $sched = @($hist | Where-Object { $_.mode -eq 'scheduled' })
     $ondem = @($hist | Where-Object { $_.mode -eq 'on-demand' })
     $firstNight = $null
-    if (Test-Path -LiteralPath $installedPath) {
+    if ([IO.File]::Exists($installedPath)) {
         try {
-            $inst = Get-Content -Raw -LiteralPath $installedPath | ConvertFrom-Json
+            $inst = [IO.File]::ReadAllText($installedPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
             if ($inst.PSObject.Properties['first_expected_night'] -and $inst.first_expected_night) {
                 $firstNight = [DateTime]::ParseExact([string]$inst.first_expected_night, 'yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture)
             }
@@ -346,6 +609,10 @@ if ($Status) {
         foreach ($r in $sched) {
             $d = if ($r.PSObject.Properties['night'] -and $r.night) { [string]$r.night } else { ([DateTime]::Parse([string]$r.at, [Globalization.CultureInfo]::InvariantCulture)).ToString('yyyy-MM-dd') }
             [void]$schedDates.Add($d)
+        }
+        if ([IO.File]::Exists($nightsPath)) {
+            $nDoc = [IO.File]::ReadAllText($nightsPath, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
+            foreach ($nd in @($nDoc)) { if ($nd) { [void]$schedDates.Add([string]$nd) } }
         }
         $opens = Parse-HHMM $cfg.window_opens
         $lastExpected = if ($now.TimeOfDay -ge $opens) { $now.Date } else { $now.Date.AddDays(-1) }
@@ -375,237 +642,378 @@ $opens = Parse-HHMM $cfg.window_opens
 $closes = Parse-HHMM $cfg.window_closes
 $mode = if ($Scheduled) { 'scheduled' } else { 'on-demand' }
 $nightStr = $now.ToString('yyyy-MM-dd')
+$idleMin = [int]$cfg.idle_minutes
 
-if ($Scheduled) {
-    if (-not (Test-InWindow $now $opens $closes)) {
-        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = 'outside-window' })
-        "smoke-input: skipped (outside-window: $($cfg.window_opens)-$($cfg.window_closes))"
-        exit 0
+function Check-Admission([bool]$isScheduled) {
+    $cur = Get-NowLocal
+    if ($isScheduled -and (-not (Test-InWindow $cur $opens $closes))) {
+        return 'outside-window'
     }
     $desk = Get-DeskState
-    if ($desk.Unknown) {
-        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = 'desktop-unknown' })
-        "smoke-input: skipped (desktop-unknown)"
-        exit 0
+    if ($desk.Unknown) { return 'desktop-unknown' }
+    if ($desk.Locked) { return 'desktop-locked' }
+    if ($isScheduled -and ($desk.IdleSeconds -lt ($idleMin * 60))) {
+        return "desktop-busy(idle=$([int]$desk.IdleSeconds)s<$(($idleMin * 60))s)"
     }
-    if ($desk.Locked) {
-        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = 'desktop-locked' })
-        "smoke-input: skipped (desktop-locked)"
+    return $null
+}
+
+$skipReason = Check-Admission ([bool]$Scheduled)
+if ($skipReason) {
+    Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = $skipReason })
+    if ($Scheduled) {
+        "smoke-input: skipped ($skipReason)"
         exit 0
-    }
-    if ($desk.IdleSeconds -lt ($idleMinutes * 60.0)) {
-        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = 'desktop-busy'; idle_seconds = [math]::Round($desk.IdleSeconds, 1) })
-        "smoke-input: skipped (desktop-busy: idle $([math]::Round($desk.IdleSeconds, 1))s < $($idleMinutes * 60)s)"
-        exit 0
+    } else {
+        [Console]::Error.WriteLine("smoke-input: refused on-demand run ($skipReason)")
+        exit 1
     }
 }
 
-# Resolve runner command.
-$runnerExe = $null
-$runnerBaseArgs = @()
-if ($RunnerCommand) {
-    $runnerExe = $Python
-    $runnerBaseArgs = @('-B', $RunnerCommand)
-} elseif ($cfg.test_command) {
-    $runnerExe = [string]$cfg.test_command[0]
-    if ($cfg.test_command.Count -gt 1) { $runnerBaseArgs = @($cfg.test_command[1..($cfg.test_command.Count - 1)]) }
-} else {
-    Write-Error 'smoke-input: no -RunnerCommand or test_command in .conclave/desktop-tests.json'
-    exit 2
-}
-
-# Compile InputWatch.cs on demand if -Watcher not supplied.
-if (-not $Watcher) {
-    $watchExe = Join-Path $StateFolder 'InputWatch.exe'
+# Resolve watcher executable (compile InputWatch.cs on demand if -Watcher not passed).
+$watchExe = $Watcher
+if (-not $watchExe) {
+    $watchBin = Join-Path $StateFolder 'bin\InputWatch.exe'
     $watchSrc = Join-Path $here 'lib\InputWatch.cs'
-    if (-not (Test-Path -LiteralPath $watchExe) -or ((Get-Item -LiteralPath $watchSrc).LastWriteTimeUtc -gt (Get-Item -LiteralPath $watchExe).LastWriteTimeUtc)) {
+    if (-not (Test-Path -LiteralPath $watchBin) -or ((Get-Item $watchSrc).LastWriteTimeUtc -gt (Get-Item $watchBin).LastWriteTimeUtc)) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $watchBin -Parent) | Out-Null
         $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-        if (-not (Test-Path -LiteralPath $csc)) { Write-Error "smoke-input: csc.exe not found at $csc"; exit 1 }
-        $built = & $csc /nologo "/out:$watchExe" $watchSrc 2>&1
-        if ($LASTEXITCODE -ne 0) { Write-Error "smoke-input: failed to compile InputWatch.cs: $($built | Out-String)"; exit 1 }
+        if (-not (Test-Path -LiteralPath $csc)) {
+            [Console]::Error.WriteLine("smoke-input: csc.exe not found at $csc")
+            exit 1
+        }
+        $comp = & $csc /nologo /out:$watchBin $watchSrc 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            [Console]::Error.WriteLine("smoke-input: failed to compile InputWatch.cs: $($comp | Out-String)")
+            exit 1
+        }
     }
-    $Watcher = $watchExe
+    $watchExe = $watchBin
 }
 
-# Create fresh per-run tag, admittedEvent (signaled), and personEvent (unsignaled).
-$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
-$tagBytes = New-Object byte[] 4
-do {
-    $rng.GetBytes($tagBytes)
-    $tagVal = [BitConverter]::ToUInt32($tagBytes, 0)
-} while ($tagVal -eq 0 -or $tagVal -eq 0x434E5232)
-$rng.Dispose()
-$runTagHex = $tagVal.ToString('X8')
+# Fresh per-run random dwExtraInfo tag (nonzero 31-bit hex) and kernel events.
+$rngBytes = [byte[]]::new(4)
+[Security.Cryptography.RandomNumberGenerator]::Fill($rngBytes)
+$runTag = ([BitConverter]::ToUInt32($rngBytes, 0) -band 0x7FFFFFFF)
+if ($runTag -eq 0) { $runTag = 0x13572468 }
+$runTagHex = $runTag.ToString('X8')
 $runId = [Guid]::NewGuid().ToString('N').Substring(0, 12)
 $admittedName = "Local\$prefix-smoke-admitted-$runId"
 $personName = "Local\$prefix-smoke-person-$runId"
+$aliveName = "Local\$prefix-smoke-alive-$runId"
 $watchRecord = Join-Path $StateFolder "watch-$runId.txt"
 
-$admittedEvent = [Threading.EventWaitHandle]::new($true, [Threading.EventResetMode]::ManualReset, $admittedName)
+$admittedEvent = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $admittedName)
 $personEvent = [Threading.EventWaitHandle]::new($false, [Threading.EventResetMode]::ManualReset, $personName)
+$watchJob = [ConclaveSmokeDesk]::NewKillOnCloseJob()
 $watchProc = $null
 
+function Check-RuntimeStop([DateTime]$dl) {
+    if ($personEvent.WaitOne(0)) { return 'person-input' }
+    if ($watchProc.HasExited) { return 'watcher-lost' }
+    $dState = Get-DeskState
+    if ($dState.Unknown) { return 'desktop-unknown' }
+    if ($dState.Locked) { return 'desktop-locked' }
+    if ((Get-NowLocal) -ge $dl) { return 'deadline' }
+    return $null
+}
+
 try {
-    # Start watcher and require its 'watching' readiness line before any test runs.
-    $wPsi = [Diagnostics.ProcessStartInfo]::new()
-    if ($Watcher.EndsWith('.py', [StringComparison]::OrdinalIgnoreCase)) {
-        $wPsi.FileName = $Python
-        $wPsi.Arguments = "-B `"$Watcher`" --file `"$watchRecord`" --person-event `"$personName`" --tag $runTagHex" + $(if ($Scheduled) { ' --guard' } else { '' })
+    # Start watcher inside its own kill-on-close Job Object with guard=1 (always block on person input).
+    $psi = [Diagnostics.ProcessStartInfo]::new()
+    if ($watchExe -like '*.py') {
+        $psi.FileName = $pyExe
+        $psi.Arguments = Build-WinCmdLine $watchExe @($watchRecord, $runTagHex, $personName, '1', $aliveName)
     } else {
-        $wPsi.FileName = $Watcher
-        $wPsi.Arguments = "--file `"$watchRecord`" --person-event `"$personName`" --tag $runTagHex" + $(if ($Scheduled) { ' --guard' } else { '' })
+        $psi.FileName = $watchExe
+        $psi.Arguments = ($watchRecord, $runTagHex, $personName, '1', $aliveName | ForEach-Object { Quote-WinArg $_ }) -join ' '
     }
-    $wPsi.UseShellExecute = $false
-    $wPsi.CreateNoWindow = $true
-    $wPsi.RedirectStandardOutput = $true
-    $wPsi.RedirectStandardError = $true
-    $wPsi.RedirectStandardInput = $true
-    $watchProc = [Diagnostics.Process]::Start($wPsi)
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $watchProc = [Diagnostics.Process]::Start($psi)
+    if (-not [ConclaveSmokeDesk]::AssignProcessToJobObject($watchJob, $watchProc.Handle)) {
+        throw "smoke-input: failed to assign watcher to Job Object"
+    }
+
+    # Wait for explicit "watching" readiness line before admitting any test action.
     $readyTask = $watchProc.StandardOutput.ReadLineAsync()
     if (-not $readyTask.Wait(10000) -or $readyTask.Result -ne 'watching') {
-        $admittedEvent.Reset() | Out-Null
-        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = 'watcher-not-ready' })
-        Write-Error 'smoke-input: input watcher did not report watching readiness'
+        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = 'watcher-failed' })
+        [Console]::Error.WriteLine('smoke-input: watcher did not emit watching readiness line')
         exit 1
     }
 
-    # Discover test cases (require non-empty discovery).
-    $discOut = & $runnerExe @runnerBaseArgs --discover 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = 'discovery-failed' })
-        Write-Error "smoke-input: test discovery failed: $($discOut | Out-String)"
-        exit 1
-    }
-    $discovered = [Collections.Generic.List[object]]::new()
-    foreach ($line in @($discOut)) {
-        $s = "$line".Trim()
-        if ($s -match '^DISCOVER\s+(\S+)\s+(\S+)$') {
-            $discovered.Add([pscustomobject]@{ Class = $Matches[1]; Case = $Matches[2] })
-        }
-    }
-    if ($discovered.Count -eq 0) {
-        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = 'discovery-empty' })
-        Write-Error 'smoke-input: discovery returned 0 real-input cases'
-        exit 1
-    }
-
-    # Group by class preserving order.
-    $classes = [Collections.Generic.List[string]]::new()
-    $expectedByClass = @{}
-    foreach ($d in $discovered) {
-        if (-not $expectedByClass.ContainsKey($d.Class)) {
-            $classes.Add($d.Class)
-            $expectedByClass[$d.Class] = [Collections.Generic.List[string]]::new()
-        }
-        $expectedByClass[$d.Class].Add($d.Case)
-    }
-
-    $deadline = if ($Scheduled) { Get-WindowCloseDateTime $now $opens $closes } else { $now.AddHours(3) }
-    $logLines = [Collections.Generic.List[string]]::new()
-    $stopReason = $null
-    $failedReasons = [Collections.Generic.List[string]]::new()
-
-    foreach ($cls in $classes) {
-        if ($personEvent.WaitOne(0)) { $stopReason = 'person-input'; break }
-        if ($watchProc.HasExited) { $stopReason = 'watcher-lost'; break }
+    # Recheck full admission (including idle threshold) AFTER hooks are live to close the startup race.
+    $postSkip = Check-Admission ([bool]$Scheduled)
+    if ($postSkip) {
+        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'skipped'; reason = $postSkip })
         if ($Scheduled) {
-            $dState = Get-DeskState
-            if ($dState.Unknown) { $stopReason = 'desktop-unknown'; break }
-            if ($dState.Locked) { $stopReason = 'desktop-locked'; break }
-            if ((Get-NowLocal) -ge $deadline) { $stopReason = 'deadline'; break }
-        }
-
-        $job = [ConclaveSmokeDesk]::NewKillOnCloseJob()
-        $cProc = $null
-        try {
-            $cPsi = [Diagnostics.ProcessStartInfo]::new()
-            $cPsi.FileName = $runnerExe
-            $quotedBase = ($runnerBaseArgs | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
-            $cPsi.Arguments = "$quotedBase --run-class $cls".Trim()
-            $cPsi.WorkingDirectory = $repo
-            $cPsi.UseShellExecute = $false
-            $cPsi.CreateNoWindow = $true
-            $cPsi.RedirectStandardOutput = $true
-            $cPsi.RedirectStandardError = $true
-            $cPsi.EnvironmentVariables["${envPrefix}_SMOKE_INPUT"] = '1'
-            $cPsi.EnvironmentVariables["${envPrefix}_SMOKE_ADMITTED"] = $admittedName
-            $cPsi.EnvironmentVariables["${envPrefix}_SMOKE_PERSON_EVENT"] = $personName
-            $cPsi.EnvironmentVariables["${envPrefix}_SMOKE_TAG"] = $runTagHex
-            $cProc = [Diagnostics.Process]::Start($cPsi)
-            [void][ConclaveSmokeDesk]::AssignProcessToJobObject($job, $cProc.Handle)
-            $outTask = $cProc.StandardOutput.ReadToEndAsync()
-            $errTask = $cProc.StandardError.ReadToEndAsync()
-
-            while (-not $cProc.HasExited) {
-                if ($personEvent.WaitOne(25)) { $stopReason = 'person-input'; break }
-                if ($watchProc.HasExited) { $stopReason = 'watcher-lost'; break }
-                if ($Scheduled) {
-                    $dState = Get-DeskState
-                    if ($dState.Unknown) { $stopReason = 'desktop-unknown'; break }
-                    if ($dState.Locked) { $stopReason = 'desktop-locked'; break }
-                    if ((Get-NowLocal) -ge $deadline) { $stopReason = 'deadline'; break }
-                }
-            }
-            if ($stopReason) {
-                $admittedEvent.Reset() | Out-Null
-                [void][ConclaveSmokeDesk]::TerminateJobObject($job, 1)
-                $cProc.WaitForExit(5000) | Out-Null
-                break
-            }
-            $cProc.WaitForExit()
-            $classStdout = $outTask.GetAwaiter().GetResult()
-            $classStderr = $errTask.GetAwaiter().GetResult()
-            $logLines.Add("=== class $cls (exit $($cProc.ExitCode)) ===")
-            if ($classStdout) { $logLines.Add($classStdout.TrimEnd()) }
-            if ($classStderr) { $logLines.Add("STDERR: $($classStderr.TrimEnd())") }
-
-            # Case-level reconciliation for this class.
-            $counts = @{}
-            foreach ($line in @($classStdout -split "`r?`n")) {
-                $t = $line.Trim()
-                if ($t -match '^CASE\s+(PASS|FAIL|SKIP)\s+(\S+)\s+(\S+)$') {
-                    $statusTok = $Matches[1]; $rCls = $Matches[2]; $rCase = $Matches[3]
-                    if ($rCls -ne $cls) {
-                        $failedReasons.Add("unexpected-class:$rCls/$rCase")
-                        continue
-                    }
-                    if (-not $counts.ContainsKey($rCase)) { $counts[$rCase] = 0 }
-                    $counts[$rCase]++
-                    if ($statusTok -eq 'FAIL') { $failedReasons.Add("case-failed:$cls/$rCase") }
-                    elseif ($statusTok -eq 'SKIP') { $failedReasons.Add("case-skipped:$cls/$rCase") }
-                }
-            }
-            foreach ($expCase in $expectedByClass[$cls]) {
-                if (-not $counts.ContainsKey($expCase)) {
-                    $failedReasons.Add("case-missing:$cls/$expCase")
-                } elseif ($counts[$expCase] -gt 1) {
-                    $failedReasons.Add("case-duplicate:$cls/$expCase")
-                }
-            }
-            foreach ($k in $counts.Keys) {
-                if ($expectedByClass[$cls] -notcontains $k) {
-                    $failedReasons.Add("case-unexpected:$cls/$k")
-                }
-            }
-            if ($cProc.ExitCode -ne 0) {
-                $failedReasons.Add("class-exit-nonzero:$cls($($cProc.ExitCode))")
-            }
-        } finally {
-            [void][ConclaveSmokeDesk]::TerminateJobObject($job, 1)
-            [void][ConclaveSmokeDesk]::CloseHandle($job)
-            if ($cProc) { $cProc.Dispose() }
+            "smoke-input: skipped ($postSkip)"
+            exit 0
+        } else {
+            [Console]::Error.WriteLine("smoke-input: refused on-demand run ($postSkip)")
+            exit 1
         }
     }
+
+    $admittedEvent.Set() | Out-Null
+    $deadline = if ($Scheduled) { Get-WindowCloseDateTime $now $opens $closes } else { $now.AddHours(3) }
+
+    # Resolve runner command (unified command contract for discovery and class execution).
+    $runnerExe = $null
+    $runnerBaseArgs = @()
+    if ($RunnerCommand) {
+        if ($RunnerCommand -like '*.py') {
+            $runnerExe = $pyExe
+            $runnerBaseArgs = @('-B', $RunnerCommand)
+        } else {
+            $runnerExe = $RunnerCommand
+        }
+    } elseif ($cfg.test_command) {
+        $arr = @($cfg.test_command)
+        $runnerExe = [string]$arr[0]
+        if ($arr.Count -gt 1) { $runnerBaseArgs = @($arr[1..($arr.Count - 1)] | ForEach-Object { [string]$_ }) }
+    } else {
+        Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = 'no-test-command' })
+        [Console]::Error.WriteLine('smoke-input: no test_command configured in .conclave/desktop-tests.json and no -RunnerCommand given')
+        exit 2
+    }
+
+    $childEnv = [Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $childEnv["${envPrefix}_SMOKE_INPUT"] = '1'
+    $childEnv["${envPrefix}_SMOKE_ADMITTED"] = $admittedName
+    $childEnv["${envPrefix}_SMOKE_PERSON_EVENT"] = $personName
+    $childEnv["${envPrefix}_SMOKE_WATCHER_ALIVE"] = $aliveName
+    $childEnv["${envPrefix}_SMOKE_TAG"] = $runTagHex
 
     New-Item -ItemType Directory -Force -Path $logsDir | Out-Null
     $logFile = Join-Path $logsDir "$($now.ToString('yyyyMMdd-HHmmss'))-$runId.log"
-    Write-AtomicText $logFile (($logLines -join "`n") + "`n")
+    $logTmp = "$logFile.$PID.tmp"
+    $logWriter = [IO.StreamWriter]::new($logTmp, $false, [Text.UTF8Encoding]::new($false))
+    $stopReason = $null
+    $failedReasons = [Collections.Generic.List[string]]::new()
+    $discoveredCount = 0
+
+    try {
+        # Discover test cases inside a Kill-On-Close Job Object with active interruption polling.
+        $discLines = [Collections.Generic.List[string]]::new()
+        $discJob = [ConclaveSmokeDesk]::NewKillOnCloseJob()
+        $discChild = $null
+        $discExit = 0
+        try {
+            $discCmd = Build-WinCmdLine $runnerExe (@($runnerBaseArgs) + @('--discover'))
+            $discChild = [ConclaveSmokeDesk]::StartInJob($discJob, $discCmd, $repo, $childEnv)
+            $outLineTask = $discChild.StdOut.ReadLineAsync()
+            $errDrainTask = $discChild.StdErr.ReadToEndAsync()
+            while ($true) {
+                $stopReason = Check-RuntimeStop $deadline
+                if ($stopReason) {
+                    $admittedEvent.Reset() | Out-Null
+                    [void][ConclaveSmokeDesk]::TerminateJobObject($discJob, 1)
+                    [void]$discChild.WaitForExit(3000)
+                    break
+                }
+                if ($outLineTask.Wait(25)) {
+                    $ln = $outLineTask.Result
+                    if ($null -eq $ln) { break }
+                    $discLines.Add($ln)
+                    $outLineTask = $discChild.StdOut.ReadLineAsync()
+                } elseif ($discChild.HasExited) {
+                    [void][ConclaveSmokeDesk]::TerminateJobObject($discJob, 1)
+                    if ($outLineTask.Wait(1000) -and $null -ne $outLineTask.Result) {
+                        $discLines.Add($outLineTask.Result)
+                        while ($null -ne ($ln = $discChild.StdOut.ReadLine())) { $discLines.Add($ln) }
+                    }
+                    break
+                }
+            }
+            if (-not $stopReason) {
+                $discExit = $discChild.ExitCode
+                [void][ConclaveSmokeDesk]::TerminateJobObject($discJob, 1)
+                if ($errDrainTask.Wait(1000) -and $errDrainTask.Result) {
+                    $logWriter.WriteLine("DISCOVER STDERR: $($errDrainTask.Result.TrimEnd())")
+                }
+            }
+        } finally {
+            [void][ConclaveSmokeDesk]::TerminateJobObject($discJob, 1)
+            [void][ConclaveSmokeDesk]::CloseHandle($discJob)
+            if ($discChild) { $discChild.Dispose() }
+        }
+
+        if ($stopReason) {
+            $logWriter.Flush(); $logWriter.Dispose(); $logWriter = $null
+            [IO.File]::Move($logTmp, $logFile)
+            Prune-Logs
+            Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'interrupted'; reason = $stopReason; discovered = 0; log = (Split-Path $logFile -Leaf) })
+            "smoke-input: stopped ($stopReason)"
+            exit 1
+        }
+        if ($discExit -ne 0) {
+            $logWriter.Flush(); $logWriter.Dispose(); $logWriter = $null
+            [IO.File]::Move($logTmp, $logFile)
+            Prune-Logs
+            Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = 'discovery-failed'; discovered = 0; log = (Split-Path $logFile -Leaf) })
+            [Console]::Error.WriteLine("smoke-input: test discovery failed (exit $discExit)")
+            exit 1
+        }
+
+        # Case-sensitive, duplicate-free discovery grouping.
+        $classes = [Collections.Generic.List[string]]::new()
+        $expectedByClass = [Collections.Generic.Dictionary[string, Collections.Generic.List[string]]]::new([StringComparer]::Ordinal)
+        $seenDisc = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($line in $discLines) {
+            $s = $line.Trim()
+            if ($s -match '^DISCOVER\s+(\S+)\s+(\S+)$') {
+                $clsName = $Matches[1]; $caseName = $Matches[2]
+                $pairKey = "$clsName`0$caseName"
+                if (-not $seenDisc.Add($pairKey)) {
+                    $logWriter.Flush(); $logWriter.Dispose(); $logWriter = $null
+                    [IO.File]::Move($logTmp, $logFile)
+                    Prune-Logs
+                    Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = "discovery-duplicate:$clsName/$caseName"; discovered = $discoveredCount; log = (Split-Path $logFile -Leaf) })
+                    [Console]::Error.WriteLine("smoke-input: duplicate discovered case $clsName/$caseName")
+                    exit 1
+                }
+                if (-not $expectedByClass.ContainsKey($clsName)) {
+                    $classes.Add($clsName)
+                    $expectedByClass[$clsName] = [Collections.Generic.List[string]]::new()
+                }
+                $expectedByClass[$clsName].Add($caseName)
+                $discoveredCount++
+            }
+        }
+        if ($discoveredCount -eq 0) {
+            $logWriter.Flush(); $logWriter.Dispose(); $logWriter = $null
+            [IO.File]::Move($logTmp, $logFile)
+            Prune-Logs
+            Add-History ([ordered]@{ at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'; reason = 'discovery-empty'; discovered = 0; log = (Split-Path $logFile -Leaf) })
+            [Console]::Error.WriteLine('smoke-input: discovery returned 0 real-input cases')
+            exit 1
+        }
+
+        foreach ($cls in $classes) {
+            $stopReason = Check-RuntimeStop $deadline
+            if ($stopReason) { break }
+
+            $job = [ConclaveSmokeDesk]::NewKillOnCloseJob()
+            $cChild = $null
+            $counts = [Collections.Generic.Dictionary[string, int]]::new([StringComparer]::Ordinal)
+            $expectedSet = [Collections.Generic.HashSet[string]]::new($expectedByClass[$cls], [StringComparer]::Ordinal)
+            try {
+                $classCmd = Build-WinCmdLine $runnerExe (@($runnerBaseArgs) + @('--run-class', $cls))
+                $cChild = [ConclaveSmokeDesk]::StartInJob($job, $classCmd, $repo, $childEnv)
+                $logWriter.WriteLine("=== class $cls ===")
+                $outTask = $cChild.StdOut.ReadLineAsync()
+                $errTask = $cChild.StdErr.ReadLineAsync()
+                $outEof = $false
+                $errEof = $false
+
+                while (-not ($outEof -and $errEof -and $cChild.HasExited)) {
+                    $stopReason = Check-RuntimeStop $deadline
+                    if ($stopReason) {
+                        $admittedEvent.Reset() | Out-Null
+                        [void][ConclaveSmokeDesk]::TerminateJobObject($job, 1)
+                        [void]$cChild.WaitForExit(3000)
+                        break
+                    }
+                    $progressed = $false
+                    if (-not $outEof -and $outTask.IsCompleted) {
+                        $ln = $outTask.Result
+                        if ($null -eq $ln) {
+                            $outEof = $true
+                        } else {
+                            $logWriter.WriteLine($ln)
+                            $t = $ln.Trim()
+                            if ($t -match '^CASE\s+(PASS|FAIL|SKIP)\s+(\S+)\s+(\S+)$') {
+                                $statusTok = $Matches[1]; $rCls = $Matches[2]; $rCase = $Matches[3]
+                                if (-not [StringComparer]::Ordinal.Equals($rCls, $cls)) {
+                                    $failedReasons.Add("unexpected-class:$rCls/$rCase")
+                                } else {
+                                    $prev = 0
+                                    [void]$counts.TryGetValue($rCase, [ref]$prev)
+                                    $counts[$rCase] = $prev + 1
+                                    if ($statusTok -eq 'FAIL') { $failedReasons.Add("case-failed:$cls/$rCase") }
+                                    elseif ($statusTok -eq 'SKIP') { $failedReasons.Add("case-skipped:$cls/$rCase") }
+                                }
+                            }
+                            $outTask = $cChild.StdOut.ReadLineAsync()
+                        }
+                        $progressed = $true
+                    }
+                    if (-not $errEof -and $errTask.IsCompleted) {
+                        $eln = $errTask.Result
+                        if ($null -eq $eln) {
+                            $errEof = $true
+                        } else {
+                            $logWriter.WriteLine("STDERR: $eln")
+                            $errTask = $cChild.StdErr.ReadLineAsync()
+                        }
+                        $progressed = $true
+                    }
+                    if ($cChild.HasExited -and (-not $outEof -or -not $errEof)) {
+                        # Kill any lingering descendant holding inherited pipe handles before draining remaining buffered lines.
+                        [void][ConclaveSmokeDesk]::TerminateJobObject($job, 1)
+                        if (-not $outEof -and $outTask.Wait(200)) { continue }
+                        if (-not $errEof -and $errTask.Wait(200)) { continue }
+                        $outEof = $true; $errEof = $true
+                        break
+                    }
+                    if (-not $progressed) {
+                        [void]$personEvent.WaitOne(25)
+                    }
+                }
+                if ($stopReason) { break }
+                $exitCode = $cChild.ExitCode
+                $logWriter.WriteLine("=== class $cls exit=$exitCode ===")
+
+                foreach ($expCase in $expectedByClass[$cls]) {
+                    $cnt = 0
+                    if (-not $counts.TryGetValue($expCase, [ref]$cnt)) {
+                        $failedReasons.Add("case-missing:$cls/$expCase")
+                    } elseif ($cnt -gt 1) {
+                        $failedReasons.Add("case-duplicate:$cls/$expCase")
+                    }
+                }
+                foreach ($k in $counts.Keys) {
+                    if (-not $expectedSet.Contains($k)) {
+                        $failedReasons.Add("case-unexpected:$cls/$k")
+                    }
+                }
+                if ($exitCode -ne 0) {
+                    $failedReasons.Add("class-exit-nonzero:$cls($exitCode)")
+                }
+            } finally {
+                [void][ConclaveSmokeDesk]::TerminateJobObject($job, 1)
+                [void][ConclaveSmokeDesk]::CloseHandle($job)
+                if ($cChild) { $cChild.Dispose() }
+            }
+        }
+
+        # Final post-loop safety check so a person arriving right as the last class exits never records passed.
+        if (-not $stopReason) {
+            $stopReason = Check-RuntimeStop $deadline
+        }
+    } finally {
+        if ($logWriter) {
+            $logWriter.Flush()
+            $logWriter.Dispose()
+            $logWriter = $null
+        }
+    }
+
+    if ([IO.File]::Exists($logTmp)) {
+        if ([IO.File]::Exists($logFile)) { [IO.File]::Replace($logTmp, $logFile, [NullString]::Value, $true) }
+        else { [IO.File]::Move($logTmp, $logFile) }
+    }
     Prune-Logs
 
     if ($stopReason) {
         Add-History ([ordered]@{
             at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'interrupted'
-            reason = $stopReason; discovered = $discovered.Count; log = (Split-Path $logFile -Leaf)
+            reason = $stopReason; discovered = $discoveredCount; log = (Split-Path $logFile -Leaf)
         })
         "smoke-input: stopped ($stopReason)"
         exit 1
@@ -613,16 +1021,16 @@ try {
     if ($failedReasons.Count -gt 0) {
         Add-History ([ordered]@{
             at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'failed'
-            reason = ($failedReasons -join ','); discovered = $discovered.Count; log = (Split-Path $logFile -Leaf)
+            reason = ($failedReasons -join ','); discovered = $discoveredCount; log = (Split-Path $logFile -Leaf)
         })
         "smoke-input: failed ($($failedReasons -join ', '))"
         exit 1
     }
     Add-History ([ordered]@{
         at = $now.ToString('O'); night = $nightStr; mode = $mode; outcome = 'passed'
-        reason = 'ok'; discovered = $discovered.Count; log = (Split-Path $logFile -Leaf)
+        reason = 'ok'; discovered = $discoveredCount; log = (Split-Path $logFile -Leaf)
     })
-    "smoke-input: passed ($($discovered.Count) case(s) across $($classes.Count) class(es))"
+    "smoke-input: passed ($discoveredCount case(s) across $($classes.Count) class(es))"
     exit 0
 } finally {
     $admittedEvent.Reset() | Out-Null
@@ -634,9 +1042,11 @@ try {
                 $watchProc.StandardInput.Flush()
                 if (-not $watchProc.WaitForExit(2000)) { $watchProc.Kill() }
             }
-        } catch { }
+        } catch [InvalidOperationException] { } catch [IO.IOException] { }
         $watchProc.Dispose()
     }
+    [void][ConclaveSmokeDesk]::TerminateJobObject($watchJob, 1)
+    [void][ConclaveSmokeDesk]::CloseHandle($watchJob)
     $admittedEvent.Dispose()
     $personEvent.Dispose()
     if (Test-Path -LiteralPath $watchRecord) { Remove-Item -LiteralPath $watchRecord -Force -ErrorAction Ignore }

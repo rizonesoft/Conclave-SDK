@@ -3012,7 +3012,8 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         runner = target_root / "scripts/smoke-input.ps1"
         guard = target_root / "scripts/lib/DesktopTestGuard.cs"
         watcher = target_root / "scripts/lib/InputWatch.cs"
-        for label, p in (("runner", runner), ("guard", guard), ("watcher", watcher)):
+        cfg_lib = target_root / "scripts/lib/desktop_tests.py"
+        for label, p in (("runner", runner), ("guard", guard), ("watcher", watcher), ("config-lib", cfg_lib)):
             add_check(label, "ok" if p.is_file() else "missing", p.as_posix())
         if not cfg_path.is_file():
             add_check("config", "missing", cfg_path.as_posix())
@@ -3054,7 +3055,7 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         if kit == "lsp":
             _doctor_lsp(target_root, add_check)
 
-    missing_count = sum(1 for c in checks if c["status"] in ("missing", "setup_required", "unexpected"))
+    missing_count = sum(1 for c in checks if c["status"] in ("missing", "setup_required", "unexpected", "error"))
     return {
         "target": target_root.as_posix(),
         "kit": kit_name,

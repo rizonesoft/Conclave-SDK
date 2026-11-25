@@ -33,10 +33,21 @@ DT = _load_config_module()
 
 
 def run_cmd(argv, *, cwd=None, env=None, timeout=120):
-    return subprocess.run(
-        argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout,
+    proc = subprocess.Popen(
+        argv, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         creationflags=NO_WINDOW,
     )
+    try:
+        out, err = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+    except subprocess.TimeoutExpired:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, creationflags=NO_WINDOW)
+        else:
+            proc.kill()
+        proc.communicate()
+        raise
 
 
 class ConfigValidationTests(unittest.TestCase):
@@ -69,12 +80,19 @@ class ConfigValidationTests(unittest.TestCase):
 # Real WPF fixture app honoring LaunchShow.FirstWindowActivates() with a native UIA Button and TextBlock.
 FIXTURE_APP_CS = r'''
 using System;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using Conclave.DesktopTests;
 
 public static class FixtureApp {
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_NOACTIVATE = 0x08000000;
+    [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
+    [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+
     [STAThread]
     public static void Main(string[] args) {
         bool forceActivate = args.Length > 0 && args[0] == "--activate";
@@ -89,6 +107,12 @@ public static class FixtureApp {
             ShowInTaskbar = false,
             ShowActivated = activate,
         };
+        if (!activate) {
+            win.SourceInitialized += (s, e) => {
+                IntPtr hwnd = new WindowInteropHelper(win).Handle;
+                SetWindowLong(hwnd, GWL_EXSTYLE, GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+            };
+        }
         var lbl = new TextBlock { Text = "Clicks: 0" };
         AutomationProperties.SetAutomationId(lbl, "StatusLabel");
         var btn = new Button { Content = "Increment", Width = 100, Height = 30 };
@@ -123,12 +147,13 @@ public static class FixtureDriver {
         DateTime end = DateTime.UtcNow.AddMilliseconds(timeoutMs);
         while (DateTime.UtcNow < end) {
             try {
-                Process p = Process.GetProcessById(pid);
-                if (p.HasExited) {
-                    throw new InvalidOperationException("fixture process exited early with code " + p.ExitCode);
-                }
-                if (p.MainWindowHandle != IntPtr.Zero) {
-                    return AutomationElement.FromHandle(p.MainWindowHandle);
+                using (Process p = Process.GetProcessById(pid)) {
+                    if (p.HasExited) {
+                        throw new InvalidOperationException("fixture process exited early with code " + p.ExitCode);
+                    }
+                    if (p.MainWindowHandle != IntPtr.Zero) {
+                        return AutomationElement.FromHandle(p.MainWindowHandle);
+                    }
                 }
             } catch (ArgumentException) {
                 throw new InvalidOperationException("fixture process exited before window appeared");
@@ -156,12 +181,12 @@ public static class FixtureDriver {
             return 0;
         }
         if (mode == "default-uia" || mode == "neg-focus" || mode == "neg-pointer" || mode == "neg-key") {
-            bool forceActivate = mode == "neg-focus";
+            bool liveDesk = Environment.GetEnvironmentVariable("CONCLAVE_TEST_LIVE_DESK") == "1";
+            bool forceActivate = mode == "neg-focus" && liveDesk;
             int pid = 0;
             try {
                 using (DeskObserver obs = new DeskObserver(new int[0])) {
-                    pid = LaunchShow.StartNoActivate(appExe, forceActivate ? "--activate" : "", null);
-                    obs.TrackPid(pid);
+                    pid = obs.LaunchNoActivate(appExe, forceActivate ? "--activate" : "", null);
                     AutomationElement win = WaitForWindow(pid, 10000);
                     AutomationElement btn = win.FindFirst(TreeScope.Descendants,
                         new PropertyCondition(AutomationElement.AutomationIdProperty, "ActionButton"));
@@ -170,30 +195,26 @@ public static class FixtureDriver {
                     if (btn == null || lbl == null) throw new InvalidOperationException("missing UIA controls");
                     if (mode == "neg-pointer") {
                         POINT p;
-                        if (GetCursorPos(out p)) {
+                        if (liveDesk && GetCursorPos(out p)) {
                             SetCursorPos(p.X + 4, p.Y + 4);
                             Thread.Sleep(40);
                             SetCursorPos(p.X, p.Y);
                         } else {
-                            // Locked or headless desktop denies SetCursorPos; exercise the same observer path.
                             obs.ObserveCursor(100, 100);
                             obs.ObserveCursor(104, 104);
                             obs.ObserveCursor(100, 100);
                         }
                     } else if (mode == "neg-key") {
-                        if (obs.HasDesktopCursor) {
-                            // Send a harmless unassigned key (0xE8) up/down via keybd_event.
+                        if (liveDesk && obs.HasDesktopCursor) {
                             keybd_event(0xE8, 0, 0, UIntPtr.Zero);
                             keybd_event(0xE8, 0, 2, UIntPtr.Zero);
                             Thread.Sleep(40);
                         } else {
-                            // Locked or headless desktop blocks keybd_event; exercise the same observer hook path.
                             obs.ObserveInjectedKey(0xE8, 0x10);
                         }
                     } else if (mode == "neg-focus") {
-                        Thread.Sleep(80);
-                        if (!obs.HasDesktopCursor) {
-                            // Locked or headless desktop has GetForegroundWindow()==0; exercise the same observer path.
+                        Thread.Sleep(40);
+                        if (!liveDesk || !obs.HasDesktopCursor) {
                             obs.ObserveForegroundPid(pid);
                         }
                     }
@@ -273,6 +294,10 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         shutil.copyfile(SCRIPTS / "lib" / "desktop_tests.py", self.root / "scripts" / "lib" / "desktop_tests.py")
         shutil.copyfile(SCRIPTS / "lib" / "InputWatch.cs", self.root / "scripts" / "lib" / "InputWatch.cs")
         self.write_cfg()
+        self.state.mkdir(parents=True, exist_ok=True)
+        # Default unlocked idle probes for test harness runs.
+        (self.state / "probe-locked").write_text("0", encoding="utf-8")
+        (self.state / "probe-idle").write_text("1000", encoding="utf-8")
 
     def write_cfg(self, **overrides):
         cfg = {
@@ -282,35 +307,44 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         }
         (self.root / ".conclave" / "desktop-tests.json").write_text(json.dumps(cfg), encoding="utf-8")
 
-    def run_smoke(self, *args, extra_env=None):
+    def run_smoke(self, *args, extra_env=None, include_watcher=True):
         env = {**os.environ, **(extra_env or {})}
-        return run_cmd(
-            [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "smoke-input.ps1"),
-             "-ProjectRoot", str(self.root), "-StateFolder", str(self.state),
-             "-Python", sys.executable, "-Watcher", str(self.watch_exe), *args],
-            cwd=self.root, env=env,
-        )
+        cmd = [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "smoke-input.ps1"),
+               "-ProjectRoot", str(self.root), "-StateFolder", str(self.state), "-Python", sys.executable]
+        if include_watcher:
+            cmd += ["-Watcher", str(self.watch_exe)]
+        cmd += list(args)
+        return run_cmd(cmd, cwd=self.root, env=env)
 
-    def test_default_uia_fixture_operates_control_without_touching_desk_and_negative_fixtures_fail(self):
-        # 1. Default UIA fixture invokes a real button via InvokePattern and reads back 'Clicks: 1' cleanly.
+    def test_default_uia_fixture_operates_control_without_touching_desk(self):
+        # Pure positive WPF + UIA InvokePattern + DeskObserver test (zero desk activity!).
         ok = run_cmd([str(self.drv_exe), "default-uia", "demo", str(self.app_exe)])
         self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
         self.assertIn("UIA_OK Clicks: 1", ok.stdout)
-        # 2. Negative fixtures: transient focus steal, pointer move-and-restore, synthetic key, untraited helper.
+
+    def test_negative_fixtures_and_direct_bypass_refuse(self):
+        # Negative fixtures (focus steal, pointer move-and-restore, injected key, untraited helper) all refuse.
         for neg in ("neg-focus", "neg-pointer", "neg-key", "untraited-helper"):
             with self.subTest(neg=neg):
                 r = run_cmd([str(self.drv_exe), neg, "demo", str(self.app_exe)])
                 self.assertNotEqual(r.returncode, 0, f"{neg} unexpectedly passed: {r.stdout}")
                 self.assertIn("REFUSED:" if neg != "untraited-helper" else "RealInputRefusedException",
                               r.stdout + r.stderr)
-        # 3. Direct DEMO_SMOKE_INPUT=1 without admitted smoke-input.ps1 session must refuse.
+        # Direct DEMO_SMOKE_INPUT=1 without admitted smoke-input.ps1 session must refuse.
         direct = run_cmd([str(self.drv_exe), "real-input-action", "demo"],
                          env={**os.environ, "DEMO_SMOKE_INPUT": "1"})
         self.assertNotEqual(direct.returncode, 0, direct.stdout + direct.stderr)
         self.assertIn("no admitted watcher session", direct.stdout + direct.stderr)
+        # Unset prefix returns exact documented exit code 2.
+        self.write_cfg(prefix=None)
+        bad_cfg = self.run_smoke("-Status", include_watcher=False)
+        self.assertEqual(bad_cfg.returncode, 2, bad_cfg.stdout + bad_cfg.stderr)
+        # Test-harness overrides without -RunnerCommand are refused with exit code 2.
+        self.write_cfg(prefix="demo")
+        refused_ovr = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:00:00", include_watcher=False)
+        self.assertEqual(refused_ovr.returncode, 2, refused_ovr.stdout + refused_ovr.stderr)
 
     def test_admitted_run_and_admission_boundaries_and_custom_settings(self):
-        # Runner stub that invokes the real FixtureDriver.exe real-input-action under the admitted session!
         runner_py = Path(self._tmp.name) / "real_runner.py"
         runner_py.write_text(
             "import subprocess, sys\n"
@@ -325,8 +359,12 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             "sys.exit(r.returncode)\n",
             encoding="utf-8",
         )
-        self.state.mkdir(parents=True, exist_ok=True)
-        # Refusals: outside window, unknown desktop, locked, busy (899s < 900s).
+        # On-demand also refuses locked desktop!
+        (self.state / "probe-locked").write_text("1", encoding="utf-8")
+        ondem_locked = self.run_smoke("-TestProbes", "-RunnerCommand", str(runner_py))
+        self.assertEqual(ondem_locked.returncode, 1)
+        self.assertIn("desktop-locked", ondem_locked.stderr)
+        # Scheduled refusals: outside window, unknown desktop, locked, busy (899s < 900s).
         for label, now_s, files, expected_reason in (
             ("outside-early", "2026-11-25T02:59:00", {"probe-locked": "0", "probe-idle": "1000"}, "outside-window"),
             ("outside-close", "2026-11-25T06:00:00", {"probe-locked": "0", "probe-idle": "1000"}, "outside-window"),
@@ -356,8 +394,30 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.assertEqual(custom_ok.returncode, 0, custom_ok.stdout + custom_ok.stderr)
         self.assertIn("smoke-input: passed", custom_ok.stdout)
 
+    def test_watcher_stdin_eof_exits_promptly_and_release_tag_rejected_when_idle(self):
+        rec = Path(self._tmp.name) / "watch-eof.txt"
+        p = subprocess.Popen(
+            [str(self.watch_exe), str(rec), "12345678", "", "1", ""],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            creationflags=NO_WINDOW,
+        )
+        try:
+            self.assertEqual(p.stdout.readline().strip(), "watching")
+            # Hold a key and release it; verify release output is emitted.
+            p.stdin.write("hold 232\nrelease\n")
+            p.stdin.flush()
+            rel_line = p.stdout.readline().strip()
+            self.assertTrue(rel_line.startswith("released 232:"), rel_line)
+            # Closing stdin without 'quit' must cause watcher to exit promptly (not linger 4 hours).
+            p.stdin.close()
+            rc = p.wait(timeout=5)
+            self.assertEqual(rc, 0)
+        finally:
+            if p.poll() is None:
+                p.kill()
+                p.wait(timeout=5)
+
     def test_mid_class_interruptions_kill_descendants_and_distinguish_tags(self):
-        # Test: person input, foreign-tag input, own smoke-tag (continues!), lock, watcher loss, deadline.
         pid_file = Path(self._tmp.name) / "grandchild.pid"
         after_file = Path(self._tmp.name) / "after.txt"
         sleep_runner = Path(self._tmp.name) / "sleep_runner.py"
@@ -371,25 +431,28 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
             "creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))\n"
             "PIDF.write_text(str(child.pid), encoding='utf-8')\n"
-            "time.sleep(0.6 if os.environ.get('FAST_PASS') else 30)\n"
+            "time.sleep(0.8 if os.environ.get('FAST_PASS') else 30)\n"
             "AFTER.write_text('late-input', encoding='utf-8')\n"
             "print('CASE PASS SlowSuite Case1')\n",
             encoding="utf-8",
         )
-        # Helper wrapper watcher that sends a command to the real InputWatch.exe after startup.
         proxy_watch = Path(self._tmp.name) / "proxy_watch.py"
         proxy_watch.write_text(
-            "import os, subprocess, sys, time\n"
+            "import os, pathlib, subprocess, sys, time\n"
             f"REAL = {str(self.watch_exe)!r}\n"
+            f"PIDF = pathlib.Path({str(pid_file)!r})\n"
             "mode = os.environ.get('WATCH_ACTION', '')\n"
             "p = subprocess.Popen([REAL, *sys.argv[1:]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, "
             "stderr=subprocess.PIPE, text=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))\n"
             "line = p.stdout.readline().strip()\n"
             "print(line, flush=True)\n"
-            "time.sleep(0.35)\n"
+            "# Wait deterministically until grandchild.pid exists so descendant containment is always verified.\n"
+            "deadline = time.time() + 10.0\n"
+            "while not PIDF.exists() and time.time() < deadline:\n"
+            "    time.sleep(0.05)\n"
             "if mode == 'crash':\n"
             "    p.kill(); sys.exit(9)\n"
-            "if mode in ('person', 'foreign-tag', 'smoke-tag'):\n"
+            "if mode in ('person', 'foreign-tag', 'release-tag-when-idle', 'smoke-tag'):\n"
             "    p.stdin.write(mode + '\\n'); p.stdin.flush()\n"
             "for cmd in sys.stdin:\n"
             "    p.stdin.write(cmd); p.stdin.flush()\n"
@@ -399,6 +462,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         for action, expect_rc, expect_msg in (
             ("person", 1, "person-input"),
             ("foreign-tag", 1, "person-input"),
+            ("release-tag-when-idle", 1, "person-input"),
             ("crash", 1, "watcher-lost"),
             ("smoke-tag", 0, "smoke-input: passed"),
         ):
@@ -410,27 +474,77 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                     extra["FAST_PASS"] = "1"
                 res = run_cmd(
                     [PWSH, "-NoProfile", "-NonInteractive", "-File", str(self.root / "scripts" / "smoke-input.ps1"),
-                     "-ProjectRoot", str(self.root), "-StateFolder", str(self.state),
+                     "-ProjectRoot", str(self.root), "-StateFolder", str(self.state), "-TestProbes",
                      "-Python", sys.executable, "-Watcher", str(proxy_watch), "-RunnerCommand", str(sleep_runner)],
                     cwd=self.root, env={**os.environ, **extra},
                 )
                 self.assertEqual(res.returncode, expect_rc, res.stdout + res.stderr)
                 self.assertIn(expect_msg, res.stdout)
+                self.assertTrue(pid_file.exists(), "grandchild must have started before interruption")
                 if expect_rc == 1:
                     self.assertFalse(after_file.exists(), "stopped class must not run subsequent input")
-                    if pid_file.exists():
-                        gpid = pid_file.read_text(encoding="utf-8").strip()
-                        chk = run_cmd(["tasklist", "/FI", f"PID eq {gpid}", "/NH"])
-                        self.assertNotIn(gpid, chk.stdout)
+                    gpid = pid_file.read_text(encoding="utf-8").strip()
+                    chk = run_cmd(["tasklist", "/FI", f"PID eq {gpid}", "/NH"])
+                    self.assertNotIn(gpid, chk.stdout)
+
+    def test_mid_class_lock_and_deadline_stops_kill_descendants(self):
+        pid_file = Path(self._tmp.name) / "grandchild_ld.pid"
+        after_file = Path(self._tmp.name) / "after_ld.txt"
+        trigger_runner = Path(self._tmp.name) / "trigger_runner.py"
+        trigger_runner.write_text(
+            "import os, pathlib, subprocess, sys, time\n"
+            f"PIDF = pathlib.Path({str(pid_file)!r})\n"
+            f"AFTER = pathlib.Path({str(after_file)!r})\n"
+            f"STATE = pathlib.Path({str(self.state)!r})\n"
+            "if '--discover' in sys.argv:\n"
+            "    print('DISCOVER SlowSuite Case1')\n"
+            "    sys.exit(0)\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
+            "creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))\n"
+            "PIDF.write_text(str(child.pid), encoding='utf-8')\n"
+            "time.sleep(0.2)\n"
+            "if os.environ.get('TRIGGER') == 'lock':\n"
+            "    (STATE / 'probe-locked').write_text('1', encoding='utf-8')\n"
+            "elif os.environ.get('TRIGGER') == 'deadline':\n"
+            "    (STATE / 'probe-now').write_text('2026-11-25T06:00:01', encoding='utf-8')\n"
+            "time.sleep(30)\n"
+            "AFTER.write_text('late-input', encoding='utf-8')\n"
+            "print('CASE PASS SlowSuite Case1')\n",
+            encoding="utf-8",
+        )
+        for trig, expect_reason in (("lock", "desktop-locked"), ("deadline", "deadline")):
+            with self.subTest(trigger=trig):
+                pid_file.unlink(missing_ok=True)
+                after_file.unlink(missing_ok=True)
+                (self.state / "probe-unknown").unlink(missing_ok=True)
+                (self.state / "probe-locked").write_text("0", encoding="utf-8")
+                (self.state / "probe-idle").write_text("1000", encoding="utf-8")
+                (self.state / "probe-now").write_text("2026-11-25T05:59:55", encoding="utf-8")
+                res = self.run_smoke(
+                    "-Scheduled", "-TestProbes", "-RunnerCommand", str(trigger_runner),
+                    extra_env={"TRIGGER": trig},
+                )
+                self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+                self.assertIn(expect_reason, res.stdout)
+                self.assertTrue(pid_file.exists(), "grandchild must have started before stop")
+                self.assertFalse(after_file.exists(), "stopped class must not run subsequent input")
+                gpid = pid_file.read_text(encoding="utf-8").strip()
+                chk = run_cmd(["tasklist", "/FI", f"PID eq {gpid}", "/NH"])
+                self.assertNotIn(gpid, chk.stdout)
 
     def test_reconciliation_failures_and_bounded_history_and_missed_nights(self):
-        # Test empty discovery, missing case, duplicate, skip, fail, nonzero exit after PASS.
         rec_runner = Path(self._tmp.name) / "rec_runner.py"
         rec_runner.write_text(
             "import os, sys\n"
             "mode = os.environ['REC_MODE']\n"
             "if '--discover' in sys.argv:\n"
-            "    if mode != 'empty':\n"
+            "    if mode == 'dup-disc':\n"
+            "        print('DISCOVER SuiteA Case1')\n"
+            "        print('DISCOVER SuiteA Case1')\n"
+            "    elif mode == 'case-sens':\n"
+            "        print('DISCOVER SuiteA Case1')\n"
+            "        print('DISCOVER SuiteA case1')\n"
+            "    elif mode != 'empty':\n"
             "        print('DISCOVER SuiteA Case1')\n"
             "        print('DISCOVER SuiteA Case2')\n"
             "    sys.exit(0)\n"
@@ -450,6 +564,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             "    print('CASE PASS SuiteA Case1')\n"
             "    print('CASE PASS SuiteA Case2')\n"
             "    sys.exit(3)\n"
+            "elif mode == 'case-sens':\n"
+            "    print('CASE PASS SuiteA Case1')\n"
             "elif mode == 'ok':\n"
             "    print('CASE PASS SuiteA Case1')\n"
             "    print('CASE PASS SuiteA Case2')\n",
@@ -458,6 +574,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.write_cfg(history_limit=4, log_limit=2)
         for mode, needle in (
             ("empty", "discovery returned 0"),
+            ("dup-disc", "duplicate discovered case"),
+            ("case-sens", "case-missing:SuiteA/case1"),
             ("missing", "case-missing"),
             ("duplicate", "case-duplicate"),
             ("skip", "case-skipped"),
@@ -465,139 +583,100 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             ("nonzero", "class-exit-nonzero"),
         ):
             with self.subTest(mode=mode):
-                r = self.run_smoke("-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": mode})
+                r = self.run_smoke("-TestProbes", "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": mode})
                 self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
                 self.assertIn(needle, r.stdout + r.stderr)
-        ok = self.run_smoke("-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": "ok"})
-        self.assertEqual(ok.returncode, 0, ok.stdout + ok.stderr)
-        # Retention bound: history_limit=4, log_limit=2.
+        # Install on 2026-11-20 10:00 (first_expected_night = 2026-11-21); run scheduled night 2026-11-21!
+        inst = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-20T10:00:00")
+        self.assertEqual(inst.returncode, 0, inst.stdout + inst.stderr)
+        sched_ok = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-21T03:00:00",
+                                  "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": "ok"})
+        self.assertEqual(sched_ok.returncode, 0, sched_ok.stdout + sched_ok.stderr)
+        # Run 5 on-demand runs to evict the 2026-11-21 scheduled entry from history_limit=4!
+        for _ in range(5):
+            od = self.run_smoke("-TestProbes", "-RunnerCommand", str(rec_runner), extra_env={"REC_MODE": "ok"})
+            self.assertEqual(od.returncode, 0, od.stdout + od.stderr)
         hist_lines = [l for l in (self.state / "input-history.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
         self.assertEqual(len(hist_lines), 4)
         self.assertLessEqual(len(list((self.state / "logs").glob("*.log"))), 2)
-        # Missed nights: install on 2026-11-20 10:00 (first_expected_night = 2026-11-21); check on 2026-11-24 08:00.
-        # Even though on-demand runs exist, 0 scheduled runs exist -> 4 missed nights (21, 22, 23, 24)!
-        inst = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-20T10:00:00")
-        self.assertEqual(inst.returncode, 0, inst.stdout + inst.stderr)
+        # Reinstall on 2026-11-24 must preserve first_expected_night=2026-11-21!
+        reinst = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-24T10:00:00")
+        self.assertEqual(reinst.returncode, 0, reinst.stdout + reinst.stderr)
+        # 2026-11-21 ran scheduled (even though evicted from history_limit=4), so only 22, 23, 24 are missed!
         st = self.run_smoke("-Status", "-NowOverride", "2026-11-24T08:00:00")
         self.assertEqual(st.returncode, 0, st.stdout + st.stderr)
         summary = json.loads(st.stdout)
-        self.assertEqual(summary["missed_nights"], 4, summary)
-        self.assertEqual(summary["missed_dates"], ["2026-11-21", "2026-11-22", "2026-11-23", "2026-11-24"])
+        self.assertEqual(summary["missed_nights"], 3, summary)
+        self.assertEqual(summary["missed_dates"], ["2026-11-22", "2026-11-23", "2026-11-24"])
 
-    def test_automations_integration_preserves_other_tasks(self):
-        # Combined install with pre-existing task in .conclave/automations/tasks.json.
-        auto_dir = self.root / ".conclave" / "automations"
-        auto_dir.mkdir(parents=True)
-        repo_root = Path(__file__).resolve().parents[5]
-        shutil.copyfile(repo_root / "kits/automations/templates/.conclave/automations/run.py", auto_dir / "run.py")
-        existing_manifest = {
-            "schema_version": 1,
-            "folder": "\\demo\\",
-            "tasks": [{
-                "name": "demo-health",
-                "description": "Existing weekly health check",
-                "command": ["python", "-c", "print('ok')"],
-                "trigger": {"weekly": "Sunday", "at": "02:00"},
-                "timeout_minutes": 10,
-            }],
-        }
-        (auto_dir / "tasks.json").write_text(json.dumps(existing_manifest, indent=2), encoding="utf-8")
-        inst = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-25T10:00:00")
-        self.assertEqual(inst.returncode, 0, inst.stdout + inst.stderr)
-        # run.py --check must accept the new daily task!
-        chk = run_cmd([sys.executable, "-B", str(auto_dir / "run.py"), "--check"], cwd=self.root)
-        self.assertEqual(chk.returncode, 0, chk.stdout + chk.stderr)
-        updated = json.loads((auto_dir / "tasks.json").read_text(encoding="utf-8"))
-        names = [t["name"] for t in updated["tasks"]]
-        self.assertEqual(names, ["demo-health", "demo-real-input-smoke"])
-        smoke_task = updated["tasks"][1]
-        self.assertEqual(smoke_task["trigger"], {"daily": True, "at": "03:00", "random_delay_minutes": 0})
-        self.assertEqual(smoke_task["timeout_minutes"], 180)
-        self.assertIs(smoke_task["start_when_available"], False)
-        self.assertIs(smoke_task["wake_to_run"], False)
-        self.assertIs(smoke_task["exact_timeout"], True)
-        # Uninstall removes ONLY demo-real-input-smoke and preserves demo-health!
-        uninst = self.run_smoke("-Uninstall", "-NoRegister")
-        self.assertEqual(uninst.returncode, 0, uninst.stdout + uninst.stderr)
-        after = json.loads((auto_dir / "tasks.json").read_text(encoding="utf-8"))
-        self.assertEqual([t["name"] for t in after["tasks"]], ["demo-health"])
-
-    def test_mid_class_lock_and_deadline_stops_kill_descendants(self):
-        pid_file = Path(self._tmp.name) / "grandchild_ld.pid"
-        after_file = Path(self._tmp.name) / "after_ld.txt"
-        trigger_runner = Path(self._tmp.name) / "trigger_runner.py"
-        trigger_runner.write_text(
-            "import os, pathlib, subprocess, sys, time\n"
-            f"PIDF = pathlib.Path({str(pid_file)!r})\n"
-            f"AFTER = pathlib.Path({str(after_file)!r})\n"
-            f"STATE = pathlib.Path({str(self.state)!r})\n"
-            "if '--discover' in sys.argv:\n"
-            "    print('DISCOVER SlowSuite Case1')\n"
-            "    sys.exit(0)\n"
-            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
-            "creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))\n"
-            "PIDF.write_text(str(child.pid), encoding='utf-8')\n"
-            "time.sleep(0.25)\n"
-            "if os.environ.get('TRIGGER') == 'lock':\n"
-            "    (STATE / 'probe-locked').write_text('1', encoding='utf-8')\n"
-            "elif os.environ.get('TRIGGER') == 'deadline':\n"
-            "    (STATE / 'probe-now').write_text('2026-11-25T06:00:01', encoding='utf-8')\n"
-            "time.sleep(30)\n"
-            "AFTER.write_text('late-input', encoding='utf-8')\n"
-            "print('CASE PASS SlowSuite Case1')\n",
-            encoding="utf-8",
-        )
-        self.state.mkdir(parents=True, exist_ok=True)
-        for trig, expect_reason in (("lock", "desktop-locked"), ("deadline", "deadline")):
-            with self.subTest(trigger=trig):
-                pid_file.unlink(missing_ok=True)
-                after_file.unlink(missing_ok=True)
-                (self.state / "probe-unknown").unlink(missing_ok=True)
-                (self.state / "probe-locked").write_text("0", encoding="utf-8")
-                (self.state / "probe-idle").write_text("1000", encoding="utf-8")
-                (self.state / "probe-now").write_text("2026-11-25T05:59:55", encoding="utf-8")
-                res = self.run_smoke(
-                    "-Scheduled", "-TestProbes", "-RunnerCommand", str(trigger_runner),
-                    extra_env={"TRIGGER": trig},
-                )
-                self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
-                self.assertIn(expect_reason, res.stdout)
-                self.assertFalse(after_file.exists(), "stopped class must not run subsequent input")
-                if pid_file.exists():
-                    gpid = pid_file.read_text(encoding="utf-8").strip()
-                    chk = run_cmd(["tasklist", "/FI", f"PID eq {gpid}", "/NH"])
-                    self.assertNotIn(gpid, chk.stdout)
-
-    def test_standalone_install_empty_status_and_failed_replace_preserves_history(self):
+    def test_automations_integration_ownership_and_standalone_modes(self):
         # Empty status before any run.
         empty_st = self.run_smoke("-Status", "-NowOverride", "2026-11-25T08:00:00")
         self.assertEqual(empty_st.returncode, 0, empty_st.stdout + empty_st.stderr)
         empty_summary = json.loads(empty_st.stdout)
         self.assertEqual(empty_summary["total_records"], 0)
         self.assertIsNone(empty_summary["last_scheduled"])
-        self.assertIsNone(empty_summary["last_on_demand"])
-        # Standalone install (no .conclave/automations/tasks.json).
+        # Standalone install/uninstall (no .conclave/automations/tasks.json).
+        inst_s = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-25T10:00:00")
+        self.assertEqual(inst_s.returncode, 0, inst_s.stdout + inst_s.stderr)
+        self.assertIn("standalone", inst_s.stdout)
+        self.assertEqual(json.loads((self.state / "installed.json").read_text(encoding="utf-8"))["mode"], "standalone")
+        self.assertEqual(self.run_smoke("-Uninstall", "-NoRegister").returncode, 0)
+        self.assertFalse((self.state / "installed.json").exists())
+
+        # Combined automations install (standalone test, zero SDK-relative path dependency!).
+        auto_dir = self.root / ".conclave" / "automations"
+        auto_dir.mkdir(parents=True)
+        # Null folder must be refused without mutating tasks.json or installed.json.
+        (auto_dir / "tasks.json").write_text(json.dumps({"schema_version": 1, "folder": None, "tasks": []}), encoding="utf-8")
+        null_res = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-25T10:00:00")
+        self.assertEqual(null_res.returncode, 2, null_res.stdout + null_res.stderr)
+        self.assertFalse((self.state / "installed.json").exists())
+        # Same-named unrelated task must NOT be overwritten or uninstalled.
+        unrelated = {
+            "schema_version": 1, "folder": "\\demo\\",
+            "tasks": [{"name": "demo-real-input-smoke", "description": "User task", "command": ["python", "mine.py"],
+                       "trigger": {"weekly": "Sunday", "at": "02:00"}, "timeout_minutes": 10}],
+        }
+        (auto_dir / "tasks.json").write_text(json.dumps(unrelated, indent=2), encoding="utf-8")
+        self.assertEqual(self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-25T10:00:00").returncode, 2)
+        self.assertEqual(self.run_smoke("-Uninstall", "-NoRegister").returncode, 2)
+        # Valid manifest with pre-existing task preserves other task across install and uninstall.
+        existing_manifest = {
+            "schema_version": 1, "folder": "\\demo\\",
+            "tasks": [{"name": "demo-health", "description": "Existing weekly health check",
+                       "command": ["python", "-c", "print('ok')"],
+                       "trigger": {"weekly": "Sunday", "at": "02:00"}, "timeout_minutes": 10}],
+        }
+        (auto_dir / "tasks.json").write_text(json.dumps(existing_manifest, indent=2), encoding="utf-8")
         inst = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-25T10:00:00")
         self.assertEqual(inst.returncode, 0, inst.stdout + inst.stderr)
-        self.assertIn("standalone", inst.stdout)
-        installed_rec = json.loads((self.state / "installed.json").read_text(encoding="utf-8"))
-        self.assertEqual(installed_rec["mode"], "standalone")
+        updated = json.loads((auto_dir / "tasks.json").read_text(encoding="utf-8"))
+        self.assertEqual([t["name"] for t in updated["tasks"]], ["demo-health", "demo-real-input-smoke"])
+        smoke_task = updated["tasks"][1]
+        self.assertEqual(smoke_task["trigger"], {"daily": True, "at": "03:00", "random_delay_minutes": 0})
+        self.assertEqual(smoke_task["timeout_minutes"], 180)
+        self.assertIs(smoke_task["start_when_available"], False)
+        self.assertIs(smoke_task["wake_to_run"], False)
+        self.assertIs(smoke_task["exact_timeout"], True)
         uninst = self.run_smoke("-Uninstall", "-NoRegister")
         self.assertEqual(uninst.returncode, 0, uninst.stdout + uninst.stderr)
-        self.assertFalse((self.state / "installed.json").exists())
-        # Failed atomic replace preserves prior history bytes and cleans up temp file.
-        self.state.mkdir(parents=True, exist_ok=True)
+        after = json.loads((auto_dir / "tasks.json").read_text(encoding="utf-8"))
+        self.assertEqual([t["name"] for t in after["tasks"]], ["demo-health"])
+
+    def test_failed_replace_and_unreadable_history_preserve_prior_bytes(self):
         hist = self.state / "input-history.jsonl"
         seed = '{"at":"2026-11-24T03:00:00","night":"2026-11-24","mode":"scheduled","outcome":"passed","reason":"ok"}\n'
         hist.write_text(seed, encoding="utf-8")
-        # Open history file with zero sharing (exclusive Win32 handle) so File.Replace fails.
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # Exclusive Win32 handle blocks both read and replace: smoke-input must fail closed and leave history intact!
         handle = kernel32.CreateFileW(str(hist), 0x80000000, 0, None, 3, 0x80, None)
         self.assertNotEqual(handle, ctypes.c_void_p(-1).value)
         try:
             (self.state / "probe-locked").write_text("1", encoding="utf-8")
             (self.state / "probe-idle").write_text("1000", encoding="utf-8")
-            r = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:00:00")
+            r = self.run_smoke("-Scheduled", "-TestProbes", "-NowOverride", "2026-11-25T03:00:00",
+                               "-RunnerCommand", str(Path(self._tmp.name) / "unused.py"))
             self.assertNotEqual(r.returncode, 0)
         finally:
             kernel32.CloseHandle(handle)
