@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "prefix": null,
+  "window_opens": "03:00",
+  "window_closes": "06:00",
+  "idle_minutes": 15,
+  "history_limit": 60,
+  "log_limit": 30,
+  "test_command": null
+}

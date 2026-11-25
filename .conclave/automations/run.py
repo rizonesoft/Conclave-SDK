@@ -228,8 +228,13 @@ def load_manifest(path: str, launchers: bool = True) -> dict:
         name = task.get("name", "")
         if not isinstance(name, str) or not name_rule.fullmatch(name) or name in out:
             raise TaskError(f"task name {name!r} must be a unique {prefix}* name")
-        if set(task) != {"name", "description", "command", "trigger", "timeout_minutes"}:
-            raise TaskError(f"{name}: needs exactly name, description, command, trigger, timeout_minutes")
+        required_keys = {"name", "description", "command", "trigger", "timeout_minutes"}
+        optional_keys = {"start_when_available", "wake_to_run", "exact_timeout"}
+        if not required_keys.issubset(task) or not set(task).issubset(required_keys | optional_keys):
+            raise TaskError(f"{name}: needs name, description, command, trigger, timeout_minutes")
+        for bool_key in optional_keys:
+            if bool_key in task and not isinstance(task[bool_key], bool):
+                raise TaskError(f"{name}: {bool_key} must be a boolean")
         description = task["description"]
         if not isinstance(description, str) or not description.strip() or "\n" in description or "\r" in description:
             raise TaskError(f"{name}: description must be one non-empty line")
@@ -244,15 +249,21 @@ def load_manifest(path: str, launchers: bool = True) -> dict:
             raise TaskError(f"{name}: timeout_minutes must be a positive whole number")
         trigger = task["trigger"]
         if not isinstance(trigger, dict):
-            raise TaskError(f"{name}: trigger must be at-logon-and-every or weekly-at")
+            raise TaskError(f"{name}: trigger must be at-logon-and-every, weekly-at, or daily-at")
         if set(trigger) == {"at_logon_delay_minutes", "every_minutes"}:
             if not all(_whole(trigger[k]) for k in trigger):
                 raise TaskError(f"{name}: a logon trigger needs positive whole minutes")
         elif set(trigger) == {"weekly", "at"}:
             if trigger["weekly"] not in DAYS or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(trigger["at"])):
                 raise TaskError(f"{name}: a weekly trigger needs a day name and an HH:MM time")
+        elif {"daily", "at"}.issubset(trigger) and set(trigger).issubset({"daily", "at", "random_delay_minutes"}):
+            delay = trigger.get("random_delay_minutes", 0)
+            if trigger["daily"] is not True or not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(trigger["at"])):
+                raise TaskError(f"{name}: a daily trigger needs daily: true and an HH:MM time")
+            if not isinstance(delay, int) or isinstance(delay, bool) or delay < 0:
+                raise TaskError(f"{name}: random_delay_minutes must be a non-negative whole number")
         else:
-            raise TaskError(f"{name}: trigger must be at-logon-and-every or weekly-at")
+            raise TaskError(f"{name}: trigger must be at-logon-and-every, weekly-at, or daily-at")
         out[name] = task
     return {"folder": folder, "prefix": prefix, "tasks": out}
 

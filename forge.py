@@ -7,7 +7,7 @@
     python forge.py update <target> [kit] [--only <path>]... [--no-scripts] [--kit-new] [--dry-run]
     python forge.py record <target> [kit] [--merged <path>]... [--dry-run]
     python forge.py drift [--projects <file>]
-    python forge.py doctor <target> [base|todo|reviewer|automations|launchers|unattended|lsp|toolchain-cpp|toolchain-web|laravel|wordpress] [--strict]
+    python forge.py doctor <target> [base|todo|reviewer|automations|launchers|unattended|desktop-tests|lsp|toolchain-cpp|toolchain-web|laravel|wordpress] [--strict]
         (no kit named: the Laravel or WordPress kit when the project is one, else base, plus lsp when installed;
         a toolchain kit starts each pinned tool to read its version, so it is checked only when named)
     python forge.py kits
@@ -197,8 +197,9 @@ AUTOMATIONS_SCRIPTS = tuple(f"{AUTOMATIONS_DIR}/{name}" for name in ("run.py", "
 
 
 UNATTENDED_MODULE = "scripts/lib/unattended.py"
-KIT_ORDER = ("base", "todo", "reviewer", "automations", "launchers", "unattended", "lsp", "toolchain-cpp",
-             "toolchain-web", "laravel", "wordpress")
+KIT_ORDER = ("base", "todo", "reviewer", "automations", "launchers", "unattended", "desktop-tests", "lsp",
+             "toolchain-cpp", "toolchain-web", "laravel", "wordpress")
+DESKTOP_TESTS_CONFIG = ".conclave/desktop-tests.json"
 LAUNCHERS_PROFILE = ".conclave/launchers.json"  # the launchers kit's profile: the title, icon, agents and links
 LAUNCHERS_RENDERER = "scripts/campaign-icon.py"  # the launchers kit's icon renderer, which the unattended kit uses
 # A kit that installs another with it, by the same `apply_kit`, so the other's files are recorded under its own name.
@@ -252,6 +253,8 @@ def installed_kits(target_root: Path) -> list[str]:
         found.append("launchers")
     if (target_root / UNATTENDED_MODULE).is_file() or (target_root / "scripts/unattended-run.py").is_file():
         found.append("unattended")
+    if (target_root / DESKTOP_TESTS_CONFIG).is_file() or (target_root / "scripts/smoke-input.ps1").is_file():
+        found.append("desktop-tests")
     if (target_root / LSP_TABLE).is_file():
         found.append("lsp")
     found.extend(kit for kit, pins in TOOLCHAIN_PINS.items() if (target_root / pins).is_file())
@@ -3004,6 +3007,24 @@ def doctor_repo(target_root: Path, kit_name: str | None = None) -> dict:
         _doctor_launchers(target_root, add_check)
     elif kit_name == "unattended":
         _doctor_unattended(target_root, add_check)
+    elif kit_name == "desktop-tests":
+        cfg_path = target_root / DESKTOP_TESTS_CONFIG
+        runner = target_root / "scripts/smoke-input.ps1"
+        guard = target_root / "scripts/lib/DesktopTestGuard.cs"
+        watcher = target_root / "scripts/lib/InputWatch.cs"
+        for label, p in (("runner", runner), ("guard", guard), ("watcher", watcher)):
+            add_check(label, "ok" if p.is_file() else "missing", p.as_posix())
+        if not cfg_path.is_file():
+            add_check("config", "missing", cfg_path.as_posix())
+        else:
+            loader = _toolchain_module("desktop-tests", "lib/desktop_tests.py")
+            try:
+                cfg = loader.load_config(cfg_path, allow_unset=True)
+                status = "ok" if cfg.get("prefix") else "setup_required"
+                detail = f"prefix={cfg['prefix']}" if cfg.get("prefix") else "prefix: null (set in .conclave/desktop-tests.json)"
+                add_check("config", status, detail)
+            except loader.ConfigError as exc:
+                add_check("config", "error", str(exc))
     elif kit_name == "lsp":
         _doctor_lsp(target_root, add_check)
     elif kit_name in TOOLCHAIN_PINS:
@@ -3484,6 +3505,7 @@ SUITES: list[dict] = [
     _unittest_suite("kit-reviewer", "kits/reviewer/templates/scripts/tests", 1800),
     _unittest_suite("kit-launchers", "kits/launchers/templates/scripts/tests", 600),
     _unittest_suite("kit-unattended", "kits/unattended/templates/scripts/tests", 1800),
+    _unittest_suite("kit-desktop-tests", "kits/desktop-tests/templates/scripts/tests", 600),
     _unittest_suite("kit-wordpress", "kits/wordpress/templates/scripts/tests", 1800),
     _unittest_suite("kit-wordpress-pressable", "kits/wordpress/hosts/pressable/templates/scripts/tests", 1800),
     _unittest_suite("kit-lsp", "kits/lsp/templates/scripts/tests", 600),
@@ -3965,7 +3987,7 @@ def main(argv: list[str] | None = None) -> int:
     p_init = sub.add_parser("init", help="Install the base kit plus only the kits named with --kit")
     p_init.add_argument("target", help="Target repository path")
     p_init.add_argument("--agent", choices=AGENT_CHOICES, default="all")
-    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, launchers, unattended, lsp, "
+    p_init.add_argument("--kit", action="append", default=[], help="Additive overlay kit to apply (base, todo, reviewer, automations, launchers, unattended, desktop-tests, lsp, "
                              "toolchain-cpp, toolchain-web, laravel, wordpress)")
     p_init.add_argument("--wp-host", choices=WORDPRESS_HOSTS, default=None, help="WordPress kit only: the site's host (default: the pin's, else pressable)")
     p_init.add_argument("--no-scripts", action="store_true", help="Leave out the kits' scripts/ files")
@@ -3980,7 +4002,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Replace AGENTS.md, GEMINI.md, CLAUDE.md and CODEX.md with the kit's, keeping each replaced one as <name>.replaced")
 
     p_kit = sub.add_parser("kit", help="Apply an additive overlay kit (base, todo, reviewer, automations, launchers, "
-                                          "unattended, lsp, toolchain-cpp, toolchain-web, laravel, wordpress) "
+                                          "unattended, desktop-tests, lsp, toolchain-cpp, toolchain-web, laravel, wordpress) "
                                           "to a target repo")
     p_kit.add_argument("target", help="Target repository path")
     p_kit.add_argument("kit_name", choices=list_kits(), help="Kit name to apply")

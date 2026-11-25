@@ -47,7 +47,7 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -Ru
 foreach ($task in $manifest.tasks) {
   $action = New-ScheduledTaskAction -Execute $pythonw -Argument "`"$runner`" $($task.name)" -WorkingDirectory $repo
   $trigger = $task.trigger
-  if ($null -ne $trigger.every_minutes) {
+  if ($null -ne $trigger.PSObject.Properties['every_minutes'] -and $null -ne $trigger.every_minutes) {
     # Two triggers: after each logon (with the delay), and on the interval from now on. A logon trigger's
     # repetition starts only at the next logon, so on its own it would never tick in the current one.
     $every = New-TimeSpan -Minutes $trigger.every_minutes
@@ -55,12 +55,25 @@ foreach ($task in $manifest.tasks) {
     $logon.Delay = "PT$($trigger.at_logon_delay_minutes)M"
     $logon.Repetition = (New-ScheduledTaskTrigger -Once -At (Get-Date) -RepetitionInterval $every).Repetition
     $t = @($logon, (New-ScheduledTaskTrigger -Once -At (Get-Date).Add($every) -RepetitionInterval $every))
+  } elseif ($null -ne $trigger.PSObject.Properties['daily'] -and $trigger.daily -eq $true) {
+    $delayMin = if ($null -ne $trigger.PSObject.Properties['random_delay_minutes']) { [int]$trigger.random_delay_minutes } else { 0 }
+    if ($delayMin -gt 0) {
+      $t = New-ScheduledTaskTrigger -Daily -At $trigger.at -RandomDelay (New-TimeSpan -Minutes $delayMin)
+    } else {
+      $t = New-ScheduledTaskTrigger -Daily -At $trigger.at
+    }
   } else {
     $t = New-ScheduledTaskTrigger -Weekly -DaysOfWeek $trigger.weekly -At $trigger.at -RandomDelay (New-TimeSpan -Minutes 5)
   }
-  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew `
-      -ExecutionTimeLimit (New-TimeSpan -Minutes ($task.timeout_minutes + 5)) `
+  $exactTimeout = ($null -ne $task.PSObject.Properties['exact_timeout'] -and $task.exact_timeout -eq $true)
+  $limitMinutes = if ($exactTimeout) { [int]$task.timeout_minutes } else { [int]$task.timeout_minutes + 5 }
+  $startWhenAvail = if ($null -ne $task.PSObject.Properties['start_when_available']) { [bool]$task.start_when_available } else { $true }
+  $wakeToRun = if ($null -ne $task.PSObject.Properties['wake_to_run']) { [bool]$task.wake_to_run } else { $false }
+  $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew `
+      -ExecutionTimeLimit (New-TimeSpan -Minutes $limitMinutes) `
       -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+  $settings.StartWhenAvailable = $startWhenAvail
+  $settings.WakeToRun = $wakeToRun
   Register-ScheduledTask -TaskPath $folder -TaskName $task.name -Description $task.description `
       -Action $action -Trigger $t -Settings $settings -Principal $principal -Force | Out-Null
 }
