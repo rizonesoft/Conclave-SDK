@@ -369,101 +369,134 @@ namespace Conclave.DesktopTests
                     return inherited;
                 }
 
-                Action beforeWait = BeforeWaitForMutexForTest;
-                if (beforeWait != null) beforeWait();
-                uint waitMs = checked((uint)waitSeconds * 1000u);
-                uint rc = WaitForSingleObject(hMutex, waitMs);
-                if (rc != WAIT_OBJECT_0 && rc != WAIT_ABANDONED)
+                // Pin the current holder's named tracking job (JOB_OBJECT_QUERY only; never blocks _hKillJob's
+                // KILL_ON_JOB_CLOSE) and snapshot SYNCHRONIZE handles to its active members before waiting so even
+                // if the holder dies while a close_fds=True grandchild is still finishing kernel exit teardown
+                // (after JobObjectBasicProcessIdList drops to 0), we wait until every member's EPROCESS signals exit.
+                IntPtr hPinnedPriorJob = IntPtr.Zero;
+                string pinnedPriorJobName = null;
+                List<IntPtr> pinnedMemberHandles = new List<IntPtr>();
+                HolderRecord preRec = TryReadHolderRecord(recordPath);
+                if (preRec != null && !string.IsNullOrEmpty(preRec.LeaseId))
                 {
-                    if (rc == WAIT_TIMEOUT)
+                    pinnedPriorJobName = JobNameFor(preRec.LeaseId);
+                    hPinnedPriorJob = OpenJobObjectW(JOB_OBJECT_QUERY, false, pinnedPriorJobName);
+                    if (hPinnedPriorJob != IntPtr.Zero)
                     {
-                        throw BuildBusyException(canonicalLock, recordPath, waitSeconds);
+                        SnapshotJobMemberSyncHandles(hPinnedPriorJob, pinnedMemberHandles);
                     }
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject failed on " + canonicalLock + " (rc=0x" + rc.ToString("X") + ")");
                 }
 
-                bool acquiredAbandoned = (rc == WAIT_ABANDONED);
-                IntPtr hLease = IntPtr.Zero;
-                IntPtr hJob = IntPtr.Zero;
-                IntPtr hKillJob = IntPtr.Zero;
-                bool published = false;
                 try
                 {
-                    // On EVERY handoff (normal, abandoned, late-arriving, or post-probe), verify prior desktop job quiescence.
-                    DrainPriorJobFromRecord(recordPath, 5000);
-
-                    Action<bool> beforePub = BeforeRecordPublishForTest;
-                    if (beforePub != null) beforePub(acquiredAbandoned);
-
-                    int selfPid = Process.GetCurrentProcess().Id;
-                    long selfTicks;
-                    if (!TryGetProcessCreationTicks(selfPid, out selfTicks))
-                        throw new InvalidOperationException("failed to read current process creation time");
-                    string selfUtc = DateTime.FromFileTimeUtc(selfTicks).ToString("O", CultureInfo.InvariantCulture);
-                    string leaseId = Guid.NewGuid().ToString("N").Substring(0, 16);
-                    string leaseName = LeaseEventNameFor(leaseId);
-                    string jobName = JobNameFor(leaseId);
-
-                    hLease = CreateSecureLeaseEvent(leaseName);
-                    // Outer named tracking job (no KILL_ON_JOB_CLOSE; duplicated into children so it stays queryable
-                    // until every child and grandchild finishes exiting) + inner unnamed kill-on-close job (owner-only).
-                    hJob = CreateSecureTrackingJob(jobName);
-                    hKillJob = CreateKillOnCloseJob();
-
-                    HolderRecord rec = new HolderRecord
+                    Action beforeWait = BeforeWaitForMutexForTest;
+                    if (beforeWait != null) beforeWait();
+                    uint waitMs = checked((uint)waitSeconds * 1000u);
+                    uint rc = WaitForSingleObject(hMutex, waitMs);
+                    if (rc != WAIT_OBJECT_0 && rc != WAIT_ABANDONED)
                     {
-                        Pid = selfPid,
-                        StartTicks = selfTicks,
-                        StartUtc = selfUtc,
-                        LeaseId = leaseId,
-                        LockName = canonicalLock,
-                        Label = string.IsNullOrWhiteSpace(label) ? "desktop-lock" : label.Trim()
-                    };
+                        if (rc == WAIT_TIMEOUT)
+                        {
+                            throw BuildBusyException(canonicalLock, recordPath, waitSeconds);
+                        }
+                        throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject failed on " + canonicalLock + " (rc=0x" + rc.ToString("X") + ")");
+                    }
 
-                    if (FailRecordPublishForTest)
-                        throw new IOException("simulated holder record publication failure");
-                    WriteHolderRecordAtomic(recordPath, rec);
-                    published = true;
+                    bool acquiredAbandoned = (rc == WAIT_ABANDONED);
+                    IntPtr hLease = IntPtr.Zero;
+                    IntPtr hJob = IntPtr.Zero;
+                    IntPtr hKillJob = IntPtr.Zero;
+                    bool published = false;
+                    try
+                    {
+                        // On EVERY handoff (normal, abandoned, late-arriving, or post-probe), verify prior desktop job quiescence.
+                        DrainPriorJobFromRecord(recordPath, hPinnedPriorJob, pinnedPriorJobName, pinnedMemberHandles, 5000);
+                        CloseHandleList(pinnedMemberHandles);
+                        if (hPinnedPriorJob != IntPtr.Zero)
+                        {
+                            CloseHandle(hPinnedPriorJob);
+                            hPinnedPriorJob = IntPtr.Zero;
+                        }
 
-                    IntPtr ownedMutex = hMutex;
-                    hMutex = IntPtr.Zero;
-                    return new DesktopLockHandle(
-                        ownedMutex,
-                        hLease,
-                        hJob,
-                        hKillJob,
-                        Thread.CurrentThread.ManagedThreadId,
-                        canonicalLock,
-                        recordPath,
-                        leaseId,
-                        leaseName,
-                        jobName,
-                        false,
-                        acquiredAbandoned,
-                        selfPid,
-                        selfTicks,
-                        selfUtc);
+                        Action<bool> beforePub = BeforeRecordPublishForTest;
+                        if (beforePub != null) beforePub(acquiredAbandoned);
+
+                        int selfPid = Process.GetCurrentProcess().Id;
+                        long selfTicks;
+                        if (!TryGetProcessCreationTicks(selfPid, out selfTicks))
+                            throw new InvalidOperationException("failed to read current process creation time");
+                        string selfUtc = DateTime.FromFileTimeUtc(selfTicks).ToString("O", CultureInfo.InvariantCulture);
+                        string leaseId = Guid.NewGuid().ToString("N").Substring(0, 16);
+                        string leaseName = LeaseEventNameFor(leaseId);
+                        string jobName = JobNameFor(leaseId);
+
+                        hLease = CreateSecureLeaseEvent(leaseName);
+                        // Outer unnamed kill-on-close job (owner-only, assigned first so owner death during enrollment
+                        // still kills a suspended child) + middle named tracking job (no KILL_ON_JOB_CLOSE; pinned by
+                        // waiting successors and duplicated inheritable into enrolled children).
+                        hKillJob = CreateKillOnCloseJob();
+                        hJob = CreateSecureTrackingJob(jobName);
+
+                        HolderRecord rec = new HolderRecord
+                        {
+                            Pid = selfPid,
+                            StartTicks = selfTicks,
+                            StartUtc = selfUtc,
+                            LeaseId = leaseId,
+                            LockName = canonicalLock,
+                            Label = string.IsNullOrWhiteSpace(label) ? "desktop-lock" : label.Trim()
+                        };
+
+                        if (FailRecordPublishForTest)
+                            throw new IOException("simulated holder record publication failure");
+                        WriteHolderRecordAtomic(recordPath, rec);
+                        published = true;
+
+                        IntPtr ownedMutex = hMutex;
+                        hMutex = IntPtr.Zero;
+                        return new DesktopLockHandle(
+                            ownedMutex,
+                            hLease,
+                            hJob,
+                            hKillJob,
+                            Thread.CurrentThread.ManagedThreadId,
+                            canonicalLock,
+                            recordPath,
+                            leaseId,
+                            leaseName,
+                            jobName,
+                            false,
+                            acquiredAbandoned,
+                            selfPid,
+                            selfTicks,
+                            selfUtc);
+                    }
+                    finally
+                    {
+                        if (!published)
+                        {
+                            if (hKillJob != IntPtr.Zero && hJob != IntPtr.Zero)
+                            {
+                                TerminateAndDrainJob(hKillJob, hJob, 2000);
+                            }
+                            if (hKillJob != IntPtr.Zero) CloseHandle(hKillJob);
+                            if (hJob != IntPtr.Zero) CloseHandle(hJob);
+                            if (hLease != IntPtr.Zero)
+                            {
+                                SetEvent(hLease);
+                                CloseHandle(hLease);
+                            }
+                            if (hMutex != IntPtr.Zero)
+                            {
+                                ReleaseMutex(hMutex);
+                            }
+                        }
+                    }
                 }
                 finally
                 {
-                    if (!published)
-                    {
-                        if (hKillJob != IntPtr.Zero && hJob != IntPtr.Zero)
-                        {
-                            TerminateAndDrainJob(hKillJob, hJob, 2000);
-                        }
-                        if (hKillJob != IntPtr.Zero) CloseHandle(hKillJob);
-                        if (hJob != IntPtr.Zero) CloseHandle(hJob);
-                        if (hLease != IntPtr.Zero)
-                        {
-                            SetEvent(hLease);
-                            CloseHandle(hLease);
-                        }
-                        if (hMutex != IntPtr.Zero)
-                        {
-                            ReleaseMutex(hMutex);
-                        }
-                    }
+                    CloseHandleList(pinnedMemberHandles);
+                    if (hPinnedPriorJob != IntPtr.Zero) CloseHandle(hPinnedPriorJob);
                 }
             }
             finally
@@ -672,69 +705,149 @@ namespace Conclave.DesktopTests
             return true;
         }
 
-        private static void DrainPriorJobFromRecord(string recordPath, int timeoutMs)
+        private static void DrainPriorJobFromRecord(
+            string recordPath,
+            IntPtr hPinnedPriorJob,
+            string pinnedPriorJobName,
+            List<IntPtr> pinnedMemberHandles,
+            int timeoutMs)
         {
             HolderRecord prior;
             if (!ReadHolderRecordForRecovery(recordPath, out prior)) return;
             string priorJobName = JobNameFor(prior.LeaseId);
+            bool usePinned = (hPinnedPriorJob != IntPtr.Zero
+                && string.Equals(priorJobName, pinnedPriorJobName, StringComparison.OrdinalIgnoreCase));
+            List<IntPtr> observedHandles = new List<IntPtr>();
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-            while (true)
+            try
             {
-                // Open, query, and IMMEDIATELY close the query handle on each poll so our handle never
-                // prolongs the job's lifetime or blocks JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE!
-                IntPtr hJob = OpenJobObjectW(JOB_OBJECT_QUERY, false, priorJobName);
-                if (hJob == IntPtr.Zero)
+                while (true)
                 {
-                    int err = Marshal.GetLastWin32Error();
-                    if (err == ERROR_FILE_NOT_FOUND)
+                    int count;
+                    if (usePinned)
                     {
-                        LeaseState st = CheckHolderLeaseState(prior.Pid, prior.StartTicks, LeaseEventNameFor(prior.LeaseId));
-                        if (st == LeaseState.Inactive) return;
-                        if (st == LeaseState.Unknown)
-                            throw new InvalidOperationException("cannot verify prior lease state after desktop job vanished; refusing acquisition");
-                        if (DateTime.UtcNow >= deadline)
-                            throw new InvalidOperationException("prior holder lease still appears active after job vanished");
-                        Thread.Sleep(20);
-                        continue;
+                        count = QueryJobActiveProcessCount(hPinnedPriorJob, observedHandles);
                     }
-                    throw new Win32Exception(err, "cannot verify quiescence of prior desktop job '" + priorJobName + "'");
+                    else
+                    {
+                        // Open, query, and IMMEDIATELY close the query handle on each poll so our handle never
+                        // prolongs the job's lifetime or blocks JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE!
+                        IntPtr hJob = OpenJobObjectW(JOB_OBJECT_QUERY, false, priorJobName);
+                        if (hJob == IntPtr.Zero)
+                        {
+                            int err = Marshal.GetLastWin32Error();
+                            if (err == ERROR_FILE_NOT_FOUND)
+                            {
+                                LeaseState st = CheckHolderLeaseState(prior.Pid, prior.StartTicks, LeaseEventNameFor(prior.LeaseId));
+                                if (st == LeaseState.Inactive) break;
+                                if (st == LeaseState.Unknown)
+                                    throw new InvalidOperationException("cannot verify prior lease state after desktop job vanished; refusing acquisition");
+                                if (DateTime.UtcNow >= deadline)
+                                    throw new InvalidOperationException("prior holder lease still appears active after job vanished");
+                                Thread.Sleep(20);
+                                continue;
+                            }
+                            throw new Win32Exception(err, "cannot verify quiescence of prior desktop job '" + priorJobName + "'");
+                        }
+                        try
+                        {
+                            count = QueryJobActiveProcessCount(hJob, observedHandles);
+                        }
+                        finally
+                        {
+                            CloseHandle(hJob);
+                        }
+                    }
+                    if (count == 0) break;
+                    if (DateTime.UtcNow >= deadline)
+                        throw new InvalidOperationException("prior desktop job '" + priorJobName + "' still has " + count + " active process(es); refusing lock acquisition");
+                    Thread.Sleep(20);
                 }
-                int count;
-                try
-                {
-                    count = QueryJobActiveProcessCount(hJob);
-                }
-                finally
-                {
-                    CloseHandle(hJob);
-                }
-                if (count == 0) return;
-                if (DateTime.UtcNow >= deadline)
-                    throw new InvalidOperationException("prior desktop job '" + priorJobName + "' still has " + count + " active process(es); refusing lock acquisition");
-                Thread.Sleep(20);
+
+                // Wait for every snapshotted member handle to signal EPROCESS exit (JobObjectBasicProcessIdList can
+                // reach 0 shortly before kernel teardown signals WaitForSingleObject on a terminating process).
+                if (usePinned && pinnedMemberHandles != null && !WaitForProcessHandlesToExit(pinnedMemberHandles, deadline))
+                    throw new InvalidOperationException("prior desktop job '" + priorJobName + "' member did not finish exiting within timeout");
+                if (!WaitForProcessHandlesToExit(observedHandles, deadline))
+                    throw new InvalidOperationException("prior desktop job '" + priorJobName + "' member did not finish exiting within timeout");
+            }
+            finally
+            {
+                CloseHandleList(observedHandles);
             }
         }
 
         internal static bool TerminateAndDrainJob(IntPtr hKillJob, IntPtr hTrackJob, int timeoutMs)
         {
-            TerminateJobObject(hKillJob, 1);
-            DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-            while (true)
+            List<IntPtr> memberHandles = new List<IntPtr>();
+            try
             {
-                try
+                SnapshotJobMemberSyncHandles(hTrackJob, memberHandles);
+                TerminateJobObject(hKillJob, 1);
+                DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+                while (true)
                 {
-                    if (QueryJobActiveProcessCount(hTrackJob) == 0) return true;
+                    try
+                    {
+                        if (QueryJobActiveProcessCount(hTrackJob, memberHandles) == 0) break;
+                    }
+                    catch (Win32Exception)
+                    {
+                        return false;
+                    }
+                    if (DateTime.UtcNow >= deadline) return false;
+                    Thread.Sleep(15);
                 }
-                catch (Win32Exception)
-                {
-                    return false;
-                }
-                if (DateTime.UtcNow >= deadline) return false;
-                Thread.Sleep(15);
+                return WaitForProcessHandlesToExit(memberHandles, deadline);
+            }
+            finally
+            {
+                CloseHandleList(memberHandles);
             }
         }
 
+        private static void SnapshotJobMemberSyncHandles(IntPtr hJob, List<IntPtr> handles)
+        {
+            try
+            {
+                QueryJobActiveProcessCount(hJob, handles);
+            }
+            catch (Win32Exception)
+            {
+                // Best-effort snapshot before waiting; post-wait QueryJobActiveProcessCount enforces quiescence.
+            }
+        }
+
+        private static void CloseHandleList(List<IntPtr> handles)
+        {
+            if (handles == null) return;
+            foreach (IntPtr h in handles)
+            {
+                if (h != IntPtr.Zero) CloseHandle(h);
+            }
+            handles.Clear();
+        }
+
+        private static bool WaitForProcessHandlesToExit(List<IntPtr> handles, DateTime deadline)
+        {
+            if (handles == null) return true;
+            foreach (IntPtr h in handles)
+            {
+                if (h == IntPtr.Zero) continue;
+                int remMs = (int)Math.Ceiling((deadline - DateTime.UtcNow).TotalMilliseconds);
+                if (remMs < 0) remMs = 0;
+                uint rc = WaitForSingleObject(h, (uint)remMs);
+                if (rc != WAIT_OBJECT_0) return false;
+            }
+            return true;
+        }
+
         private static int QueryJobActiveProcessCount(IntPtr hJob)
+        {
+            return QueryJobActiveProcessCount(hJob, null);
+        }
+
+        private static int QueryJobActiveProcessCount(IntPtr hJob, List<IntPtr> collectSyncHandles)
         {
             // Buffer for JOBOBJECT_BASIC_PROCESS_ID_LIST (2 uint header + up to 64 IntPtr PIDs).
             int bufSize = 8 + IntPtr.Size * 64;
@@ -752,6 +865,24 @@ namespace Conclave.DesktopTests
                 }
                 int assigned = Marshal.ReadInt32(buf, 0);
                 int inList = Marshal.ReadInt32(buf, 4);
+                if (collectSyncHandles != null && inList > 0)
+                {
+                    int limit = Math.Min(inList, 64);
+                    for (int i = 0; i < limit; i++)
+                    {
+                        long pidVal = (IntPtr.Size == 8)
+                            ? Marshal.ReadInt64(buf, 8 + i * 8)
+                            : Marshal.ReadInt32(buf, 8 + i * 4);
+                        if (pidVal > 0 && pidVal <= uint.MaxValue)
+                        {
+                            IntPtr hp = OpenProcess(SYNCHRONIZE, false, (uint)pidVal);
+                            if (hp != IntPtr.Zero)
+                            {
+                                collectSyncHandles.Add(hp);
+                            }
+                        }
+                    }
+                }
                 return Math.Max(assigned, inList);
             }
             finally
@@ -914,12 +1045,13 @@ namespace Conclave.DesktopTests
 
         internal static void EnrollProcessInDesktopJobs(IntPtr hTrackJob, IntPtr hKillJob, IntPtr hProcess)
         {
-            if (!AssignProcessToJobObject(hTrackJob, hProcess))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject(trackJob) failed");
+            // Assign kill-on-close job FIRST so owner death between assignments still kills the suspended child.
             if (!AssignProcessToJobObject(hKillJob, hProcess))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject(killJob) failed");
-            // Duplicate an inheritable JOB_OBJECT_QUERY handle of the outer tracking job into the child so
-            // Global\conclave-desktop-job-<lease_id> stays queryable until every child and grandchild finishes exiting.
+            if (!AssignProcessToJobObject(hTrackJob, hProcess))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject(trackJob) failed");
+            // Duplicate an inheritable JOB_OBJECT_QUERY handle of the named tracking job into the child so
+            // Global\conclave-desktop-job-<lease_id> stays queryable while enrolled children/inheriting descendants exit.
             IntPtr dup;
             if (!DuplicateHandle(GetCurrentProcess(), hTrackJob, hProcess, out dup, JOB_OBJECT_QUERY, true, 0))
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "DuplicateHandle(trackJob) into child failed");

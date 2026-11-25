@@ -491,6 +491,25 @@ public static class LockDriver {
     private static extern bool CloseHandle(IntPtr hObject);
     [DllImport("kernel32.dll")]
     private static extern IntPtr LocalFree(IntPtr hMem);
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct STARTUPINFO_MIN {
+        public int cb;
+        public string lpReserved, lpDesktop, lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow, cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PROCESS_INFORMATION_MIN {
+        public IntPtr hProcess, hThread;
+        public uint dwProcessId, dwThreadId;
+    }
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool CreateProcessW(
+        string lpApplicationName, System.Text.StringBuilder lpCommandLine,
+        IntPtr lpProcessAttributes, IntPtr lpThreadAttributes,
+        bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment,
+        string lpCurrentDirectory, ref STARTUPINFO_MIN lpStartupInfo, out PROCESS_INFORMATION_MIN lpProcessInformation);
     [DllImport("advapi32.dll", SetLastError = true)]
     private static extern uint GetSecurityInfo(
         IntPtr handle, int ObjectType, uint SecurityInfo,
@@ -679,7 +698,10 @@ public static class LockDriver {
                 using (var h = DesktopLock.Acquire(prefix, "lock-driver-job-grandparent")) {
                     var env = CopyEnv(DesktopLock.EnvPrefix(prefix) + "_DESKTOP_HELD", h.HeldToken);
                     int cpid = h.StartProcessInJob(selfExe, "spawn-grandchild-and-exit " + prefix + " \"" + gcPidFile + "\"", Environment.CurrentDirectory, env);
-                    using (Process cp = Process.GetProcessById(cpid)) { cp.WaitForExit(10000); }
+                    using (Process cp = Process.GetProcessById(cpid)) {
+                        if (!cp.WaitForExit(10000))
+                            throw new InvalidOperationException("direct child pid " + cpid + " did not exit within 10s");
+                    }
                     DateTime dl = DateTime.UtcNow.AddSeconds(5);
                     while (!File.Exists(gcPidFile) && DateTime.UtcNow < dl) Thread.Sleep(15);
                     string gcPid = File.ReadAllText(gcPidFile).Trim();
@@ -691,12 +713,16 @@ public static class LockDriver {
             }
             if (cmd == "spawn-grandchild-and-exit") {
                 string gcPidFile = args[2];
-                var psi = new ProcessStartInfo(selfExe, "sleep-forever " + prefix) {
-                    UseShellExecute = false, CreateNoWindow = true
-                };
-                using (Process gc = Process.Start(psi)) {
-                    File.WriteAllText(gcPidFile, gc.Id.ToString());
-                }
+                // Explicitly disable handle inheritance (bInheritHandles = false, matching Python subprocess close_fds=True)
+                // so the grandchild does NOT inherit the tracking job handle from the direct child.
+                var si = new STARTUPINFO_MIN { cb = Marshal.SizeOf(typeof(STARTUPINFO_MIN)) };
+                PROCESS_INFORMATION_MIN pi;
+                var cmdLine = new System.Text.StringBuilder("\"" + selfExe + "\" sleep-forever " + prefix);
+                if (!CreateProcessW(selfExe, cmdLine, IntPtr.Zero, IntPtr.Zero, false, 0x08000000u, IntPtr.Zero, Environment.CurrentDirectory, ref si, out pi))
+                    throw new InvalidOperationException("CreateProcessW grandchild failed: " + Marshal.GetLastWin32Error());
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+                File.WriteAllText(gcPidFile, pi.dwProcessId.ToString());
                 return 0;
             }
             if (cmd == "hold-with-nonjob-child") {
