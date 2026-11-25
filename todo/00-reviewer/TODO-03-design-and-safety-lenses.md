@@ -382,12 +382,12 @@ Resolute's mechanical gate is `scripts/tidy-ratchet.py` (clang-tidy, a one-way c
 1. Enable the checks in each project's clang-tidy configuration. Done when: the ratchet runs with them in `Resolute` and `--verify-config` / `--list-checks` pass in both projects.
 2. Re-baseline `Resolute`. Done when: a net increase fails on independent `concurrency-mt-unsafe` and `bugprone-use-after-move` mutations and the recorded findings pass.
 
-- [x] Read `scripts/tidy-ratchet.py` and the `.clang-tidy` of each project for the checks enabled today. Done when: the body lists them, dated.
+- [x] Inspect `Resolute`'s `scripts/tidy-ratchet.py` and `.clang-tidy` for the checks enabled today, and confirm `Resolute-SDK` had no `.clang-tidy` before adding it. Done when: the body lists them, dated.
 - [x] Enable `concurrency-*` and the `bugprone-*` and `clang-analyzer-*` checks that cover lifetime, dangling and bounds. Done when: `python scripts/tidy-ratchet.py` lists findings from the new checks in `Resolute` and `--verify-config` + `--list-checks` confirm them in both projects.
 - [x] Re-baseline the ratchet in `Resolute` with dated `# Raised` lines so current findings are recorded. Done when: the ratchet exits 0, and exits non-zero on two independent scratch mutations in an analyzed TU (`concurrency-mt-unsafe` and `bugprone-use-after-move`, each naming the diagnostic and count regression with unchanged baseline bytes), then passes again after revert. Cheaper substitute: disabling a noisy check, which hides what it found.
 - [x] Run `Resolute`'s full gate once through `bosun run -- pwsh scripts/check-all.ps1`. Done when: it passes, quoted.
 - [x] Review the change through each project's pinned reviewer. Done when: each project's findings file records the passes with zero unresolved blocking (`P1`/`P2`) findings.
-- [x] Commit: `tidy: concurrency and lifetime checks under the ratchet` in each project (`Resolute` `e2b968b6` / `f006414d`, `Resolute-SDK` `a614c00` / `767e3ee` / `40b95b1`).
+- [ ] Commit: `tidy: concurrency and lifetime checks under the ratchet` in each project (`Resolute` `e2b968b6` / `f006414d` / `a529393e`, `Resolute-SDK` `a614c00` / `767e3ee` / `40b95b1` / `7ade561`).
 
 **Test checkpoint:** in `Resolute`, `python scripts/tidy-ratchet.py` exits 0 on `HEAD` (`139/139`), exits non-zero independently on a scratch edit adding one `concurrency-mt-unsafe` finding and on a scratch edit adding one `bugprone-use-after-move` finding (each naming the diagnostic and count regression with unchanged baseline bytes), and passes again when reverted; `bosun run -- pwsh scripts/check-all.ps1` prints `check-all: 32 gate(s) ok`; in `Resolute-SDK`, `clang-tidy.exe --verify-config --config-file=.clang-tidy` prints `No config errors detected.`, `--list-checks` matches `Resolute`, and `D00 T01 §4` owns the two-target runtime ratchet tests.
 
