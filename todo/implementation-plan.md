@@ -179,7 +179,7 @@ Sections: 16 | Checklist items: 143
 
 ### Phase 9: Design and safety lenses across projects
 
-Sections: 27 | Checklist items: 173
+Sections: 27 | Checklist items: 174
 
 | Status | Reference   | Deliverable                                                   | Needs        | Items |
 | ------ | ----------- | ------------------------------------------------------------- | ------------ | ----- |
@@ -209,7 +209,7 @@ Sections: 27 | Checklist items: 173
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
 | [x]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 6     |
-| [ ]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 7     |
+| [ ]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 8     |
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
@@ -247,4 +247,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 123/155 verified sections, 11 ready to run now.
 
-Checklist: 998/1172 items completed (includes Commit items).
+Checklist: 998/1173 items completed (includes Commit items).
