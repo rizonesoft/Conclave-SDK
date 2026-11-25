@@ -4781,24 +4781,46 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertTrue(ic.is_file(), f"IconPath does not exist for {name}: {ic}")
                 self.assertEqual(ic.parent.resolve(), icon_dir.resolve())
                 self.assertTrue(ic.name.startswith(f"launcher-{slug}-"), f"wrong icon slug for {name}: {ic.name}")
-            # Verify each saved link's exact target, argument form, and exact executable payload.
-            pwsh_resolved = pathlib.Path(pwsh).resolve()
+            # Verify each saved link's exact target, Windows CommandLineToArgvW tokens, and exact executable payload.
+            probe = self._run_tree(
+                [pwsh, "-NoProfile", "-Command",
+                 "$wt = (Get-Command wt.exe -CommandType Application -ErrorAction Ignore | Select-Object -First 1).Source; "
+                 "ConvertTo-Json -Compress @{ pwsh = (Get-Process -Id $PID).Path; wt = $wt }"],
+                cwd=target,
+            )
+            self.assertEqual(probe.returncode, 0, probe.stdout + probe.stderr)
+            probed = json.loads(probe.stdout.strip())
+            pwsh_resolved = pathlib.Path(probed["pwsh"]).resolve()
+            wt_resolved = pathlib.Path(probed["wt"]).resolve() if probed.get("wt") else None
             target_resolved = target.resolve()
+
+            def _win_argv(cmdline: str) -> list[str]:
+                shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+                kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+                shell32.CommandLineToArgvW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+                shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+                kernel32.LocalFree.argtypes = [ctypes.c_void_p]
+                argc = ctypes.c_int(0)
+                argv_ptr = shell32.CommandLineToArgvW(f"prog.exe {cmdline}", ctypes.byref(argc))
+                self.assertTrue(argv_ptr, "CommandLineToArgvW failed")
+                try:
+                    return [argv_ptr[i] for i in range(1, argc.value)]
+                finally:
+                    kernel32.LocalFree(argv_ptr)
+
             for agent_label, agent_name in (("Claude", "claude"), ("Codex", "codex")):
                 rec = recs[f"Shop App ({agent_label}).lnk"]
-                tgt_low = rec["Target"].lower()
-                if tgt_low.endswith("wt.exe"):
-                    tokens = [tok.strip('"') for tok in shlex.split(rec["Arguments"], posix=False)]
+                tokens = _win_argv(rec["Arguments"])
+                if wt_resolved is not None:
+                    self.assertEqual(pathlib.Path(rec["Target"]).resolve(), wt_resolved, rec)
                     self.assertEqual(len(tokens), 7, f"unexpected wt.exe tokens for {agent_label}: {tokens!r}")
                     self.assertEqual(tokens[0], "-d")
                     self.assertEqual(pathlib.Path(tokens[1]).resolve(), target_resolved)
                     self.assertEqual(pathlib.Path(tokens[2]).resolve(), pwsh_resolved)
                     self.assertEqual(tokens[3:], ["-NoLogo", "-NoExit", "-Command", agent_name])
-                elif tgt_low.endswith("pwsh.exe"):
-                    self.assertEqual(pathlib.Path(rec["Target"]).resolve(), pwsh_resolved)
-                    self.assertEqual(rec["Arguments"], f"-NoLogo -NoExit -Command {agent_name}")
                 else:
-                    self.fail(f"unexpected target executable for {agent_label}: {rec}")
+                    self.assertEqual(pathlib.Path(rec["Target"]).resolve(), pwsh_resolved, rec)
+                    self.assertEqual(tokens, ["-NoLogo", "-NoExit", "-Command", agent_name])
             site_url = next(lnk["url"] for lnk in example["links"] if lnk["label"] == "Site")
             site_rec = recs["Shop App (Site).lnk"]
             self.assertTrue(site_rec["Target"].lower().endswith("rundll32.exe"), site_rec)
