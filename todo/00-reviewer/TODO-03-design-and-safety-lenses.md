@@ -424,24 +424,25 @@ Before this section (baseline 2026-11-25), no sanitizer build was found in Resol
 
 > **Started:** 2026-11-25T20:22Z
 
-One review per repository of the files most likely to hold a threading or lifetime defect, through the two lenses of §2. Resolute-SDK first, then Resolute. The tool repositories and the projects built on the SDK are covered through it and get no audit of their own. One pass only: there is no second audit round.
+One review per repository of the files most likely to hold a threading or lifetime defect, through the two lenses of §2. Resolute-SDK first, then Resolute. The tool repositories and the projects built on the SDK are covered through it and get no audit of their own. One pass only: there is no second audit round. **Corrected 2026-11-25 (plan review, `docs/reviews/00-reviewer/D00-T03-s15.md`):** each repository's audit record opens with its audited 40-char SHA, eligible project-owned C++ paths (`*.cpp`, `*.h`, `*.hpp`, `*.cc`, `*.c`, excluding `sdk/` and `reskit/`), exact five `git grep -Ec` regex patterns (`threads`, `locks`, `atomics`, `callbacks`, `buffers`), score = sum of counts, tie-break = ascending path, selecting top `min(5, nonzero)` files (or reporting 0 if none match); dispatch supplies `--writer agy` (plus `--writer-model gemini-pro-orchestrator` in `Resolute`), `--kind round`, `--candidate <SHA>`, `--paths <selected>`, `--record docs/reviews/2026-11-25-cpp-safety-audit.md`, and a whole-file prompt naming each selected path at that SHA and requiring every selected file to be accounted for; acceptance requires exactly one returned round (exit 0, non-failed, valid `LENS thread-safety:` and `LENS memory-safety:` verdicts) reused on resume; every numbered finding gets a verified 1-to-1 disposition (fix commit with the same regression test failing before and passing after, with `Resolute/sdk.json` bumped and verified in `Resolute` for any SDK fix, or `- Filed:` verified by reading back the owning repo's TODO section).
 
 **Phase:** 9
+**Depends:** D00 T03 §9
 **Needs:** windows-host
 **Surface:** no
 
 **Build order:**
 
-1. Rank the files and take at most five per repository. Done when: the ranking and its counts are recorded.
-2. Run one review outside a section through the pinned reviewer. Done when: `docs/reviews/<date>-cpp-safety-audit.md` exists in each.
+1. Rank `Resolute-SDK` C++ files, run its single audit round, dispose of every finding (and bump `Resolute/sdk.json` if SDK code changes), and commit. Done when: `Resolute-SDK`'s audit record and clean commits land.
+2. Rank `Resolute` C++ files, run its single audit round, dispose of every finding, and commit. Done when: `Resolute`'s audit record and clean commits land.
 
-- [ ] Rank each repository's C++ files by thread creation, locks, atomics, callbacks that cross threads and raw buffer or pointer arithmetic (a `git grep -c` per pattern). Done when: the findings file opens with the table and the five files chosen.
-- [ ] Run `python scripts/review-dispatch.py --kind round` outside a section with `--paths` naming those files, recorded to `docs/reviews/<date>-cpp-safety-audit.md`. Done when: the record holds `LENS thread-safety:` and `LENS memory-safety:` lines.
-- [ ] Fix each P1 and P2 finding that is cheap, with a regression test that fails before the fix. Done when: each is named with its commit under the review.
-- [ ] File every other finding in the owning project through its `add-todo`. Done when: each has a `- Filed:` line with a reference that resolves.
-- [ ] Commit: `docs: C++ safety audit, findings fixed or filed` in each repository.
+- [x] Rank each repository's eligible project-owned C++ files (`*.cpp`, `*.h`, `*.hpp`, `*.cc`, `*.c`, excluding `sdk/` and `reskit/`) by the sum of `git grep -Ec` counts across the five recorded patterns (`threads`, `locks`, `atomics`, `callbacks`, `buffers`), sorted by total descending then path ascending, selecting top `min(5, nonzero)` files. Done when: each `docs/reviews/2026-11-25-cpp-safety-audit.md` opens with the audited 40-char SHA, exact patterns, full ranking table, and selected paths matching that ordering.
+- [x] Run `python scripts/review-dispatch.py --writer agy --kind round --candidate <SHA> --paths <selected> --record docs/reviews/2026-11-25-cpp-safety-audit.md --prompt <file>` (with `--writer-model gemini-pro-orchestrator` in `Resolute`) where the prompt names every selected file at `<SHA>` for whole-file inspection. Done when: each repository has exactly one returned round (exit 0, non-failed) for the audited SHA from the pinned reviewer, accounting for every selected file and carrying valid `LENS thread-safety:` and `LENS memory-safety:` lines.
+- [x] Fix each P1 and P2 finding that is cheap, with a regression test that fails before the fix and passes after it; for any `Resolute-SDK` fix, bump `Resolute/sdk.json` and verify the regression through `Resolute`'s build/test suite at that pin. Done when: each fixed finding has an `- Implemented:` line naming its commit and verified before/after regression.
+- [x] File every other finding in the owning project through its `add-todo`, reading back the target section to verify it describes the exact finding. Done when: each remaining finding has a `- Filed:` line whose reference resolves and matches the finding.
+- [ ] Commit: `docs: C++ safety audit, findings fixed or filed` in each repository (`Resolute-SDK` `49e9e51` / `deab1a1`, `Resolute` `0443c5d3` / `ef97bbc2`).
 
-**Test checkpoint:** `python scripts/review-dispatch.py --list-rounds --records docs/reviews` in each repository lists the audit record, and every finding in it has an `- Implemented:` or `- Filed:` line.
+**Test checkpoint:** `python scripts/review-dispatch.py --list-rounds --records docs/reviews` in each repository lists `docs/reviews/2026-11-25-cpp-safety-audit.md` with exactly one returned round for the audited SHA carrying valid `LENS thread-safety:` and `LENS memory-safety:` lines, the selected files match the reproducible ranking rule, and every numbered finding has a verified `- Implemented:` (with before/after regression) or `- Filed:` (read back in the owning TODO section) line.
 
 ## 16. Read-Only Verification Across the Projects
 
