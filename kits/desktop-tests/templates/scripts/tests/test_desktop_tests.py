@@ -80,23 +80,18 @@ class ConfigValidationTests(unittest.TestCase):
 # Real WPF fixture app honoring LaunchShow.FirstWindowActivates() with a native UIA Button and TextBlock.
 FIXTURE_APP_CS = r'''
 using System;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using System.Windows.Threading;
 using Conclave.DesktopTests;
 
 public static class FixtureApp {
-    private const int GWL_EXSTYLE = -20;
+    private const int WS_POPUP = unchecked((int)0x80000000);
+    private const int WS_VISIBLE = 0x10000000;
+    private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const int WS_EX_NOACTIVATE = 0x08000000;
-    private const int WM_MOUSEACTIVATE = 0x0021;
-    private const int WM_WINDOWPOSCHANGING = 0x0046;
-    private const uint SWP_NOSIZE = 0x0001, SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
-    [StructLayout(LayoutKind.Sequential)] private struct WINDOWPOS { public IntPtr hwnd, hwndInsertAfter; public int x, y, cx, cy; public uint flags; }
-    [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
-    [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
-    [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int cx, int cy, uint flags);
 
     [STAThread]
     public static void Main(string[] args) {
@@ -107,35 +102,6 @@ public static class FixtureApp {
         }
         bool activate = forceActivate || activatesFromStartup;
         int clicks = 0;
-        var win = new Window {
-            Title = "ConclaveUiaFixtureWindow",
-            Width = 260,
-            Height = 140,
-            Left = 40,
-            Top = 40,
-            ShowInTaskbar = false,
-            ShowActivated = activate,
-            Focusable = activate,
-        };
-        if (!activate) {
-            win.SourceInitialized += (s, e) => {
-                IntPtr hwnd = new WindowInteropHelper(win).Handle;
-                SetWindowLong(hwnd, GWL_EXSTYLE, GetWindowLong(hwnd, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
-                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
-                HwndSource src = HwndSource.FromHwnd(hwnd);
-                if (src != null) {
-                    src.AddHook((IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled) => {
-                        if (msg == WM_MOUSEACTIVATE) { handled = true; return (IntPtr)3; }
-                        if (msg == WM_WINDOWPOSCHANGING && lParam != IntPtr.Zero) {
-                            WINDOWPOS wp = (WINDOWPOS)Marshal.PtrToStructure(lParam, typeof(WINDOWPOS));
-                            wp.flags |= SWP_NOACTIVATE;
-                            Marshal.StructureToPtr(wp, lParam, false);
-                        }
-                        return IntPtr.Zero;
-                    });
-                }
-            };
-        }
         var lbl = new TextBlock { Text = "Clicks: 0" };
         AutomationProperties.SetAutomationId(lbl, "StatusLabel");
         var btn = new Button { Content = "Increment", Width = 100, Height = 30 };
@@ -144,7 +110,33 @@ public static class FixtureApp {
         var panel = new StackPanel();
         panel.Children.Add(lbl);
         panel.Children.Add(btn);
-        win.Content = panel;
+        if (!activate) {
+            // Pass WS_EX_NOACTIVATE directly to CreateWindowEx via HwndSource so Win32 never activates
+            // this window even on an empty desktop, while exposing the full WPF UIA tree.
+            var p = new HwndSourceParameters("ConclaveUiaFixtureWindow") {
+                PositionX = 40,
+                PositionY = 40,
+                Width = 260,
+                Height = 140,
+                WindowStyle = WS_POPUP | WS_VISIBLE,
+                ExtendedWindowStyle = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            };
+            using (var src = new HwndSource(p)) {
+                src.RootVisual = panel;
+                Dispatcher.Run();
+            }
+            return;
+        }
+        var win = new Window {
+            Title = "ConclaveUiaFixtureWindow",
+            Width = 260,
+            Height = 140,
+            Left = 40,
+            Top = 40,
+            ShowInTaskbar = false,
+            ShowActivated = true,
+            Content = panel,
+        };
         var app = new Application();
         app.Run(win);
     }
