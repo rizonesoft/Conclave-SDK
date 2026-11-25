@@ -629,14 +629,23 @@ if ($Uninstall) {
         }
         if ($removedTask -and (-not $NoRegister) -and $doc.PSObject.Properties['folder'] -and $doc.folder) {
             # Verify ownership of any live task at ($doc.folder, $taskName) BEFORE mutating tasks.json.
-            $existingLive = Get-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -ErrorAction SilentlyContinue
+            $schedErr = $null
+            $existingLive = Get-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -ErrorVariable schedErr -ErrorAction SilentlyContinue
+            if ($schedErr -and $schedErr.Count -gt 0) {
+                $cat = [string]$schedErr[0].CategoryInfo.Category
+                if ($cat -ne 'ObjectNotFound') {
+                    [Console]::Error.WriteLine("smoke-input: failed to query Task Scheduler ($($schedErr[0].Exception.Message)); manifest retained")
+                    exit 2
+                }
+            }
             if ($existingLive) {
                 $ownerTag = "[conclave-automations:$autoRunner]"
                 $act = if ($existingLive.Actions -and $existingLive.Actions.Count -eq 1) { $existingLive.Actions[0] } else { $null }
                 $expectedArgs = "`"$autoRunner`" $taskName"
                 $argsAndDirOk = $act -and ([string]$act.Arguments -ceq $expectedArgs) -and (([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\'))
                 $isTaggedOwned = $argsAndDirOk -and ([IO.Path]::GetFileName([string]$act.Execute) -ieq 'pythonw.exe') -and ([string]$existingLive.Description).EndsWith($ownerTag, [StringComparison]::OrdinalIgnoreCase)
-                $pwCmd = (Get-Command pythonw.exe -ErrorAction Ignore).Source
+                $pwObj = Get-Command pythonw.exe -ErrorAction Ignore
+                $pwCmd = if ($pwObj) { $pwObj.Source } else { $null }
                 $isLegacyOwned = $argsAndDirOk -and $pwCmd -and ([string]$act.Execute -ieq $pwCmd) -and ([string]$existingLive.Description -ceq [string]$removedTask.description)
                 if ($isLegacyOwned) {
                     Unregister-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -Confirm:$false -ErrorAction Stop

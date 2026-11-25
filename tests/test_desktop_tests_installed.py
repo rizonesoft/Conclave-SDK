@@ -229,6 +229,12 @@ class DesktopTestsInstalledTest(unittest.TestCase):
                 self.assertIn("manifest retained", err_ref)
                 retained = json.loads(manifest_path.read_text(encoding="utf-8"))
                 self.assertEqual([t["name"] for t in retained["tasks"]], [smoke_task])
+                rc_kept, out_kept, err_kept = _run_tree([
+                    PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                    f"$t = Get-ScheduledTask -TaskPath '{folder}' -TaskName '{smoke_task}' -ErrorAction Stop; "
+                    f"if ([string]$t.Actions[0].Execute -ne 'C:\\OtherPython\\pythonw.exe') {{ exit 1 }}",
+                ])
+                self.assertEqual(rc_kept, 0, out_kept + err_kept)
             finally:
                 _run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", cleanup_ps])
 
