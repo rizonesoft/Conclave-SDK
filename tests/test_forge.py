@@ -4249,10 +4249,12 @@ RESUME_PATHS = {
     "a Windows Run key": re.compile(r"CurrentVersion\\+Run\b", re.I),
     "an autostart entry": re.compile(r"\bautostart\b", re.I),
 }
-# The one allowed scheduler: the automations kit's, whose loader refuses a task that starts a run launcher (§9), and
-# the SDK's installed copy of it.
+# Allowed schedulers: the automations kit's (whose loader refuses a task that starts a run launcher, D02 T02 s9),
+# the SDK's installed copy of it, and the desktop-tests kit's standalone nightly real-input smoke runner (D04 T04 s1).
 ALLOWED_SCHEDULER = ("kits/automations/templates/.conclave/automations/", "kits/automations/templates/scripts/tests/",
-                     ".conclave/automations/", "scripts/tests/test_automations.py")
+                     ".conclave/automations/", "scripts/tests/test_automations.py",
+                     "kits/desktop-tests/templates/scripts/smoke-input.ps1",
+                     "kits/desktop-tests/templates/scripts/tests/test_desktop_tests.py")
 
 
 def resume_paths(root):

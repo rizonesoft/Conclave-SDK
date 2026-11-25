@@ -672,7 +672,7 @@ class InstallSh(unittest.TestCase):
             "wake_to_run": False,
             "exact_timeout": True,
         }
-        units = run.systemd_units({"schema_version": 1, "folder": "\\Demo\\", "tasks": [daily_task]}, str(self.root))
+        units = run.systemd_units({"folder": "\\Demo\\", "tasks": {"demo-nightly": daily_task}}, str(self.root), sys.executable)
         timer = units["demo-nightly.timer"]
         self.assertIn("OnCalendar=*-*-* 03:00:00", timer)
         self.assertIn("RandomizedDelaySec=0", timer)
