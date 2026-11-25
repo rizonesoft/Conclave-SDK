@@ -987,7 +987,8 @@ namespace Conclave.DesktopTests
             bool auAppliesToDir = false;
             bool auAppliesToChildren = false;
             const uint RequiredModify = 0x001301BFu;
-            const uint GenericAll = 0x10000000u;
+            // Reject AU excess rights (WRITE_DAC | WRITE_OWNER | GENERIC_ALL) on both directory and inherited child ACEs.
+            const uint ForbiddenAuExcess = 0x100C0000u;
             // Reject Everyone allow ACEs with any write/add-file/add-subdir/delete-child/delete/DAC/owner/generic-write/generic-all bit.
             const uint ForbiddenWorldMask = 0x500D0156u;
 
@@ -1006,8 +1007,8 @@ namespace Conclave.DesktopTests
                 if (EqualSid(pSid, auSid))
                 {
                     if (aceType == 1) return false;
-                    bool hasModify = (mask & RequiredModify) == RequiredModify || (mask & GenericAll) != 0;
-                    if (hasModify)
+                    if ((mask & ForbiddenAuExcess) != 0) return false;
+                    if ((mask & RequiredModify) == RequiredModify)
                     {
                         bool inheritOnly = (aceFlags & 0x08) != 0;
                         bool oi = (aceFlags & 0x01) != 0;

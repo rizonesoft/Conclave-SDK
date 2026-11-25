@@ -580,6 +580,8 @@ public static class LockDriver {
                     throw new InvalidOperationException("Everyone deny ACE preceding AU allow accepted");
                 if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;0x1301bf;;;AU)(XA;OICI;FW;;;WD;(1 == 1))"))
                     throw new InvalidOperationException("Conditional Everyone allow ACE accepted");
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;;0x1301bf;;;AU)(A;OICIIO;FA;;;AU)"))
+                    throw new InvalidOperationException("Excess AU Full Control on inherited children accepted");
                 using (var h = DesktopLock.Acquire(prefix, "lock-driver-dacl")) {
                     IntPtr hm = OpenMutexW(READ_CONTROL, false, h.LockName);
                     IntPtr he = OpenEventW(READ_CONTROL, false, h.LeaseEventName);
@@ -620,11 +622,17 @@ public static class LockDriver {
             if (cmd == "pause-before-publish") {
                 string resumeFile = args[2];
                 IntPtr hWatch = IntPtr.Zero;
+                bool closeWatch = false;
                 if (args.Length > 3) {
-                    uint watchPid = uint.Parse(args[3]);
-                    hWatch = OpenProcess(SYNCHRONIZE, false, watchPid);
-                    if (hWatch == IntPtr.Zero) throw new InvalidOperationException("failed to open SYNCHRONIZE handle for child pid " + watchPid);
-                    if (WaitForSingleObject(hWatch, 0) != 258) throw new InvalidOperationException("watched child pid " + watchPid + " was not alive before wait");
+                    if (args[3].StartsWith("handle:", StringComparison.Ordinal)) {
+                        hWatch = new IntPtr(long.Parse(args[3].Substring(7)));
+                    } else {
+                        uint watchPid = uint.Parse(args[3]);
+                        hWatch = OpenProcess(SYNCHRONIZE, false, watchPid);
+                        closeWatch = true;
+                        if (hWatch == IntPtr.Zero) throw new InvalidOperationException("failed to open SYNCHRONIZE handle for child pid " + watchPid);
+                        if (WaitForSingleObject(hWatch, 0) != 258) throw new InvalidOperationException("watched child pid " + watchPid + " was not alive before wait");
+                    }
                 }
                 DesktopLock.BeforeWaitForMutexForTest = () => {
                     Console.WriteLine("WAITING tid=" + GetCurrentThreadId());
@@ -650,7 +658,7 @@ public static class LockDriver {
                 } finally {
                     DesktopLock.BeforeWaitForMutexForTest = null;
                     DesktopLock.BeforeRecordPublishForTest = null;
-                    if (hWatch != IntPtr.Zero) CloseHandle(hWatch);
+                    if (closeWatch && hWatch != IntPtr.Zero) CloseHandle(hWatch);
                 }
                 return 0;
             }
@@ -1544,19 +1552,21 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                                     text=True, env=env2, creationflags=NO_WINDOW)
         ready = self._parse_kv(p_parent.stdout.readline())
         child2_pid = int(ready["child_pid"])
-        h_ch2 = kernel32.OpenProcess(0x00100000, False, child2_pid)  # SYNCHRONIZE while alive
+        h_ch2 = kernel32.OpenProcess(0x00100000, True, child2_pid)  # Inheritable SYNCHRONIZE while alive
         self.assertNotEqual(h_ch2, 0, "failed to open SYNCHRONIZE handle to live job child")
         self.assertEqual(kernel32.WaitForSingleObject(h_ch2, 0), 258, "job child must be alive before kill")
         p_parent.kill()
         p_parent.communicate(timeout=10)
-        # Hold the late-arriving successor at BEFORE_PUBLISH and assert WaitForSingleObject(h_ch2, 0) == WAIT_OBJECT_0!
+        # Pass the retained inheritable handle into the late successor so BeforeRecordPublishForTest samples child exit BEFORE printing or pausing!
         late_resume = Path(self._tmp.name) / "late-resume.txt"
-        p_late = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(late_resume)],
+        p_late = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(late_resume), f"handle:{h_ch2}"],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  text=True, env=env2, creationflags=NO_WINDOW)
+                                  text=True, env=env2, close_fds=False, creationflags=NO_WINDOW)
         try:
             self.assertTrue(p_late.stdout.readline().strip().startswith("WAITING "))
-            self.assertEqual(p_late.stdout.readline().strip(), "BEFORE_PUBLISH abandoned=False")
+            bp2 = p_late.stdout.readline().strip()
+            self.assertEqual(bp2, "BEFORE_PUBLISH abandoned=False childExited=True",
+                             f"late successor must sample child exited inside BeforeRecordPublishForTest, got: {bp2}")
             self.assertEqual(kernel32.WaitForSingleObject(h_ch2, 0), 0, "prior desktop job child must have exited before late successor publishes")
         finally:
             kernel32.CloseHandle(h_ch2)
