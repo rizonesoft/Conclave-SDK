@@ -176,6 +176,40 @@ class DesktopTestsInstalledTest(unittest.TestCase):
                     f"if ($s -or -not $m) {{ exit 1 }}",
                 ])
                 self.assertEqual(rc_after, 0, out_after + err_after)
+                # Direct uninstall of a legacy pre-tag task (WITHOUT reinstalling first!) must also remove it
+                # while still preserving the manual task alongside it.
+                legacy_manifest = {
+                    "schema_version": 1, "folder": folder,
+                    "tasks": [{
+                        "name": smoke_task,
+                        "description": f"Nightly real-input desktop UI tests for {prefix}",
+                        "command": ["pwsh", "-NoProfile", "-NonInteractive", "-File", "scripts/smoke-input.ps1", "-Scheduled"],
+                        "trigger": {"daily": True, "at": "03:00", "random_delay_minutes": 0},
+                        "timeout_minutes": 180, "start_when_available": False, "wake_to_run": False, "exact_timeout": True,
+                    }],
+                }
+                manifest_path.write_text(json.dumps(legacy_manifest, indent=2), encoding="utf-8")
+                rc_leg, out_leg, err_leg = _run_tree([
+                    PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                    f"$pw = (Get-Command pythonw.exe).Source; "
+                    f"$a2 = New-ScheduledTaskAction -Execute $pw -Argument '\"{runner_py}\" {smoke_task}' -WorkingDirectory '{target}'; "
+                    f"$t = New-ScheduledTaskTrigger -Daily -At '03:00'; "
+                    f"Register-ScheduledTask -TaskPath '{folder}' -TaskName '{smoke_task}' -Description 'Nightly real-input desktop UI tests for {prefix}' -Action $a2 -Trigger $t -Force | Out-Null",
+                ])
+                self.assertEqual(rc_leg, 0, out_leg + err_leg)
+                rc_du, out_du, err_du = _run_tree([
+                    PWSH, "-NoProfile", "-NonInteractive", "-File", str(target / "scripts/smoke-input.ps1"),
+                    "-ProjectRoot", str(target), "-StateFolder", str(state), "-Python", sys.executable,
+                    "-Uninstall",
+                ], cwd=target)
+                self.assertEqual(rc_du, 0, out_du + err_du)
+                rc_after2, out_after2, err_after2 = _run_tree([
+                    PWSH, "-NoProfile", "-NonInteractive", "-Command",
+                    f"$s = Get-ScheduledTask -TaskPath '{folder}' -TaskName '{smoke_task}' -ErrorAction SilentlyContinue; "
+                    f"$m = Get-ScheduledTask -TaskPath '{folder}' -TaskName '{manual_task}' -ErrorAction SilentlyContinue; "
+                    f"if ($s -or -not $m) {{ exit 1 }}",
+                ])
+                self.assertEqual(rc_after2, 0, out_after2 + err_after2)
             finally:
                 _run_tree([PWSH, "-NoProfile", "-NonInteractive", "-Command", cleanup_ps])
 

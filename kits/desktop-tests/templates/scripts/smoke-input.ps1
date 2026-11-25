@@ -615,15 +615,32 @@ if ($Uninstall) {
     if (Test-Path -LiteralPath $autoManifest) {
         $doc = [IO.File]::ReadAllText($autoManifest, [Text.UTF8Encoding]::new($false)) | ConvertFrom-Json
         $kept = [Collections.Generic.List[object]]::new()
+        $removedTask = $null
         foreach ($t in @($doc.tasks)) {
             if ($t.name -eq $taskName) {
                 if (-not (Test-OwnedAutomationTask $t)) {
                     [Console]::Error.WriteLine("smoke-input: refusing to remove unrelated automation task '$taskName'")
                     exit 2
                 }
+                $removedTask = $t
                 continue
             }
             $kept.Add($t)
+        }
+        if ($removedTask -and (-not $NoRegister) -and $doc.PSObject.Properties['folder'] -and $doc.folder) {
+            # Unregister a legacy pre-tag scheduled task while the manifest description is still known.
+            $existingLegacy = Get-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -ErrorAction SilentlyContinue
+            if ($existingLegacy -and $existingLegacy.Actions -and $existingLegacy.Actions.Count -eq 1) {
+                $act = $existingLegacy.Actions[0]
+                $pwCmd = (Get-Command pythonw.exe -ErrorAction Ignore).Source
+                $expectedArgs = "`"$autoRunner`" $taskName"
+                if ($pwCmd -and ([string]$act.Execute -ieq $pwCmd) -and
+                    ([string]$act.Arguments -ceq $expectedArgs) -and
+                    (([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\')) -and
+                    ([string]$existingLegacy.Description -ceq [string]$removedTask.description)) {
+                    Unregister-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -Confirm:$false -ErrorAction Stop
+                }
+            }
         }
         $newDoc = [ordered]@{
             schema_version = $doc.schema_version

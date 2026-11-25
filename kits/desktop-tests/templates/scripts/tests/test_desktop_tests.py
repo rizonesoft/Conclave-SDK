@@ -173,6 +173,14 @@ public static class FixtureDriver {
         throw new TimeoutException("fixture window did not appear for pid " + pid);
     }
 
+    private static uint SafeSendInput(uint n, INPUT[] inputs, int cbSize, ref int calls) {
+        calls++;
+        if (Environment.GetEnvironmentVariable("CONCLAVE_TEST_LIVE_DESK") != "1") {
+            throw new RealInputRefusedException("SendInput refused at native boundary: CONCLAVE_TEST_LIVE_DESK is not 1");
+        }
+        return SendInput(n, inputs, cbSize);
+    }
+
     public static int Main(string[] args) {
         string mode = args[0];
         string prefix = args[1];
@@ -194,8 +202,7 @@ public static class FixtureDriver {
                 up.u.ki = new KEYBDINPUT { wVk = 0xE8, dwFlags = 2, dwExtraInfo = (UIntPtr)tag };
                 POINT cur;
                 bool unlockedDesktop = GetCursorPos(out cur);
-                sendInputCalls++;
-                sent = SendInput(2, new[] { down, up }, Marshal.SizeOf(typeof(INPUT)));
+                sent = SafeSendInput(2, new[] { down, up }, Marshal.SizeOf(typeof(INPUT)), ref sendInputCalls);
                 if (unlockedDesktop && sent != 2) {
                     Console.Error.WriteLine("SendInput inserted " + sent + " of 2 events on unlocked desktop");
                     return 12;
