@@ -41,6 +41,8 @@ title: "TODO-04 -- Desktop interface tests that never take the operator's desk"
 
 ## 1. Interface tests split by whether they take the desk
 
+> **Started:** 2026-11-25T01:53Z
+
 A default run (and CI) drives the UI without real input; real input is opt-in, nightly or on demand, and stops for a person.
 
 **Phase:** 9
