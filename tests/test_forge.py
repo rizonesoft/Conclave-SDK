@@ -4788,26 +4788,39 @@ class LaunchersPageTests(unittest.TestCase):
                 self.assertTrue(ic.is_file(), f"IconPath does not exist for {name}: {ic}")
                 self.assertEqual(ic.parent.resolve(), icon_dir.resolve())
                 self.assertTrue(ic.name.startswith(f"launcher-{slug}-"), f"wrong icon slug for {name}: {ic.name}")
-            # Verify each saved link's specific target and decoded command / agent / URL arguments.
+            # Verify each saved link's exact target, argument form, and decoded executable payload.
             for agent_label, agent_name in (("Claude", "claude"), ("Codex", "codex")):
                 rec = recs[f"Shop App ({agent_label}).lnk"]
-                self.assertTrue(
-                    rec["Target"].lower().endswith(("wt.exe", "pwsh.exe", "powershell.exe")), rec)
-                m_agent = re.search(r"-Command\s+(.*)$", rec["Arguments"], re.I)
-                self.assertIsNotNone(m_agent, f"missing -Command in {agent_label} arguments: {rec}")
-                agent_cmd = m_agent.group(1)
-                self.assertRegex(agent_cmd, rf"\b{agent_name}\b")
-                other = "codex" if agent_name == "claude" else "claude"
-                self.assertNotRegex(agent_cmd, rf"\b{other}\b")
+                tgt_low = rec["Target"].lower()
+                if tgt_low.endswith("wt.exe"):
+                    m_wt = re.match(
+                        r"^-d\s+(?:\"[^\"]+\"|\S+)\s+(?:\"[^\"]*pwsh\.exe\"|\S*pwsh\.exe)\s+"
+                        r"-NoLogo\s+-NoExit\s+-Command\s+(\S+)$",
+                        rec["Arguments"],
+                        re.I,
+                    )
+                    self.assertIsNotNone(m_wt, f"unexpected wt.exe argument form for {agent_label}: {rec}")
+                    self.assertEqual(m_wt.group(1), agent_name)
+                elif tgt_low.endswith("pwsh.exe"):
+                    self.assertEqual(rec["Arguments"], f"-NoLogo -NoExit -Command {agent_name}")
+                else:
+                    self.fail(f"unexpected target executable for {agent_label}: {rec}")
             site_url = next(lnk["url"] for lnk in example["links"] if lnk["label"] == "Site")
             site_rec = recs["Shop App (Site).lnk"]
             self.assertTrue(site_rec["Target"].lower().endswith("rundll32.exe"), site_rec)
             self.assertEqual(site_rec["Arguments"], f"url.dll,FileProtocolHandler {site_url}")
             run_cmd = next(lnk["run"] for lnk in example["links"] if lnk["label"] == "App Check")
             check_rec = recs["Shop App (App Check).lnk"]
-            self.assertTrue(check_rec["Target"].lower().endswith(("pwsh.exe", "powershell.exe")), check_rec)
-            decoded_check = self._decode_encoded_command(check_rec["Arguments"])
-            self.assertIn(run_cmd, decoded_check, f"decoded App Check command missing exact run payload: {decoded_check!r}")
+            self.assertTrue(check_rec["Target"].lower().endswith("pwsh.exe"), check_rec)
+            m_check = re.match(
+                r'^-NoLogo -NoProfile -Command "& \'[^\']*pwsh\.exe\' -NoLogo -NoProfile '
+                r'-EncodedCommand ([A-Za-z0-9+/=]+); if \(\$LASTEXITCODE -ne 0\) \{ .*\}"$',
+                check_rec["Arguments"],
+                re.I,
+            )
+            self.assertIsNotNone(m_check, f"unexpected App Check wrapper arguments: {check_rec}")
+            inner_payload = base64.b64decode(m_check.group(1)).decode("utf-16le", errors="strict")
+            self.assertEqual(inner_payload, f"$ErrorActionPreference = 'Stop'\n{run_cmd}\n")
             self.assertNotIn("Other App (Site).lnk", recs, "read-back must ignore another project's shortcut")
             self.assertIn("Keep Me.lnk", recs, "read-back must surface unreadable shortcut errors")
             self.assertTrue(recs["Keep Me.lnk"].get("Error"), recs["Keep Me.lnk"])
