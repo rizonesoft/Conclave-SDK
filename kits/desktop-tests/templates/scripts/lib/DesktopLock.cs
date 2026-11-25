@@ -47,6 +47,7 @@ namespace Conclave.DesktopTests
         private readonly IntPtr _hMutex;
         private readonly IntPtr _hLease;
         private readonly IntPtr _hJob;
+        private readonly IntPtr _hKillJob;
         private readonly int _ownerThreadId;
         private readonly string _recordPath;
         private readonly string _leaseEventName;
@@ -71,6 +72,7 @@ namespace Conclave.DesktopTests
             IntPtr hMutex,
             IntPtr hLease,
             IntPtr hJob,
+            IntPtr hKillJob,
             int ownerThreadId,
             string lockName,
             string recordPath,
@@ -86,6 +88,7 @@ namespace Conclave.DesktopTests
             _hMutex = hMutex;
             _hLease = hLease;
             _hJob = hJob;
+            _hKillJob = hKillJob;
             _ownerThreadId = ownerThreadId;
             LockName = lockName;
             _recordPath = recordPath;
@@ -106,26 +109,25 @@ namespace Conclave.DesktopTests
         public void AssignProcessToJob(IntPtr hProcess)
         {
             if (_disposed) throw new ObjectDisposedException("DesktopLockHandle");
-            if (_inherited || _hJob == IntPtr.Zero)
+            if (_inherited || _hJob == IntPtr.Zero || _hKillJob == IntPtr.Zero)
                 throw new InvalidOperationException("only the owning DesktopLockHandle can assign processes to the desktop job");
-            if (!DesktopLock.AssignProcessToJobObject(_hJob, hProcess))
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed");
+            DesktopLock.EnrollProcessInDesktopJobs(_hJob, _hKillJob, hProcess);
         }
 
         public int StartProcessInJob(string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
         {
             if (_disposed) throw new ObjectDisposedException("DesktopLockHandle");
-            if (_inherited || _hJob == IntPtr.Zero)
+            if (_inherited || _hJob == IntPtr.Zero || _hKillJob == IntPtr.Zero)
                 throw new InvalidOperationException("only the owning DesktopLockHandle can start processes in the desktop job");
-            return DesktopLock.StartProcessInJobHandle(_hJob, exePath, arguments, workingDirectory, env);
+            return DesktopLock.StartProcessInJobHandle(_hJob, _hKillJob, exePath, arguments, workingDirectory, env);
         }
 
         public int RunProcessInJob(string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
         {
             if (_disposed) throw new ObjectDisposedException("DesktopLockHandle");
-            if (_inherited || _hJob == IntPtr.Zero)
+            if (_inherited || _hJob == IntPtr.Zero || _hKillJob == IntPtr.Zero)
                 throw new InvalidOperationException("only the owning DesktopLockHandle can run processes in the desktop job");
-            return DesktopLock.RunProcessInJobHandle(_hJob, exePath, arguments, workingDirectory, env);
+            return DesktopLock.RunProcessInJobHandle(_hJob, _hKillJob, exePath, arguments, workingDirectory, env);
         }
 
         public void EnsureStillHeld()
@@ -158,9 +160,9 @@ namespace Conclave.DesktopTests
             bool drained = true;
             try
             {
-                if (_hJob != IntPtr.Zero)
+                if (_hKillJob != IntPtr.Zero && _hJob != IntPtr.Zero)
                 {
-                    drained = DesktopLock.TerminateAndDrainJob(_hJob, 5000);
+                    drained = DesktopLock.TerminateAndDrainJob(_hKillJob, _hJob, 5000);
                 }
             }
             finally
@@ -185,6 +187,7 @@ namespace Conclave.DesktopTests
                         DesktopLock.CloseHandle(_hMutex);
                     }
                     if (_hLease != IntPtr.Zero) DesktopLock.CloseHandle(_hLease);
+                    if (_hKillJob != IntPtr.Zero) DesktopLock.CloseHandle(_hKillJob);
                     if (_hJob != IntPtr.Zero) DesktopLock.CloseHandle(_hJob);
                 }
             }
@@ -382,6 +385,7 @@ namespace Conclave.DesktopTests
                 bool acquiredAbandoned = (rc == WAIT_ABANDONED);
                 IntPtr hLease = IntPtr.Zero;
                 IntPtr hJob = IntPtr.Zero;
+                IntPtr hKillJob = IntPtr.Zero;
                 bool published = false;
                 try
                 {
@@ -401,7 +405,10 @@ namespace Conclave.DesktopTests
                     string jobName = JobNameFor(leaseId);
 
                     hLease = CreateSecureLeaseEvent(leaseName);
-                    hJob = CreateSecureJob(jobName);
+                    // Outer named tracking job (no KILL_ON_JOB_CLOSE; duplicated into children so it stays queryable
+                    // until every child and grandchild finishes exiting) + inner unnamed kill-on-close job (owner-only).
+                    hJob = CreateSecureTrackingJob(jobName);
+                    hKillJob = CreateKillOnCloseJob();
 
                     HolderRecord rec = new HolderRecord
                     {
@@ -424,6 +431,7 @@ namespace Conclave.DesktopTests
                         ownedMutex,
                         hLease,
                         hJob,
+                        hKillJob,
                         Thread.CurrentThread.ManagedThreadId,
                         canonicalLock,
                         recordPath,
@@ -440,11 +448,12 @@ namespace Conclave.DesktopTests
                 {
                     if (!published)
                     {
-                        if (hJob != IntPtr.Zero)
+                        if (hKillJob != IntPtr.Zero && hJob != IntPtr.Zero)
                         {
-                            TerminateAndDrainJob(hJob, 2000);
-                            CloseHandle(hJob);
+                            TerminateAndDrainJob(hKillJob, hJob, 2000);
                         }
+                        if (hKillJob != IntPtr.Zero) CloseHandle(hKillJob);
+                        if (hJob != IntPtr.Zero) CloseHandle(hJob);
                         if (hLease != IntPtr.Zero)
                         {
                             SetEvent(hLease);
@@ -501,6 +510,7 @@ namespace Conclave.DesktopTests
             if (probe != WAIT_TIMEOUT) return null;
 
             return new DesktopLockHandle(
+                IntPtr.Zero,
                 IntPtr.Zero,
                 IntPtr.Zero,
                 IntPtr.Zero,
@@ -679,14 +689,7 @@ namespace Conclave.DesktopTests
                     if (err == ERROR_FILE_NOT_FOUND)
                     {
                         LeaseState st = CheckHolderLeaseState(prior.Pid, prior.StartTicks, LeaseEventNameFor(prior.LeaseId));
-                        if (st == LeaseState.Inactive)
-                        {
-                            // When the last handle to a KILL_ON_JOB_CLOSE job closes on owner death, Windows
-                            // immediately unlinks the job name while children are still tearing down (1-5ms).
-                            // Wait for any terminating children of (prior.Pid, prior.StartTicks) to finish exiting.
-                            WaitForDeadOwnerChildrenToExit(prior.Pid, prior.StartTicks, deadline);
-                            return;
-                        }
+                        if (st == LeaseState.Inactive) return;
                         if (st == LeaseState.Unknown)
                             throw new InvalidOperationException("cannot verify prior lease state after desktop job vanished; refusing acquisition");
                         if (DateTime.UtcNow >= deadline)
@@ -712,45 +715,15 @@ namespace Conclave.DesktopTests
             }
         }
 
-        private static void WaitForDeadOwnerChildrenToExit(int priorPid, long priorStartTicks, DateTime deadline)
+        internal static bool TerminateAndDrainJob(IntPtr hKillJob, IntPtr hTrackJob, int timeoutMs)
         {
-            // Only wait for children of a dead owner (if priorPid is still alive with priorStartTicks, it disposed cleanly).
-            long liveTicks;
-            if (TryGetProcessCreationTicks(priorPid, out liveTicks) && liveTicks == priorStartTicks) return;
-            Dictionary<int, int> parentMap = SnapshotParentPids();
-            foreach (var kv in parentMap)
-            {
-                if (kv.Value != priorPid) continue;
-                int childPid = kv.Key;
-                long childTicks;
-                if (!TryGetProcessCreationTicks(childPid, out childTicks) || childTicks < priorStartTicks) continue;
-                IntPtr hChild = OpenProcess(SYNCHRONIZE, false, (uint)childPid);
-                if (hChild == IntPtr.Zero) continue;
-                try
-                {
-                    int rem = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
-                    if (rem <= 0)
-                        throw new InvalidOperationException("prior holder child pid " + childPid + " still terminating at deadline");
-                    uint w = WaitForSingleObject(hChild, (uint)rem);
-                    if (w != WAIT_OBJECT_0)
-                        throw new InvalidOperationException("prior holder child pid " + childPid + " did not exit before deadline");
-                }
-                finally
-                {
-                    CloseHandle(hChild);
-                }
-            }
-        }
-
-        internal static bool TerminateAndDrainJob(IntPtr hJob, int timeoutMs)
-        {
-            TerminateJobObject(hJob, 1);
+            TerminateJobObject(hKillJob, 1);
             DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
             while (true)
             {
                 try
                 {
-                    if (QueryJobActiveProcessCount(hJob) == 0) return true;
+                    if (QueryJobActiveProcessCount(hTrackJob) == 0) return true;
                 }
                 catch (Win32Exception)
                 {
@@ -895,7 +868,7 @@ namespace Conclave.DesktopTests
             }
         }
 
-        private static IntPtr CreateSecureJob(string name)
+        private static IntPtr CreateSecureTrackingJob(string name)
         {
             IntPtr sd;
             SECURITY_ATTRIBUTES sa = MakeSecurityAttributes(SddlJob, out sd);
@@ -904,30 +877,52 @@ namespace Conclave.DesktopTests
                 IntPtr h = CreateJobObjectW(ref sa, name);
                 if (h == IntPtr.Zero)
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObjectW failed for " + name);
-                JOBOBJECT_EXTENDED_LIMIT_INFORMATION info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
-                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-                int size = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
-                IntPtr ptr = Marshal.AllocHGlobal(size);
-                try
-                {
-                    Marshal.StructureToPtr(info, ptr, false);
-                    if (!SetInformationJobObject(h, JobObjectExtendedLimitInformation, ptr, (uint)size))
-                    {
-                        int err = Marshal.GetLastWin32Error();
-                        CloseHandle(h);
-                        throw new Win32Exception(err, "SetInformationJobObject failed for " + name);
-                    }
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(ptr);
-                }
                 return h;
             }
             finally
             {
                 if (sd != IntPtr.Zero) LocalFree(sd);
             }
+        }
+
+        private static IntPtr CreateKillOnCloseJob()
+        {
+            SECURITY_ATTRIBUTES sa = new SECURITY_ATTRIBUTES { nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), bInheritHandle = false };
+            IntPtr h = CreateJobObjectW(ref sa, null);
+            if (h == IntPtr.Zero)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObjectW failed for kill-on-close job");
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION info = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            int size = Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION));
+            IntPtr ptr = Marshal.AllocHGlobal(size);
+            try
+            {
+                Marshal.StructureToPtr(info, ptr, false);
+                if (!SetInformationJobObject(h, JobObjectExtendedLimitInformation, ptr, (uint)size))
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    CloseHandle(h);
+                    throw new Win32Exception(err, "SetInformationJobObject failed for kill-on-close job");
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(ptr);
+            }
+            return h;
+        }
+
+        internal static void EnrollProcessInDesktopJobs(IntPtr hTrackJob, IntPtr hKillJob, IntPtr hProcess)
+        {
+            if (!AssignProcessToJobObject(hTrackJob, hProcess))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject(trackJob) failed");
+            if (!AssignProcessToJobObject(hKillJob, hProcess))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject(killJob) failed");
+            // Duplicate an inheritable JOB_OBJECT_QUERY handle of the outer tracking job into the child so
+            // Global\conclave-desktop-job-<lease_id> stays queryable until every child and grandchild finishes exiting.
+            IntPtr dup;
+            if (!DuplicateHandle(GetCurrentProcess(), hTrackJob, hProcess, out dup, JOB_OBJECT_QUERY, true, 0))
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "DuplicateHandle(trackJob) into child failed");
         }
 
         private static void EnsureRecordDirectory(string dir)
@@ -1260,18 +1255,18 @@ namespace Conclave.DesktopTests
             return null;
         }
 
-        internal static int StartProcessInJobHandle(IntPtr hJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
+        internal static int StartProcessInJobHandle(IntPtr hTrackJob, IntPtr hKillJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
         {
             IntPtr hProc;
-            int pid = SpawnProcessInJobHandle(hJob, exePath, arguments, workingDirectory, env, out hProc);
+            int pid = SpawnProcessInJobHandle(hTrackJob, hKillJob, exePath, arguments, workingDirectory, env, out hProc);
             CloseHandle(hProc);
             return pid;
         }
 
-        internal static int RunProcessInJobHandle(IntPtr hJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
+        internal static int RunProcessInJobHandle(IntPtr hTrackJob, IntPtr hKillJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env)
         {
             IntPtr hProc;
-            SpawnProcessInJobHandle(hJob, exePath, arguments, workingDirectory, env, out hProc);
+            SpawnProcessInJobHandle(hTrackJob, hKillJob, exePath, arguments, workingDirectory, env, out hProc);
             try
             {
                 uint w = WaitForSingleObject(hProc, 0xFFFFFFFFu);
@@ -1288,7 +1283,7 @@ namespace Conclave.DesktopTests
             }
         }
 
-        private static int SpawnProcessInJobHandle(IntPtr hJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env, out IntPtr processHandle)
+        private static int SpawnProcessInJobHandle(IntPtr hTrackJob, IntPtr hKillJob, string exePath, string arguments, string workingDirectory, IDictionary<string, string> env, out IntPtr processHandle)
         {
             processHandle = IntPtr.Zero;
             StringBuilder cmd = new StringBuilder();
@@ -1326,12 +1321,7 @@ namespace Conclave.DesktopTests
             bool ok = false;
             try
             {
-                if (!AssignProcessToJobObject(hJob, pi.hProcess))
-                {
-                    int err = Marshal.GetLastWin32Error();
-                    TerminateProcess(pi.hProcess, 1);
-                    throw new Win32Exception(err, "AssignProcessToJobObject failed for child pid " + pi.dwProcessId);
-                }
+                EnrollProcessInDesktopJobs(hTrackJob, hKillJob, pi.hProcess);
                 if (ResumeThread(pi.hThread) == unchecked((uint)-1))
                 {
                     int err = Marshal.GetLastWin32Error();
@@ -1341,6 +1331,11 @@ namespace Conclave.DesktopTests
                 processHandle = pi.hProcess;
                 ok = true;
                 return (int)pi.dwProcessId;
+            }
+            catch
+            {
+                TerminateProcess(pi.hProcess, 1);
+                throw;
             }
             finally
             {
@@ -1502,6 +1497,16 @@ namespace Conclave.DesktopTests
 
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool DuplicateHandle(
+            IntPtr hSourceProcessHandle,
+            IntPtr hSourceHandle,
+            IntPtr hTargetProcessHandle,
+            out IntPtr lpTargetHandle,
+            uint dwDesiredAccess,
+            bool bInheritHandle,
+            uint dwOptions);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         internal static extern bool CloseHandle(IntPtr hObject);

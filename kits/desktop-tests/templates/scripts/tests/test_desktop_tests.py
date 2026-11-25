@@ -674,6 +674,44 @@ public static class LockDriver {
                 }
                 return 0;
             }
+            if (cmd == "hold-with-job-grandchild") {
+                string gcPidFile = args[2];
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-job-grandparent")) {
+                    var env = CopyEnv(DesktopLock.EnvPrefix(prefix) + "_DESKTOP_HELD", h.HeldToken);
+                    int cpid = h.StartProcessInJob(selfExe, "spawn-grandchild-and-exit " + prefix + " \"" + gcPidFile + "\"", Environment.CurrentDirectory, env);
+                    using (Process cp = Process.GetProcessById(cpid)) { cp.WaitForExit(10000); }
+                    DateTime dl = DateTime.UtcNow.AddSeconds(5);
+                    while (!File.Exists(gcPidFile) && DateTime.UtcNow < dl) Thread.Sleep(15);
+                    string gcPid = File.ReadAllText(gcPidFile).Trim();
+                    Console.WriteLine("READY pid=" + h.HolderPid + " child_pid=" + cpid + " grandchild_pid=" + gcPid + " job=" + h.JobName + " record=" + h.RecordPath);
+                    Console.Out.Flush();
+                    Console.In.ReadLine();
+                }
+                return 0;
+            }
+            if (cmd == "spawn-grandchild-and-exit") {
+                string gcPidFile = args[2];
+                var psi = new ProcessStartInfo(selfExe, "sleep-forever " + prefix) {
+                    UseShellExecute = false, CreateNoWindow = true
+                };
+                using (Process gc = Process.Start(psi)) {
+                    File.WriteAllText(gcPidFile, gc.Id.ToString());
+                }
+                return 0;
+            }
+            if (cmd == "hold-with-nonjob-child") {
+                using (var h = DesktopLock.Acquire(prefix, "lock-driver-nonjob-parent")) {
+                    var psi = new ProcessStartInfo(selfExe, "sleep-forever " + prefix) {
+                        UseShellExecute = false, CreateNoWindow = true
+                    };
+                    using (Process nj = Process.Start(psi)) {
+                        Console.WriteLine("READY pid=" + h.HolderPid + " nonjob_pid=" + nj.Id + " job=" + h.JobName + " record=" + h.RecordPath);
+                        Console.Out.Flush();
+                    }
+                    Console.In.ReadLine();
+                }
+                return 0;
+            }
             if (cmd == "sleep-forever") {
                 Thread.Sleep(60000);
                 return 0;
@@ -1528,7 +1566,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             self.assertTrue(pub_line.startswith("PUBLISHED "), f"expected PUBLISHED, got: {pub_line}")
             info2 = self._parse_kv(pub_line)
             rec_doc = json.loads(Path(info2["record"]).read_text(encoding="utf-8"))
-            self.assertEqual(rec_doc["pid"], int(info2["pid"]))
+            self.assertEqual(int(info2["pid"]), p2.pid)
+            self.assertEqual(rec_doc["pid"], p2.pid)
             self.assertNotEqual(rec_doc["pid"], int(held1["pid"]))
         finally:
             if h_ch1:
@@ -1575,7 +1614,8 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             self.assertTrue(pub2.startswith("PUBLISHED "), f"late successor must publish replacement record, got: {pub2}")
             info_late = self._parse_kv(pub2)
             rec_late = json.loads(Path(info_late["record"]).read_text(encoding="utf-8"))
-            self.assertEqual(rec_late["pid"], int(info_late["pid"]))
+            self.assertEqual(int(info_late["pid"]), p_late.pid)
+            self.assertEqual(rec_late["pid"], p_late.pid)
             self.assertNotEqual(rec_late["pid"], int(ready["pid"]))
             p_late.stdin.write("quit\n")
             p_late.stdin.flush()
@@ -1587,6 +1627,87 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             if p_late.poll() is None:
                 p_late.kill()
                 p_late.communicate()
+
+        # 2b. Grandchild surviving direct child exit: outer tracking job handle inherited by grandchild keeps job
+        # queryable across owner death until the grandchild finishes exiting, even after direct child already exited!
+        lock2b = f"conclave-dt-gc-{os.getpid()}-{time.time_ns()}"
+        env2b = {**os.environ, "DEMO_DESKTOP_LOCK": lock2b, "DEMO_DESKTOP_WAIT_S": "15"}
+        gc_pid_file = Path(self._tmp.name) / "gc-pid.txt"
+        gc_resume = Path(self._tmp.name) / "gc-resume.txt"
+        p_gp = subprocess.Popen([str(self.lock_drv_exe), "hold-with-job-grandchild", "demo", str(gc_pid_file)],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, env=env2b, creationflags=NO_WINDOW)
+        p_gc_succ = None
+        h_gc = 0
+        try:
+            gp_info = self._parse_kv(p_gp.stdout.readline())
+            gc_pid = int(gp_info["grandchild_pid"])
+            h_gc = kernel32.OpenProcess(0x00100000, True, gc_pid)  # Inheritable SYNCHRONIZE
+            self.assertNotEqual(h_gc, 0, "failed to open SYNCHRONIZE handle to live grandchild")
+            self.assertEqual(kernel32.WaitForSingleObject(h_gc, 0), 258, "grandchild must be alive after direct child exited")
+            p_gc_succ = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(gc_resume), f"handle:{h_gc}"],
+                                         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                         text=True, env=env2b, close_fds=False, creationflags=NO_WINDOW)
+            gc_wait = p_gc_succ.stdout.readline().strip()
+            self.assertTrue(gc_wait.startswith("WAITING "), gc_wait)
+            gc_tid = self._parse_kv(gc_wait)["tid"]
+            blk_gc = run_cmd([str(self.lock_drv_exe), "wait-thread-blocked", str(p_gc_succ.pid), gc_tid])
+            self.assertEqual(blk_gc.returncode, 0, blk_gc.stdout + blk_gc.stderr)
+            p_gp.kill()
+            p_gp.communicate(timeout=10)
+            bp_gc = p_gc_succ.stdout.readline().strip()
+            self.assertEqual(bp_gc, "BEFORE_PUBLISH abandoned=True childExited=True",
+                             f"grandchild must finish exiting before successor publishes, got: {bp_gc}")
+            self.assertEqual(kernel32.WaitForSingleObject(h_gc, 0), 0, "grandchild handle must be signaled before publish")
+            gc_resume.write_text("go", encoding="utf-8")
+            pub_gc = p_gc_succ.stdout.readline().strip()
+            self.assertTrue(pub_gc.startswith("PUBLISHED "), pub_gc)
+        finally:
+            if h_gc:
+                kernel32.CloseHandle(h_gc)
+            gc_resume.write_text("go", encoding="utf-8")
+            if p_gp.poll() is None:
+                p_gp.kill()
+                p_gp.communicate()
+            if p_gc_succ is not None:
+                try:
+                    p_gc_succ.stdin.write("quit\n")
+                    p_gc_succ.stdin.flush()
+                    p_gc_succ.communicate(timeout=10)
+                except Exception:
+                    p_gc_succ.kill()
+                    p_gc_succ.communicate()
+
+        # 2c. Unrelated non-job child staying alive after owner death must NOT block subsequent lock acquisition.
+        lock2c = f"conclave-dt-nonjob-{os.getpid()}-{time.time_ns()}"
+        env2c = {**os.environ, "DEMO_DESKTOP_LOCK": lock2c, "DEMO_DESKTOP_WAIT_S": "2"}
+        p_nj = subprocess.Popen([str(self.lock_drv_exe), "hold-with-nonjob-child", "demo"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True, env=env2c, creationflags=NO_WINDOW)
+        h_nj = 0
+        nj_pid = 0
+        try:
+            nj_info = self._parse_kv(p_nj.stdout.readline())
+            nj_pid = int(nj_info["nonjob_pid"])
+            h_nj = kernel32.OpenProcess(0x00100001, False, nj_pid)  # SYNCHRONIZE | PROCESS_TERMINATE
+            self.assertNotEqual(h_nj, 0, "failed to open handle to non-job child")
+            self.assertEqual(kernel32.WaitForSingleObject(h_nj, 0), 258, "non-job child must be alive")
+            p_nj.kill()
+            p_nj.wait(timeout=10)
+            r_nj_next = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"], env=env2c)
+            self.assertEqual(r_nj_next.returncode, 0, r_nj_next.stdout + r_nj_next.stderr)
+            self.assertEqual(kernel32.WaitForSingleObject(h_nj, 0), 258, "unrelated non-job child must remain unaffected")
+        finally:
+            if h_nj:
+                kernel32.TerminateProcess(h_nj, 1)
+                kernel32.WaitForSingleObject(h_nj, 5000)
+                kernel32.CloseHandle(h_nj)
+            if p_nj.poll() is None:
+                p_nj.kill()
+            p_nj.wait(timeout=10)
+            for s in (p_nj.stdin, p_nj.stdout, p_nj.stderr):
+                if s is not None:
+                    s.close()
 
         # 3. Failed record publication rolls back mutex so Process 2 acquires while Process 1 stays alive.
         lock3 = f"conclave-dt-failpub-{os.getpid()}-{time.time_ns()}"

@@ -200,12 +200,12 @@ public static class ConclaveSmokeDesk {
         return Marshal.StringToHGlobalUni(sb.ToString());
     }
 
-    // Starts a child suspended, assigns it to job (and optional extraJob) BEFORE its first instruction runs, then resumes it.
+    // Starts a child suspended, runs optional outer-job enrollment and assigns inner job BEFORE its first instruction runs.
     public static JobChild StartInJob(IntPtr job, string cmdLine, string workDir, IDictionary<string, string> envOverrides) {
-        return StartInJob(job, IntPtr.Zero, cmdLine, workDir, envOverrides);
+        return StartInJob(job, (Action<IntPtr>)null, cmdLine, workDir, envOverrides);
     }
 
-    public static JobChild StartInJob(IntPtr job, IntPtr extraJob, string cmdLine, string workDir, IDictionary<string, string> envOverrides) {
+    public static JobChild StartInJob(IntPtr job, Action<IntPtr> enrollOuter, string cmdLine, string workDir, IDictionary<string, string> envOverrides) {
         var sa = new SECURITY_ATTRIBUTES { nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), bInheritHandle = 1 };
         IntPtr outR = IntPtr.Zero, outW = IntPtr.Zero, errR = IntPtr.Zero, errW = IntPtr.Zero;
         if (!CreatePipe(out outR, out outW, ref sa, 0)) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -245,14 +245,17 @@ public static class ConclaveSmokeDesk {
             CloseHandle(outR); CloseHandle(errR);
             throw new Win32Exception(err);
         }
-        // Assign outer desktop job FIRST, then inner per-class/discovery job SECOND (Windows nested-job order).
-        if (extraJob != IntPtr.Zero && !AssignProcessToJobObject(extraJob, pi.hProcess)) {
-            int jerr = Marshal.GetLastWin32Error();
-            TerminateProcess(pi.hProcess, 1);
-            CloseHandle(pi.hThread);
-            CloseHandle(pi.hProcess);
-            CloseHandle(outR); CloseHandle(errR);
-            throw new Win32Exception(jerr, "AssignProcessToJobObject(desktopJob) failed before child resumed");
+        // Enroll in outer desktop jobs FIRST, then inner per-class/discovery job SECOND (Windows nested-job order).
+        if (enrollOuter != null) {
+            try {
+                enrollOuter(pi.hProcess);
+            } catch {
+                TerminateProcess(pi.hProcess, 1);
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+                CloseHandle(outR); CloseHandle(errR);
+                throw;
+            }
         }
         if (!AssignProcessToJobObject(job, pi.hProcess)) {
             int jerr = Marshal.GetLastWin32Error();
@@ -849,7 +852,7 @@ try {
 }
 
 try {
-$desktopJobHandle = if (-not $desktopLock.Inherited) { $desktopLock.JobHandle } else { [IntPtr]::Zero }
+$enrollDesktopJob = if (-not $desktopLock.Inherited) { [Delegate]::CreateDelegate([Action[IntPtr]], $desktopLock, 'AssignProcessToJob') } else { $null }
 
 # Recheck admission immediately after acquiring the desktop lock (in case the desktop became active or window closed while waiting).
 $afterLockSkip = Check-Admission
@@ -1000,7 +1003,7 @@ try {
         $discExit = 0
         try {
             $discCmd = Build-WinCmdLine $runnerExe (@($runnerBaseArgs) + @('--discover'))
-            $discChild = [ConclaveSmokeDesk]::StartInJob($discJob, $desktopJobHandle, $discCmd, $repo, $childEnv)
+            $discChild = [ConclaveSmokeDesk]::StartInJob($discJob, $enrollDesktopJob, $discCmd, $repo, $childEnv)
             $outLineTask = $discChild.StdOut.ReadLineAsync()
             $errDrainTask = $discChild.StdErr.ReadToEndAsync()
             while ($true) {
@@ -1099,7 +1102,7 @@ try {
             $expectedSet = [Collections.Generic.HashSet[string]]::new($expectedByClass[$cls], [StringComparer]::Ordinal)
             try {
                 $classCmd = Build-WinCmdLine $runnerExe (@($runnerBaseArgs) + @('--run-class', $cls))
-                $cChild = [ConclaveSmokeDesk]::StartInJob($job, $desktopJobHandle, $classCmd, $repo, $childEnv)
+                $cChild = [ConclaveSmokeDesk]::StartInJob($job, $enrollDesktopJob, $classCmd, $repo, $childEnv)
                 $logWriter.WriteLine("=== class $cls ===")
                 $outTask = $cChild.StdOut.ReadLineAsync()
                 $errTask = $cChild.StdErr.ReadLineAsync()
