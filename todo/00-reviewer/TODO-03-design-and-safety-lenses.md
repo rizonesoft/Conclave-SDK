@@ -48,7 +48,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 10 | §10 | Reviewer scripts current in the WSL project | §3 | [ ] |
 | 11 | §11 | Surface validation in the custom graphs | §3 | [x] |
 | 12 | §12 | Stamp gate planned in each custom graph's project | §11 | [x] |
-| 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [ ] |
+| 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [x] |
 | 14 | §14 | Sanitizer test configuration | §13 | [ ] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
 | 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11 | [ ] |
@@ -387,9 +387,12 @@ Resolute's mechanical gate is `scripts/tidy-ratchet.py` (clang-tidy, a one-way c
 - [x] Re-baseline the ratchet in `Resolute` with dated `# Raised` lines so current findings are recorded. Done when: the ratchet exits 0, and exits non-zero on two independent scratch mutations in an analyzed TU (`concurrency-mt-unsafe` and `bugprone-use-after-move`, each naming the diagnostic and count regression with unchanged baseline bytes), then passes again after revert. Cheaper substitute: disabling a noisy check, which hides what it found.
 - [x] Run `Resolute`'s full gate once through `bosun run -- pwsh scripts/check-all.ps1`. Done when: it passes, quoted.
 - [x] Review the change through each project's pinned reviewer. Done when: each project's findings file records the passes with zero unresolved blocking (`P1`/`P2`) findings.
-- [ ] Commit: `tidy: concurrency and lifetime checks under the ratchet` in each project (`Resolute` `e2b968b6` / `f006414d` / `a529393e`, `Resolute-SDK` `a614c00` / `767e3ee` / `40b95b1` / `7ade561`).
+- [x] Commit: `tidy: concurrency and lifetime checks under the ratchet` in each project (`Resolute` `e2b968b6` / `f006414d` / `a529393e`, `Resolute-SDK` `a614c00` / `767e3ee` / `40b95b1` / `7ade561`).
 
 **Test checkpoint:** in `Resolute`, `python scripts/tidy-ratchet.py` exits 0 on `HEAD` (`139/139`), exits non-zero independently on a scratch edit adding one `concurrency-mt-unsafe` finding and on a scratch edit adding one `bugprone-use-after-move` finding (each naming the diagnostic and count regression with unchanged baseline bytes), and passes again when reverted; `bosun run -- pwsh scripts/check-all.ps1` prints `check-all: 32 gate(s) ok`; in `Resolute-SDK`, `clang-tidy.exe --verify-config --config-file=.clang-tidy` prints `No config errors detected.`, `--list-checks` matches `Resolute`, and `D00 T01 §4` owns the two-target runtime ratchet tests.
+
+> **Verified:** 2026-11-25 | §13 | 1b9baf1f64241af1f1bf920067b2913e12f63303
+> **Review:** `docs/reviews/d00-t03-s13.json`
 
 ## 14. Sanitizer Test Configuration
 
