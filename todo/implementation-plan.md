@@ -209,7 +209,7 @@ Sections: 27 | Checklist items: 174
 | [ ]    | D04 T04 §1  | Interface tests split by whether they take the desk           | windows-host | 7     |
 | [ ]    | D04 T04 §2  | One owner of the visual desktop at a time                     | windows-host | 4     |
 | [x]    | D07 T01 §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests    | windows-host | 6     |
-| [ ]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 8     |
+| [x]    | D07 T01 §8  | Operator page and `project-launchers` skill                   | windows-host | 8     |
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 123/155 verified sections, 11 ready to run now.
+Progress: 124/155 verified sections, 10 ready to run now.
 
-Checklist: 1000/1173 items completed (includes Commit items).
+Checklist: 1001/1173 items completed (includes Commit items).

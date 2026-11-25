@@ -2,7 +2,7 @@
 schema_version: 1
 id: project-launchers
 domain: 07-launchers
-status: active
+status: done
 title: "TODO-01 -- Project launchers: one desktop shape for every project"
 ---
 
@@ -51,7 +51,7 @@ title: "TODO-01 -- Project launchers: one desktop shape for every project"
 | 5 | §5 | Desktop links that open the project in an agent | §2, §4 | [x] |
 | 6 | §6 | Declared links that run a command or open a URL | §5 | [x] |
 | 7 | §7 | Campaign links under the project's title, icon read from a share | §2, §3 | [x] |
-| 8 | §8 | Operator page and `project-launchers` skill | §6, §7, §10 | [ ] |
+| 8 | §8 | Operator page and `project-launchers` skill | §6, §7, §10 | [x] |
 | 9 | §9 | Agent and declared links named outside the ANSI code page | §6 | [x] |
 | 10 | §10 | Shadow-audit repairs for `project-shortcuts.ps1` and tests | §9 | [x] |
 
@@ -325,11 +325,14 @@ A person or an agent in a project needs one place that says how to set the title
 - [x] Point at the page from `kits/unattended/templates/docs/unattended-run.md` (the shortcuts section, linking to `launchers.md` beside it after install) and from the file table in `kits/launchers/README.md` (linking to `templates/docs/launchers.md` in the SDK checkout). Done when: a test follows the README link in the SDK checkout, the unattended guide link in a project provisioned with `unattended`, and the back-link from `launchers.md` to `unattended-run.md#shortcuts`.
 - [x] Reject non-`FileSystem` provider paths passed to `-IconDir` in `kits/launchers/templates/scripts/project-shortcuts.ps1` (naming `-IconDir` and `filesystem` in the refusal, and documenting it on `docs/launchers.md`), and add `-Force` to `-Inspect`'s shortcut enumeration so hidden owned links are reported while hidden foreign links stay excluded. Done when: `test_project_shortcuts.py` proves `-IconDir HKCU:\Software` exits 1 with zero writes in both working and shortcut directories, a valid `Microsoft.PowerShell.Core\FileSystem::<dir>` path succeeds, and `-Inspect` reports a hidden owned link while excluding a hidden foreign link.
 - [x] Document `-Inspect` (runnable command, `-ShortcutDir`/`-Distro`/`-Project` flags, empty-folder output, and per-file unreadable-link errors) on `kits/launchers/templates/docs/launchers.md`, simplify `project-launchers/SKILL.md` (and regenerated copies) to point to that command without prescribing `Add-Type -Path`/`ShellLink.cs` internals, and tighten `tests/test_forge.py -k launchers_page` to extract and execute the page's published command blocks and verify each worked-example link's specific target, decoded arguments, and matching icon slug. Done when: `python -m unittest tests.test_forge -k launchers_page -v` and `python forge.py skill-copies --check` pass.
-- [ ] Commit: `launchers: the operator's page and the project-launchers skill`
+- [x] Commit: `launchers: the operator's page and the project-launchers skill`
 
 **Test checkpoint:** on Windows, `python -m unittest tests.test_forge -k launchers_page -v`, `python -m unittest discover -s kits/launchers/templates/scripts/tests -p test_project_shortcuts.py -k test_icon_dir_provider -k test_inspect_includes_hidden -v`, and `python forge.py skill-copies --check` pass (not skipped); removing the removal heading or `-Inspect` command from the page, corrupting a published command block, swapping Claude and Codex links, or removing the operator-only rule from the skill or Codex's `agents/openai.yaml` makes it fail.
 
 > **Unstamped:** 2026-11-22: shadow audit audit-d07-t01-s8.md found 1 P1, 6 P2s, and 1 P3 missed by repair-diff at c9158e4e (3 fixed by D07 T01 §9); open repairs -> XREF: D07 T01 §10 (revoked receipt `docs/reviews/d07-t01-s8.revoked-2026-11-22.json`)
+
+> **Verified:** 2026-11-25 | §8 | 473af2f5c8118f150d5444d497cbd1003676244a
+> **Review:** `docs/reviews/d07-t01-s8.json`
 
 ## 9. Agent and declared links named outside the ANSI code page
 
