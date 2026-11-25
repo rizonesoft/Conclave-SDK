@@ -910,14 +910,53 @@ namespace Conclave.DesktopTests
                     if (GetSecurityDescriptorDacl(sd, out present, out dacl, out defaulted) && present)
                     {
                         uint rc = SetNamedSecurityInfoW(dir, 1 /* SE_FILE_OBJECT */, 4 /* DACL_SECURITY_INFORMATION */, IntPtr.Zero, IntPtr.Zero, dacl, IntPtr.Zero);
-                        if (rc != 0 && rc != 5) // 0=OK, 5=ERROR_ACCESS_DENIED (already created by another account)
+                        if (rc == 5) // ERROR_ACCESS_DENIED: created by another account; inspect and validate existing DACL.
+                        {
+                            ValidateExistingRecordDirectoryDacl(dir);
+                        }
+                        else if (rc != 0)
+                        {
                             throw new Win32Exception((int)rc, "SetNamedSecurityInfoW failed for " + dir);
+                        }
                     }
                 }
             }
             finally
             {
                 if (sd != IntPtr.Zero) LocalFree(sd);
+            }
+        }
+
+        private static void ValidateExistingRecordDirectoryDacl(string dir)
+        {
+            IntPtr existingSd;
+            uint grc = GetNamedSecurityInfoW(dir, 1 /* SE_FILE_OBJECT */, 4 /* DACL_SECURITY_INFORMATION */,
+                IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, out existingSd);
+            if (grc != 0)
+                throw new Win32Exception((int)grc, "GetNamedSecurityInfoW failed while validating DACL for " + dir);
+            try
+            {
+                IntPtr sddlPtr;
+                if (!ConvertSecurityDescriptorToStringSecurityDescriptorW(existingSd, 1, 4 /* DACL_SECURITY_INFORMATION */, out sddlPtr, IntPtr.Zero))
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "ConvertSecurityDescriptorToStringSecurityDescriptorW failed for " + dir);
+                try
+                {
+                    string sddl = Marshal.PtrToStringUni(sddlPtr) ?? "";
+                    bool hasAu = sddl.IndexOf(";;;AU)", StringComparison.OrdinalIgnoreCase) >= 0;
+                    bool hasWorldWrite = sddl.IndexOf("FA;;;WD)", StringComparison.OrdinalIgnoreCase) >= 0
+                        || sddl.IndexOf("GW;;;WD)", StringComparison.OrdinalIgnoreCase) >= 0
+                        || sddl.IndexOf("0x1301bf;;;WD)", StringComparison.OrdinalIgnoreCase) >= 0;
+                    if (!hasAu || hasWorldWrite)
+                        throw new UnauthorizedAccessException("shared desktop-locks directory DACL is invalid: " + sddl);
+                }
+                finally
+                {
+                    LocalFree(sddlPtr);
+                }
+            }
+            finally
+            {
+                LocalFree(existingSd);
             }
         }
 
@@ -1390,5 +1429,24 @@ namespace Conclave.DesktopTests
             IntPtr psidGroup,
             IntPtr pDacl,
             IntPtr pSacl);
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern uint GetNamedSecurityInfoW(
+            string pObjectName,
+            int ObjectType,
+            uint SecurityInfo,
+            IntPtr ppsidOwner,
+            IntPtr ppsidGroup,
+            IntPtr ppDacl,
+            IntPtr ppSacl,
+            out IntPtr ppSecurityDescriptor);
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool ConvertSecurityDescriptorToStringSecurityDescriptorW(
+            IntPtr SecurityDescriptor,
+            uint RequestedStringSDRevision,
+            uint SecurityInformation,
+            out IntPtr StringSecurityDescriptor,
+            IntPtr StringSecurityDescriptorLen);
     }
 }

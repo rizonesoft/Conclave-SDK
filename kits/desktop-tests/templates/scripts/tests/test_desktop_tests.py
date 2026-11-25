@@ -595,16 +595,25 @@ public static class LockDriver {
             }
             if (cmd == "pause-before-publish") {
                 string resumeFile = args[2];
+                DesktopLock.BeforeWaitForMutexForTest = () => {
+                    Console.WriteLine("WAITING");
+                    Console.Out.Flush();
+                };
                 DesktopLock.BeforeRecordPublishForTest = () => {
                     Console.WriteLine("BEFORE_PUBLISH");
                     Console.Out.Flush();
                     DateTime dl = DateTime.UtcNow.AddSeconds(15);
                     while (!File.Exists(resumeFile) && DateTime.UtcNow < dl) Thread.Sleep(25);
                 };
-                using (var h = DesktopLock.Acquire(prefix, "lock-driver-pause")) {
-                    Console.WriteLine("PUBLISHED pid=" + h.HolderPid + " record=" + h.RecordPath);
-                    Console.Out.Flush();
-                    Console.In.ReadLine();
+                try {
+                    using (var h = DesktopLock.Acquire(prefix, "lock-driver-pause")) {
+                        Console.WriteLine("PUBLISHED pid=" + h.HolderPid + " record=" + h.RecordPath);
+                        Console.Out.Flush();
+                        Console.In.ReadLine();
+                    }
+                } finally {
+                    DesktopLock.BeforeWaitForMutexForTest = null;
+                    DesktopLock.BeforeRecordPublishForTest = null;
                 }
                 return 0;
             }
@@ -1412,16 +1421,25 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         self.assertIn("(A;;LC;;;AU)", lines["JOB_DACL"])
 
     def test_desktop_lock_kill_recovery_late_successor_failed_publish_and_two_reader_handoff(self):
-        # 1. Synchronized kill test: Process 2 already open & waiting before Process 1 is killed acquires at once.
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        # 1. Synchronized kill test with a live desktop-job child: Process 2 is already waiting on the mutex BEFORE
+        # Process 1 is killed; we retain a SYNCHRONIZE handle to the child while it is alive, and verify
+        # WaitForSingleObject(h_ch, 0) == WAIT_OBJECT_0 at BEFORE_PUBLISH before Process 2 publishes its record!
         lock1 = f"conclave-dt-kill-{os.getpid()}-{time.time_ns()}"
         env1 = {**os.environ, "DEMO_DESKTOP_LOCK": lock1, "DEMO_DESKTOP_WAIT_S": "15"}
-        p1 = subprocess.Popen([str(self.lock_drv_exe), "hold", "demo"],
+        p1_resume = Path(self._tmp.name) / "kill-resume.txt"
+        p1 = subprocess.Popen([str(self.lock_drv_exe), "hold-with-job-child", "demo"],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                               text=True, env=env1, creationflags=NO_WINDOW)
         p2 = None
+        h_ch1 = 0
         try:
             held1 = self._parse_kv(p1.stdout.readline())
-            p2 = subprocess.Popen([str(self.lock_drv_exe), "wait-acquire", "demo", "hold"],
+            child1_pid = int(held1["child_pid"])
+            h_ch1 = kernel32.OpenProcess(0x00100000, False, child1_pid)  # SYNCHRONIZE
+            self.assertNotEqual(h_ch1, 0, "failed to open SYNCHRONIZE handle to live job child")
+            self.assertEqual(kernel32.WaitForSingleObject(h_ch1, 0), 258, "job child must be alive before kill")
+            p2 = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(p1_resume)],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env=env1, creationflags=NO_WINDOW)
             self.assertEqual(p2.stdout.readline().strip(), "WAITING")
@@ -1429,22 +1447,28 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             t_kill = time.monotonic()
             p1.kill()
             p1.communicate(timeout=10)
-            acq_line = p2.stdout.readline().strip()
+            self.assertEqual(p2.stdout.readline().strip(), "BEFORE_PUBLISH")
             elapsed = time.monotonic() - t_kill
-            self.assertTrue(acq_line.startswith("ACQUIRED "), f"expected ACQUIRED, got: {acq_line}")
             self.assertLess(elapsed, 4.0, f"abandoned mutex recovery took {elapsed:.2f}s")
-            info2 = self._parse_kv(acq_line)
-            # Read back the replacement record while p2 still holds the lock.
+            # Positive proof via retained SYNCHRONIZE handle that prior job child exited BEFORE p2 publishes!
+            self.assertEqual(kernel32.WaitForSingleObject(h_ch1, 0), 0, "prior job child must have exited before waiting successor publishes")
+            p1_resume.write_text("go", encoding="utf-8")
+            pub_line = p2.stdout.readline().strip()
+            self.assertTrue(pub_line.startswith("PUBLISHED "), f"expected PUBLISHED, got: {pub_line}")
+            info2 = self._parse_kv(pub_line)
             rec_doc = json.loads(Path(info2["record"]).read_text(encoding="utf-8"))
             self.assertEqual(rec_doc["pid"], int(info2["pid"]))
             self.assertNotEqual(rec_doc["pid"], int(held1["pid"]))
         finally:
+            if h_ch1:
+                kernel32.CloseHandle(h_ch1)
+            p1_resume.write_text("go", encoding="utf-8")
             if p1.poll() is None:
                 p1.kill()
                 p1.communicate()
             if p2 is not None:
                 try:
-                    p2.stdin.write("release\n")
+                    p2.stdin.write("quit\n")
                     p2.stdin.flush()
                     p2.communicate(timeout=10)
                 except Exception:
@@ -1458,24 +1482,23 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     text=True, env=env2, creationflags=NO_WINDOW)
         ready = self._parse_kv(p_parent.stdout.readline())
+        child2_pid = int(ready["child_pid"])
+        h_ch2 = kernel32.OpenProcess(0x00100000, False, child2_pid)  # SYNCHRONIZE while alive
+        self.assertNotEqual(h_ch2, 0, "failed to open SYNCHRONIZE handle to live job child")
+        self.assertEqual(kernel32.WaitForSingleObject(h_ch2, 0), 258, "job child must be alive before kill")
         p_parent.kill()
         p_parent.communicate(timeout=10)
-        # Hold the late-arriving successor at BEFORE_PUBLISH (right after DrainPriorJobFromRecord returned) while verifying child_pid is dead!
+        # Hold the late-arriving successor at BEFORE_PUBLISH and assert WaitForSingleObject(h_ch2, 0) == WAIT_OBJECT_0!
         late_resume = Path(self._tmp.name) / "late-resume.txt"
         p_late = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(late_resume)],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env=env2, creationflags=NO_WINDOW)
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         try:
+            self.assertEqual(p_late.stdout.readline().strip(), "WAITING")
             self.assertEqual(p_late.stdout.readline().strip(), "BEFORE_PUBLISH")
-            child_pid = int(ready["child_pid"])
-            h_ch = kernel32.OpenProcess(0x1000, False, child_pid)
-            if h_ch:
-                ec = ctypes.c_uint(0)
-                kernel32.GetExitCodeProcess(h_ch, ctypes.byref(ec))
-                kernel32.CloseHandle(h_ch)
-                self.assertNotEqual(ec.value, 259, "prior desktop job child must have exited before successor publishes")
+            self.assertEqual(kernel32.WaitForSingleObject(h_ch2, 0), 0, "prior desktop job child must have exited before late successor publishes")
         finally:
+            kernel32.CloseHandle(h_ch2)
             late_resume.write_text("go", encoding="utf-8")
             try:
                 p_late.stdin.write("quit\n")
@@ -1530,10 +1553,11 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             pa.stdin.write("release\n")
             pa.stdin.flush()
             self.assertEqual(pa.stdout.readline().strip(), "RELEASED")
-            # B acquires the mutex and pauses BEFORE publishing its record over A's locked-open JSON.
+            # B acquires the mutex and pauses BEFORE publishing its record over A's retained JSON.
             pb = subprocess.Popen([str(self.lock_drv_exe), "pause-before-publish", "demo", str(resume_file)],
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env={**env4, "DEMO_DESKTOP_WAIT_S": "5"}, creationflags=NO_WINDOW)
+            self.assertEqual(pb.stdout.readline().strip(), "WAITING")
             self.assertEqual(pb.stdout.readline().strip(), "BEFORE_PUBLISH")
             # Reader 2 (zero-wait Acquire) runs while Reader 1 still holds A's lease handle and A's JSON is on disk.
             r2 = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"],
