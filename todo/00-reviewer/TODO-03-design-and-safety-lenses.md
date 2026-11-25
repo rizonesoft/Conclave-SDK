@@ -44,7 +44,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 6 | §6 | Design paths in every three-pass pin | §5 | [ ] |
 | 7 | §7 | Design lint where a project has none | §3 | [ ] |
 | 8 | §8 | Resolute on three-pass | §3 | [x] |
-| 9 | §9 | C++ lens entries in the C++ projects | §8 | [ ] |
+| 9 | §9 | C++ lens entries in the C++ projects | §8 | [x] |
 | 10 | §10 | Reviewer scripts current in the WSL project | §3 | [ ] |
 | 11 | §11 | Surface validation in the custom graphs | §3 | [ ] |
 | 12 | §12 | Stamp gate planned in each custom graph's project | §11 | [ ] |
@@ -291,6 +291,9 @@ Only projects with C++ of their own get the entry: Resolute-SDK, Resolute and th
 - [x] Commit: `review: thread-safety and memory-safety lenses by path` in each project.
 
 **Test checkpoint:** in each C++ project (`Resolute-SDK`, `Resolute`, `RegStudio`), `python scripts/review_pin.py --check --all` prints `ok`, 100% of tracked project-owned C++ files match the configured prefixes, `python scripts/review_pin.py --lenses <kind> --no-surface --paths <path>` exits 0 for all four pass kinds (`plan`, `round`, `completion`, `reconciliation`) printing both `thread-safety` and `memory-safety` with verbatim questions from `kits/reviewer/templates/.conclave/reviewers.toml:103-104` on `round` and `reconciliation` only for every C++ prefix and neither on `plan`, `completion`, or excluded paths (`shared/lucide/icons/alert-triangle.svg`, `shared/lucide/CMakeLists.txt`, and `README.md` in `Resolute-SDK`; `README.md`, `DESIGN.md`, and `scripts/review_pin.py` in `Resolute`; `README.md`, `DESIGN.md`, and `sdk.json` in `RegStudio`), and in `RegStudio` `git status -sb` prints `## main...origin/main` with `HEAD == origin/main`. **Corrected 2026-11-25 (reconciliation):** also verify the agreed conservative mixed-directory prefix behavior under `review_pin.py:888` (`tests/README.md` in `Resolute` and `src/core/.gitkeep` in `RegStudio` emit both safety lenses on `round`/`reconciliation` and neither on `plan`/`completion`).
+
+> **Verified:** 2026-11-25 | §9 | 46ce17281b3f06783677fb0ca65676c2e28b64d5
+> **Review:** `docs/reviews/d00-t03-s9.json`
 
 ## 10. Reviewer Scripts Current in the WSL Project
 
