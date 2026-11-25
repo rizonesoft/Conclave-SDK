@@ -582,6 +582,8 @@ public static class LockDriver {
                     throw new InvalidOperationException("Conditional Everyone allow ACE accepted");
                 if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;;0x1301bf;;;AU)(A;OICIIO;FA;;;AU)"))
                     throw new InvalidOperationException("Excess AU Full Control on inherited children accepted");
+                if (DesktopLock.IsValidRecordDirectoryDaclSddlForTest("D:(A;OICI;0x1301ff;;;AU)"))
+                    throw new InvalidOperationException("Excess AU Modify+FILE_DELETE_CHILD (0x1301ff) accepted");
                 using (var h = DesktopLock.Acquire(prefix, "lock-driver-dacl")) {
                     IntPtr hm = OpenMutexW(READ_CONTROL, false, h.LockName);
                     IntPtr he = OpenEventW(READ_CONTROL, false, h.LeaseEventName);
@@ -1568,14 +1570,21 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             self.assertEqual(bp2, "BEFORE_PUBLISH abandoned=False childExited=True",
                              f"late successor must sample child exited inside BeforeRecordPublishForTest, got: {bp2}")
             self.assertEqual(kernel32.WaitForSingleObject(h_ch2, 0), 0, "prior desktop job child must have exited before late successor publishes")
+            late_resume.write_text("go", encoding="utf-8")
+            pub2 = p_late.stdout.readline().strip()
+            self.assertTrue(pub2.startswith("PUBLISHED "), f"late successor must publish replacement record, got: {pub2}")
+            info_late = self._parse_kv(pub2)
+            rec_late = json.loads(Path(info_late["record"]).read_text(encoding="utf-8"))
+            self.assertEqual(rec_late["pid"], int(info_late["pid"]))
+            self.assertNotEqual(rec_late["pid"], int(ready["pid"]))
+            p_late.stdin.write("quit\n")
+            p_late.stdin.flush()
+            out_late, err_late = p_late.communicate(timeout=10)
+            self.assertEqual(p_late.returncode, 0, out_late + err_late)
         finally:
             kernel32.CloseHandle(h_ch2)
             late_resume.write_text("go", encoding="utf-8")
-            try:
-                p_late.stdin.write("quit\n")
-                p_late.stdin.flush()
-                p_late.communicate(timeout=10)
-            except Exception:
+            if p_late.poll() is None:
                 p_late.kill()
                 p_late.communicate()
 

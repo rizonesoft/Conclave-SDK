@@ -679,7 +679,14 @@ namespace Conclave.DesktopTests
                     if (err == ERROR_FILE_NOT_FOUND)
                     {
                         LeaseState st = CheckHolderLeaseState(prior.Pid, prior.StartTicks, LeaseEventNameFor(prior.LeaseId));
-                        if (st == LeaseState.Inactive) return;
+                        if (st == LeaseState.Inactive)
+                        {
+                            // When the last handle to a KILL_ON_JOB_CLOSE job closes on owner death, Windows
+                            // immediately unlinks the job name while children are still tearing down (1-5ms).
+                            // Wait for any terminating children of (prior.Pid, prior.StartTicks) to finish exiting.
+                            WaitForDeadOwnerChildrenToExit(prior.Pid, prior.StartTicks, deadline);
+                            return;
+                        }
                         if (st == LeaseState.Unknown)
                             throw new InvalidOperationException("cannot verify prior lease state after desktop job vanished; refusing acquisition");
                         if (DateTime.UtcNow >= deadline)
@@ -702,6 +709,36 @@ namespace Conclave.DesktopTests
                 if (DateTime.UtcNow >= deadline)
                     throw new InvalidOperationException("prior desktop job '" + priorJobName + "' still has " + count + " active process(es); refusing lock acquisition");
                 Thread.Sleep(20);
+            }
+        }
+
+        private static void WaitForDeadOwnerChildrenToExit(int priorPid, long priorStartTicks, DateTime deadline)
+        {
+            // Only wait for children of a dead owner (if priorPid is still alive with priorStartTicks, it disposed cleanly).
+            long liveTicks;
+            if (TryGetProcessCreationTicks(priorPid, out liveTicks) && liveTicks == priorStartTicks) return;
+            Dictionary<int, int> parentMap = SnapshotParentPids();
+            foreach (var kv in parentMap)
+            {
+                if (kv.Value != priorPid) continue;
+                int childPid = kv.Key;
+                long childTicks;
+                if (!TryGetProcessCreationTicks(childPid, out childTicks) || childTicks < priorStartTicks) continue;
+                IntPtr hChild = OpenProcess(SYNCHRONIZE, false, (uint)childPid);
+                if (hChild == IntPtr.Zero) continue;
+                try
+                {
+                    int rem = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
+                    if (rem <= 0)
+                        throw new InvalidOperationException("prior holder child pid " + childPid + " still terminating at deadline");
+                    uint w = WaitForSingleObject(hChild, (uint)rem);
+                    if (w != WAIT_OBJECT_0)
+                        throw new InvalidOperationException("prior holder child pid " + childPid + " did not exit before deadline");
+                }
+                finally
+                {
+                    CloseHandle(hChild);
+                }
             }
         }
 
@@ -987,8 +1024,6 @@ namespace Conclave.DesktopTests
             bool auAppliesToDir = false;
             bool auAppliesToChildren = false;
             const uint RequiredModify = 0x001301BFu;
-            // Reject AU excess rights (WRITE_DAC | WRITE_OWNER | GENERIC_ALL) on both directory and inherited child ACEs.
-            const uint ForbiddenAuExcess = 0x100C0000u;
             // Reject Everyone allow ACEs with any write/add-file/add-subdir/delete-child/delete/DAC/owner/generic-write/generic-all bit.
             const uint ForbiddenWorldMask = 0x500D0156u;
 
@@ -1007,8 +1042,9 @@ namespace Conclave.DesktopTests
                 if (EqualSid(pSid, auSid))
                 {
                     if (aceType == 1) return false;
-                    if ((mask & ForbiddenAuExcess) != 0) return false;
-                    if ((mask & RequiredModify) == RequiredModify)
+                    // Reject ANY bit above Modify (0x001301BF), including FILE_DELETE_CHILD (0x40), WRITE_DAC, WRITE_OWNER, GENERIC_ALL.
+                    if ((mask & ~RequiredModify) != 0) return false;
+                    if (mask == RequiredModify)
                     {
                         bool inheritOnly = (aceFlags & 0x08) != 0;
                         bool oi = (aceFlags & 0x01) != 0;
