@@ -327,20 +327,28 @@ namespace Conclave.DesktopTests
 
         internal int InstalledPidHookCount { get { lock (_gate) { return _pidCallbacks.Count; } } }
 
+        internal Action<int> BeforeTrackInstallForTest;
+
         public void TrackPid(int pid)
+        {
+            TrackPid(pid, 0);
+        }
+
+        public void TrackPid(int pid, int timeoutMs)
         {
             lock (_gate) { _ownedPids.Add(pid); }
             SnapshotOwnedThreads();
+            int waitMs = timeoutMs > 0 ? timeoutMs : _flushTimeoutMs;
             var req = new TrackRequest(pid);
             lock (_trackQueue)
             {
                 uint tid = _hookThreadId;
                 if (_disposed || tid == 0)
                     throw new InvalidOperationException("DeskObserver hook thread is not running; cannot track pid " + pid);
-                _pendingTracks.Enqueue(req);
                 if (!PostThreadMessage(tid, WM_TRACK_PID, IntPtr.Zero, IntPtr.Zero))
                     throw new InvalidOperationException("DeskObserver failed to register per-PID hook for pid " + pid + " (err=" + Marshal.GetLastWin32Error() + ")");
-                DateTime deadline = DateTime.UtcNow.AddMilliseconds(_flushTimeoutMs);
+                _pendingTracks.Enqueue(req);
+                DateTime deadline = DateTime.UtcNow.AddMilliseconds(waitMs);
                 while (!req.Done)
                 {
                     int rem = (int)(deadline - DateTime.UtcNow).TotalMilliseconds;
@@ -605,6 +613,8 @@ namespace Conclave.DesktopTests
                                 if (_pendingTracks.Count > 0) req = _pendingTracks.Dequeue();
                             }
                             if (req == null) break;
+                            Action<int> testHook = BeforeTrackInstallForTest;
+                            if (testHook != null) testHook(req.Pid);
                             string err = installPidHook(req.Pid);
                             lock (_trackQueue)
                             {

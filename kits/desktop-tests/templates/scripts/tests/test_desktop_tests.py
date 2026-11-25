@@ -274,7 +274,7 @@ public static class FixtureDriver {
             try {
                 int selfPid = Process.GetCurrentProcess().Id;
                 using (DeskObserver obs = new DeskObserver(new[] { selfPid })) {
-                    // Exercise the registered per-PID WinEventDelegate directly with a destroyed HWND and unsnapshotted TID.
+                    // Exercise the registered per-PID WinEventDelegate directly with a synthetic invalid HWND and unsnapshotted TID.
                     obs.InvokePidForegroundCallbackForTest(selfPid, new IntPtr(0x12340000), 0x7FFFFFFEu);
                     obs.VerifyClean(mode);
                 }
@@ -283,6 +283,58 @@ public static class FixtureDriver {
                 Console.Error.WriteLine("REFUSED: " + ex.Message);
                 return 11;
             }
+        }
+        if (mode == "track-late-ack") {
+            int pidA = Process.GetCurrentProcess().Id;
+            int pidB = pidA + 1;
+            var aEntered = new ManualResetEventSlim(false);
+            var releaseA = new ManualResetEventSlim(false);
+            var bEntered = new ManualResetEventSlim(false);
+            var releaseB = new ManualResetEventSlim(false);
+            var bDone = new ManualResetEventSlim(false);
+            Exception bError = null;
+            using (DeskObserver obs = new DeskObserver(new int[0], flushTimeoutMs: 2000)) {
+                obs.BeforeTrackInstallForTest = p => {
+                    if (p == pidA) { aEntered.Set(); releaseA.Wait(5000); }
+                    else if (p == pidB) { bEntered.Set(); releaseB.Wait(5000); }
+                };
+                bool aTimedOut = false;
+                try {
+                    obs.TrackPid(pidA, 80);
+                } catch (InvalidOperationException ex) {
+                    aTimedOut = ex.Message.IndexOf("timed out", StringComparison.OrdinalIgnoreCase) >= 0;
+                }
+                if (!aTimedOut || !aEntered.Wait(2000)) {
+                    Console.Error.WriteLine("expected pidA registration to enter and time out");
+                    return 13;
+                }
+                var threadB = new Thread(() => {
+                    try { obs.TrackPid(pidB, 4000); }
+                    catch (Exception ex) { bError = ex; }
+                    finally { bDone.Set(); }
+                }) { IsBackground = true };
+                threadB.Start();
+                Thread.Sleep(60);
+                // Release A while B is still held; A's late acknowledgement must not complete B.
+                releaseA.Set();
+                if (!bEntered.Wait(2000)) {
+                    Console.Error.WriteLine("pidB registration never reached hook thread after pidA completed");
+                    releaseB.Set();
+                    return 14;
+                }
+                if (bDone.Wait(150)) {
+                    Console.Error.WriteLine("pidB completed prematurely on pidA late acknowledgement");
+                    releaseB.Set();
+                    return 15;
+                }
+                releaseB.Set();
+                if (!bDone.Wait(3000) || bError != null) {
+                    Console.Error.WriteLine("pidB failed after release: " + (bError == null ? "timeout" : bError.Message));
+                    return 16;
+                }
+            }
+            Console.WriteLine("TRACK_LATE_ACK_OK");
+            return 0;
         }
         if (mode == "real-input-action") {
             SmokeInputGuard.Require(prefix, true, "SendKey");
@@ -467,6 +519,10 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                 if neg != "untraited-helper":
                     self.assertIn("REFUSED:", combined)
                 self.assertIn(expect_detail, combined)
+        # Late acknowledgement from a timed-out TrackPid(A) must not prematurely complete TrackPid(B).
+        late_ack = run_cmd([str(self.drv_exe), "track-late-ack", "demo"])
+        self.assertEqual(late_ack.returncode, 0, late_ack.stdout + late_ack.stderr)
+        self.assertIn("TRACK_LATE_ACK_OK", late_ack.stdout)
         # Direct DEMO_SMOKE_INPUT=1 without admitted smoke-input.ps1 session must refuse.
         direct = run_cmd([str(self.drv_exe), "real-input-action", "demo"],
                          env={**os.environ, "DEMO_SMOKE_INPUT": "1"})
