@@ -157,7 +157,11 @@ namespace Conclave.DesktopTests
                 {
                     if (_hLease != IntPtr.Zero)
                     {
-                        DesktopLock.SetEvent(_hLease);
+                        if (!DesktopLock.SetEvent(_hLease))
+                        {
+                            // Record error only after releasing mutex in finally; signaling must not block mutex release.
+                            Trace.WriteLine("DesktopLock: SetEvent failed (err=" + Marshal.GetLastWin32Error() + ")");
+                        }
                     }
                     if (!string.IsNullOrEmpty(_recordPath))
                     {
@@ -230,9 +234,18 @@ namespace Conclave.DesktopTests
             public long StartTicks;
             public string StartUtc;
             public string LeaseId;
-            public string JobName;
             public string LockName;
             public string Label;
+        }
+
+        public static string LeaseEventNameFor(string leaseId)
+        {
+            return "Global\\conclave-desktop-lease-" + leaseId;
+        }
+
+        public static string JobNameFor(string leaseId)
+        {
+            return "Global\\conclave-desktop-job-" + leaseId;
         }
 
         public static string EnvPrefix(string prefix)
@@ -374,8 +387,8 @@ namespace Conclave.DesktopTests
                         throw new InvalidOperationException("failed to read current process creation time");
                     string selfUtc = DateTime.FromFileTimeUtc(selfTicks).ToString("O", CultureInfo.InvariantCulture);
                     string leaseId = Guid.NewGuid().ToString("N").Substring(0, 16);
-                    string leaseName = "Global\\conclave-desktop-lease-" + leaseId;
-                    string jobName = "Global\\conclave-desktop-job-" + leaseId;
+                    string leaseName = LeaseEventNameFor(leaseId);
+                    string jobName = JobNameFor(leaseId);
 
                     hLease = CreateSecureLeaseEvent(leaseName);
                     hJob = CreateSecureJob(jobName);
@@ -386,7 +399,6 @@ namespace Conclave.DesktopTests
                         StartTicks = selfTicks,
                         StartUtc = selfUtc,
                         LeaseId = leaseId,
-                        JobName = jobName,
                         LockName = canonicalLock,
                         Label = string.IsNullOrWhiteSpace(label) ? "desktop-lock" : label.Trim()
                     };
@@ -457,16 +469,16 @@ namespace Conclave.DesktopTests
             HolderRecord rec = TryReadHolderRecord(recordPath);
             if (rec == null || rec.Pid != tokPid || rec.StartTicks != tokTicks
                 || !string.Equals(rec.LeaseId, tokLeaseId, StringComparison.Ordinal)
-                || !string.Equals(rec.LockName, canonicalLock, StringComparison.Ordinal)
-                || string.IsNullOrEmpty(rec.JobName))
+                || !string.Equals(rec.LockName, canonicalLock, StringComparison.Ordinal))
                 return null;
 
             // 3. Verify owner alive + manual-reset lease event still unsignaled (readers cannot mutate).
-            string leaseName = "Global\\conclave-desktop-lease-" + tokLeaseId;
+            string leaseName = LeaseEventNameFor(tokLeaseId);
+            string jobName = JobNameFor(tokLeaseId);
             if (!IsHolderLeaseLive(tokPid, tokTicks, leaseName)) return null;
 
             // 4. Verify current process is a member of the holder's named desktop job.
-            if (!IsCurrentProcessInNamedJob(rec.JobName)) return null;
+            if (!IsCurrentProcessInNamedJob(jobName)) return null;
 
             // 5. Verify main mutex is currently contended (not already released by the parent).
             uint probe = WaitForSingleObject(hMutex, 0);
@@ -486,7 +498,7 @@ namespace Conclave.DesktopTests
                 recordPath,
                 tokLeaseId,
                 leaseName,
-                rec.JobName,
+                jobName,
                 true,
                 tokPid,
                 tokTicks,
@@ -571,21 +583,42 @@ namespace Conclave.DesktopTests
         private static void DrainPriorJobFromRecord(string recordPath, int timeoutMs)
         {
             HolderRecord prior = TryReadHolderRecord(recordPath);
-            if (prior == null || string.IsNullOrEmpty(prior.JobName)) return;
-            IntPtr hJob = OpenJobObjectW(JOB_OBJECT_QUERY, false, prior.JobName);
-            if (hJob == IntPtr.Zero)
+            if (prior == null || string.IsNullOrEmpty(prior.LeaseId)) return;
+            string priorJobName = JobNameFor(prior.LeaseId);
+            DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            while (true)
             {
-                int err = Marshal.GetLastWin32Error();
-                if (err == ERROR_FILE_NOT_FOUND) return;
-                throw new Win32Exception(err, "cannot verify quiescence of prior desktop job '" + prior.JobName + "'");
-            }
-            try
-            {
-                WaitForJobQuiescence(hJob, prior.JobName, timeoutMs);
-            }
-            finally
-            {
-                CloseHandle(hJob);
+                // Open, query, and IMMEDIATELY close the query handle on each poll so our handle never
+                // prolongs the job's lifetime or blocks JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE!
+                IntPtr hJob = OpenJobObjectW(JOB_OBJECT_QUERY, false, priorJobName);
+                if (hJob == IntPtr.Zero)
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    if (err == ERROR_FILE_NOT_FOUND)
+                    {
+                        // Job name is gone; also verify prior owner is no longer holding an active lease.
+                        if (!IsHolderLeaseLive(prior.Pid, prior.StartTicks, LeaseEventNameFor(prior.LeaseId)))
+                            return;
+                        if (DateTime.UtcNow >= deadline)
+                            throw new InvalidOperationException("prior holder lease still appears active after job vanished");
+                        Thread.Sleep(20);
+                        continue;
+                    }
+                    throw new Win32Exception(err, "cannot verify quiescence of prior desktop job '" + priorJobName + "'");
+                }
+                int count;
+                try
+                {
+                    count = QueryJobActiveProcessCount(hJob);
+                }
+                finally
+                {
+                    CloseHandle(hJob);
+                }
+                if (count == 0) return;
+                if (DateTime.UtcNow >= deadline)
+                    throw new InvalidOperationException("prior desktop job '" + priorJobName + "' still has " + count + " active process(es); refusing lock acquisition");
+                Thread.Sleep(20);
             }
         }
 
@@ -597,19 +630,6 @@ namespace Conclave.DesktopTests
             {
                 int count = QueryJobActiveProcessCount(hJob);
                 if (count == 0) return;
-                Thread.Sleep(15);
-            }
-        }
-
-        private static void WaitForJobQuiescence(IntPtr hJob, string jobName, int timeoutMs)
-        {
-            DateTime deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-            while (true)
-            {
-                int count = QueryJobActiveProcessCount(hJob);
-                if (count == 0) return;
-                if (DateTime.UtcNow >= deadline)
-                    throw new InvalidOperationException("prior desktop job '" + jobName + "' still has " + count + " active process(es); refusing lock acquisition");
                 Thread.Sleep(15);
             }
         }
@@ -872,7 +892,6 @@ namespace Conclave.DesktopTests
                 + "\"start_ticks\":" + rec.StartTicks.ToString(CultureInfo.InvariantCulture) + ","
                 + "\"start_utc\":\"" + EscapeJson(rec.StartUtc) + "\","
                 + "\"lease_id\":\"" + EscapeJson(rec.LeaseId) + "\","
-                + "\"job_name\":\"" + EscapeJson(rec.JobName) + "\","
                 + "\"lock_name\":\"" + EscapeJson(rec.LockName) + "\","
                 + "\"label\":\"" + EscapeJson(rec.Label) + "\""
                 + "}\n";
@@ -908,7 +927,6 @@ namespace Conclave.DesktopTests
                 StartTicks = ticks,
                 StartUtc = ExtractString(text, "start_utc"),
                 LeaseId = ExtractString(text, "lease_id"),
-                JobName = ExtractString(text, "job_name"),
                 LockName = ExtractString(text, "lock_name"),
                 Label = ExtractString(text, "label")
             };

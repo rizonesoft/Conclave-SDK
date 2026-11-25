@@ -631,7 +631,7 @@ public static class LockDriver {
                         string forgedToken = h.HolderPid + ":" + forgedTicks + ":" + h.LeaseId + ":" + h.LockName;
                         var forgedRec = new DesktopLock.HolderRecord {
                             Pid = h.HolderPid, StartTicks = forgedTicks, StartUtc = h.HolderStartUtc,
-                            LeaseId = h.LeaseId, JobName = h.JobName, LockName = h.LockName, Label = "forged"
+                            LeaseId = h.LeaseId, LockName = h.LockName, Label = "forged"
                         };
                         DesktopLock.WriteHolderRecordAtomic(h.RecordPath, forgedRec);
                         var env = CopyEnv(envKey, forgedToken);
