@@ -68,6 +68,8 @@ A default run (and CI) drives the UI without real input; real input is opt-in, n
 
 ## 2. One owner of the visual desktop at a time
 
+> **Started:** 2026-11-25T08:01Z
+
 Every visual smoke run and window capture, in any repository or session, holds one machine-wide desktop lock.
 
 **Phase:** 9
