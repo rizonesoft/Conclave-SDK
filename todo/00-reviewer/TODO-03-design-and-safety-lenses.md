@@ -49,7 +49,7 @@ title: "TODO-03 -- Design and safety lenses, held by path in every project"
 | 11 | §11 | Surface validation in the custom graphs | §3 | [x] |
 | 12 | §12 | Stamp gate planned in each custom graph's project | §11 | [x] |
 | 13 | §13 | Concurrency and lifetime checks in the clang-tidy ratchet | §9 | [x] |
-| 14 | §14 | Sanitizer test configuration | §13 | [ ] |
+| 14 | §14 | Sanitizer test configuration | §13 | [x] |
 | 15 | §15 | Bounded C++ hot-spot audit | §9 | [ ] |
 | 16 | §16 | Read-only verification across the projects | §6, §7, §9, §10, §11 | [ ] |
 | 17 | §17 | One Opus design check before a surface section's review | -- | [x] |
@@ -413,9 +413,12 @@ Before this section (baseline 2026-11-25), no sanitizer build was found in Resol
 - [x] Add `RESOLUTE_TEST_SANITIZERS` (case-insensitively restricted to `RelWithDebInfo`, refusing `Release`/`release` and `Debug`, applying `-fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer` to `ResoluteUI_static`, `Lucide_static`, `Resolute`, and `resolute_tests` while leaving `resolute_focus_hook` system-only) and the `sanitizer` CMake configure/build/test presets in `Resolute` (`build/sanitizer`, `FETCHCONTENT_BASE_DIR=${sourceDir}/build/deps/sanitizer`, `exclude` label `headful`, `noTestsAction: "error"`, `UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1`, `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`). Done when: `ctest --preset sanitizer` discovers the exact same 131 Catch2 tests as `debug` and leaves `Bin/Release`, `Bin/Debug`, and `build/deps/debug` untouched.
 - [x] Add standalone `Resolute/scripts/test-sanitizer.ps1` outside `scripts/check-all.ps1` (resolving `$RepoRoot` from `$PSScriptRoot`, prepending `sdk/reskit/llvm-mingw/bin` to `PATH`, reporting the failing stage, and propagating exit codes). Done when: `scripts/check-all.ps1` has zero sanitizer references and `scripts/test-sanitizer.ps1` passes from outside the repository root.
 - [x] Fix defects exposed by the first sanitizer run in their owning repo (`Resolute-SDK` `532361e`: replaced 4 `TTTOOLINFOW_V2_SIZE` null-deref UBSan sites in `shared/resolute-ui/src/controls/sidebar.cpp` with `offsetof(TTTOOLINFOW, lParam) + sizeof(TTTOOLINFOW::lParam)`) and bump `Resolute/sdk.json` to `532361ea856964087973dff06031d478fe17a474`. Done when: all 6 previously failing `Sidebar` tests and all 131/131 Catch2 tests pass under `scripts/test-sanitizer.ps1` against the pinned SDK revision.
-- [ ] Commit: `test: an AddressSanitizer and UBSan run of the Catch2 suite` in `Resolute`, plus `Resolute-SDK` documentation (`f7b1162`) and UBSan fix (`532361e`).
+- [x] Commit: `test: an AddressSanitizer and UBSan run of the Catch2 suite` in `Resolute` (`682b0af6`, Round 1 fixes `d35f7a3e`), plus `Resolute-SDK` documentation (`f7b1162`) and UBSan fix (`532361e`).
 
 **Test checkpoint:** invoked from outside the selected Resolute checkout, `pwsh -NoProfile -File <resolute>/scripts/test-sanitizer.ps1 -Clean` exits `0` with `131/131` Catch2 tests passing against `Resolute-SDK` `532361e` (matching `debug`'s `131` discovered tests), `build/sanitizer/build.ninja` links `build/deps/sanitizer/` (not `build/deps/debug/`), and zero files change in `Bin/Release` or `Bin/Debug`; configuring `RESOLUTE_TEST_SANITIZERS=ON` with `-DCMAKE_BUILD_TYPE=release` (lowercase) fails; `scripts/check-all.ps1` has zero sanitizer references; and two independent scratch mutations through `scripts/test-sanitizer.ps1` both exit non-zero (`rc=8`) with their expected diagnostics (`AddressSanitizer: heap-buffer-overflow` on a `std::vector` OOB read in `tests/fence_test.cpp` and `runtime error: signed integer overflow` in `Resolute-SDK/shared/resolute-ui/src/theme.cpp`), passing `131/131` again once reverted.
+
+> **Verified:** 2026-11-25 | §14 | 4d3785cbe79a58900a58c48af8e2097178e419f8
+> **Review:** `docs/reviews/d00-t03-s14.json`
 
 ## 15. Bounded C++ Hot-Spot Audit
 

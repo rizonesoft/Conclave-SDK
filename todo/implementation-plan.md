@@ -201,7 +201,7 @@ Sections: 27 | Checklist items: 173
 | [x]    | D00 T03 §11 | Surface Validation in the Custom Graphs                       | windows-host | 4     |
 | [x]    | D00 T03 §12 | Stamp Gate Planned in Each Custom Graph's Project             | windows-host | 5     |
 | [x]    | D00 T03 §13 | Concurrency and Lifetime Checks in the Clang-Tidy Ratchet     | windows-host | 6     |
-| [ ]    | D00 T03 §14 | Sanitizer Test Configuration                                  | windows-host | 5     |
+| [x]    | D00 T03 §14 | Sanitizer Test Configuration                                  | windows-host | 5     |
 | [ ]    | D00 T03 §15 | Bounded C++ Hot-Spot Audit                                    | windows-host | 5     |
 | [ ]    | D00 T03 §16 | Read-Only Verification Across the Projects                    | windows-host | 7     |
 | [x]    | D00 T03 §17 | One Opus Design Check Before a Surface Section's Review       | none         | 8     |
@@ -245,6 +245,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 131/155 verified sections, 6 ready to run now.
+Progress: 132/155 verified sections, 5 ready to run now.
 
-Checklist: 1041/1172 items completed (includes Commit items).
+Checklist: 1042/1172 items completed (includes Commit items).

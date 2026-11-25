@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T03 \u00a714",
+  "title": "Sanitizer Test Configuration",
+  "implementation_sha": "4d3785cbe79a58900a58c48af8e2097178e419f8",
+  "date": "2026-11-25",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T03-s14.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml green 7/7 at 4d3785cb (https://github.com/rizonesoft/Conclave-SDK/actions/runs/45690340963); Resolute 682b0af6/d35f7a3e test-sanitizer.ps1 -Clean 131/131 pass, Bin unchanged, build/deps/sanitizer isolated, lowercase release refused rc=1, dual ASan/UBSan SDK mutations rc=8; Resolute-SDK f7b1162/532361e D00 T01 s11 updated + Sidebar UBSan fix"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T03-s14.md",
+    "verdict": "complete",
+    "candidate": "4d3785cbe79a58900a58c48af8e2097178e419f8",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T03-s14.md",
+    "candidate": "074d16702b7289888fb12977e4288176cddcfd16",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "074d16702b7289888fb12977e4288176cddcfd16",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}
