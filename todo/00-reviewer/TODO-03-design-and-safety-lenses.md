@@ -273,7 +273,7 @@ Resolute's pin is a rotation schedule and its `scripts/review-dispatch.py` knows
 
 > **Started:** 2026-11-25T12:52Z
 
-Only projects with C++ of their own get the entry: Resolute-SDK, Resolute and the one tool repository that holds any. The other 77 tool repositories keep their byte-identical pin until they hold C++. Read each tree for its real source paths and leave out the vendored toolchain, third-party code and build output.
+Only projects with C++ of their own get the entry: Resolute-SDK, Resolute and the one tool repository that holds any (`RegStudio`; verified across all 78 repositories under `Resolute_Bin`, where `CompleteWindowsRepair` holds only vendored third-party sample C files under `reference/au3/ComWinRep/~Samples/resetwmi-1.3.3-redist/` and is excluded). The other 77 tool repositories keep their byte-identical pin until they hold C++. Read each tree for its real source paths and leave out the vendored toolchain, third-party code and build output. **Planned 2026-11-25 (plan review, docs/reviews/00-reviewer/D00-T03-s9.md):** (1) inventory all tracked project-owned C++ sources and headers (`*.cpp`, `*.cc`, `*.cxx`, `*.c`, `*.h`, `*.hpp`, `*.hh`, `*.hxx`, `*.inl`, `*.ixx`) in each target and verify 100% are matched by the chosen prefixes; (2) exercise all four pass kinds (`plan`, `round`, `completion`, `reconciliation`) with `--no-surface` on every C++ prefix and excluded path, requiring both safety lenses on `round` and `reconciliation`, neither on `plan` and `completion`, and exit 0 on every probe; (3) use exact C++ sub-prefixes in `Resolute-SDK` (`shared/resolute-ui/include/`, `shared/resolute-ui/src/`, `shared/lucide/include/`, `shared/lucide/src/`) so `shared/lucide/icons/alert-triangle.svg` and `shared/lucide/CMakeLists.txt` are excluded and probed, use `["src/", "tests/"]` in `Resolute` (noting mixed `tests/golden/` and `CMakeLists.txt` as conservative prefix matches because `tests/` holds root C++ files and `review_pin.py` uses prefix matching without negative globs, while `sdk/`, `build/`, `docs/`, `scripts/`, and `README.md` are excluded), and `["src/"]` in `RegStudio`; (4) compare both emitted lens questions verbatim against `kits/reviewer/templates/.conclave/reviewers.toml:103-104`; (5) record every target's verified commit SHA (all three are free and clean; under the owner's 2026-11-25 rule a held target would park §9 on `third-party` rather than skip); (6) consolidate `RegStudio` to one commit + push verifying `git rev-parse HEAD == git rev-parse origin/main` alongside `git status -sb` printing `## main...origin/main`.
 
 **Phase:** 9
 **Needs:** windows-host
@@ -284,11 +284,11 @@ Only projects with C++ of their own get the entry: Resolute-SDK, Resolute and th
 1. Add the two lens definitions and one conditional entry to each C++ project's pin. Done when: `--check` prints `ok`.
 2. Prove each with `--lenses`. Done when: both lenses print for a C++ file and neither for a non-C++ file.
 
-- [ ] List each project's C++ files with `git ls-files -- '*.cpp' '*.h' '*.hpp' '*.c'` and choose the path prefixes. Done when: the commit body names the prefixes and what was left out.
-- [ ] Add `[schedule.lenses]` with the two questions of §2, word for word, and `[[schedule.conditional]]` with `lenses = ["thread-safety", "memory-safety"]`, `passes = ["round", "reconciliation"]` and those prefixes. Done when: `python scripts/review_pin.py --check` prints `ok`.
-- [ ] Verify with `python scripts/review_pin.py --lenses round --paths <a real C++ file>` and with `README.md`. Done when: both lenses print for the first and neither for the second.
-- [ ] In the tool repository, commit and push as its own rules say. Done when: `git status -sb` prints exactly `## main...origin/main`.
-- [ ] Commit: `review: thread-safety and memory-safety lenses by path` in each project.
+- [x] List each project's C++ files with `git ls-files -- '*.cpp' '*.h' '*.hpp' '*.c'` and choose the path prefixes. Done when: the commit body names the prefixes and what was left out.
+- [x] Add `[schedule.lenses]` with the two questions of §2, word for word, and `[[schedule.conditional]]` with `lenses = ["thread-safety", "memory-safety"]`, `passes = ["round", "reconciliation"]` and those prefixes. Done when: `python scripts/review_pin.py --check` prints `ok`.
+- [x] Verify with `python scripts/review_pin.py --lenses round --paths <a real C++ file>` and with `README.md`. Done when: both lenses print for the first and neither for the second.
+- [x] In the tool repository, commit and push as its own rules say. Done when: `git status -sb` prints exactly `## main...origin/main`.
+- [x] Commit: `review: thread-safety and memory-safety lenses by path` in each project.
 
 **Test checkpoint:** in each C++ project, `python scripts/review_pin.py --lenses round --paths <C++ file>` prints `thread-safety` and `memory-safety`, and prints neither for `README.md`.
 
