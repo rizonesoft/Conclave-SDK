@@ -639,27 +639,29 @@ if ($Uninstall) {
             }
             $kept.Add($t)
         }
-        if ($removedTask -and (-not $NoRegister)) {
+        if ($removedTask) {
             if (-not $doc.PSObject.Properties['folder'] -or [string]::IsNullOrWhiteSpace([string]$doc.folder)) {
                 [Console]::Error.WriteLine('smoke-input: .conclave/automations/tasks.json has no folder set; manifest retained')
                 exit 2
             }
-            # Verify ownership of any live task at ($doc.folder, $taskName) BEFORE mutating tasks.json.
-            $existingLive = Get-ScheduledTaskOrFailClosed ([string]$doc.folder) $taskName 'manifest retained'
-            if ($existingLive) {
-                $ownerTag = "[conclave-automations:$autoRunner]"
-                $act = if ($existingLive.Actions -and $existingLive.Actions.Count -eq 1) { $existingLive.Actions[0] } else { $null }
-                $expectedArgs = "`"$autoRunner`" $taskName"
-                $argsAndDirOk = $act -and ([string]$act.Arguments -ceq $expectedArgs) -and (([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\'))
-                $isTaggedOwned = $argsAndDirOk -and ([IO.Path]::GetFileName([string]$act.Execute) -ieq 'pythonw.exe') -and ([string]$existingLive.Description).EndsWith($ownerTag, [StringComparison]::OrdinalIgnoreCase)
-                $pwObj = Get-Command pythonw.exe -ErrorAction Ignore
-                $pwCmd = if ($pwObj) { $pwObj.Source } else { $null }
-                $isLegacyOwned = $argsAndDirOk -and $pwCmd -and ([string]$act.Execute -ieq $pwCmd) -and ([string]$existingLive.Description -ceq [string]$removedTask.description)
-                if ($isLegacyOwned) {
-                    Unregister-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -Confirm:$false -ErrorAction Stop
-                } elseif (-not $isTaggedOwned) {
-                    [Console]::Error.WriteLine("smoke-input: refusing to remove scheduled task '$($doc.folder)$taskName' whose ownership cannot be verified; manifest retained")
-                    exit 2
+            if (-not $NoRegister) {
+                # Verify ownership of any live task at ($doc.folder, $taskName) BEFORE mutating tasks.json.
+                $existingLive = Get-ScheduledTaskOrFailClosed ([string]$doc.folder) $taskName 'manifest retained'
+                if ($existingLive) {
+                    $ownerTag = "[conclave-automations:$autoRunner]"
+                    $act = if ($existingLive.Actions -and $existingLive.Actions.Count -eq 1) { $existingLive.Actions[0] } else { $null }
+                    $expectedArgs = "`"$autoRunner`" $taskName"
+                    $argsAndDirOk = $act -and ([string]$act.Arguments -ceq $expectedArgs) -and (([string]$act.WorkingDirectory).TrimEnd('\') -ieq $repo.TrimEnd('\'))
+                    $isTaggedOwned = $argsAndDirOk -and ([IO.Path]::GetFileName([string]$act.Execute) -ieq 'pythonw.exe') -and ([string]$existingLive.Description).EndsWith($ownerTag, [StringComparison]::OrdinalIgnoreCase)
+                    $pwObj = Get-Command pythonw.exe -ErrorAction Ignore
+                    $pwCmd = if ($pwObj) { $pwObj.Source } else { $null }
+                    $isLegacyOwned = $argsAndDirOk -and $pwCmd -and ([string]$act.Execute -ieq $pwCmd) -and ([string]$existingLive.Description -ceq [string]$removedTask.description)
+                    if ($isLegacyOwned) {
+                        Unregister-ScheduledTask -TaskPath ([string]$doc.folder) -TaskName $taskName -Confirm:$false -ErrorAction Stop
+                    } elseif (-not $isTaggedOwned) {
+                        [Console]::Error.WriteLine("smoke-input: refusing to remove scheduled task '$($doc.folder)$taskName' whose ownership cannot be verified; manifest retained")
+                        exit 2
+                    }
                 }
             }
         }

@@ -855,11 +855,13 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         }
         manifest_path = auto_dir / "tasks.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        comb_res = self.run_smoke("-Uninstall", include_watcher=False)
-        self.assertEqual(comb_res.returncode, 2, comb_res.stdout + comb_res.stderr)
-        self.assertIn("manifest retained", comb_res.stderr)
-        retained = json.loads(manifest_path.read_text(encoding="utf-8"))
-        self.assertEqual([t["name"] for t in retained["tasks"]], ["demo-real-input-smoke"])
+        for extra_flags in (("-Uninstall",), ("-Uninstall", "-NoRegister")):
+            with self.subTest(flags=extra_flags):
+                comb_res = self.run_smoke(*extra_flags, include_watcher=False)
+                self.assertEqual(comb_res.returncode, 2, comb_res.stdout + comb_res.stderr)
+                self.assertIn("manifest retained", comb_res.stderr)
+                retained = json.loads(manifest_path.read_text(encoding="utf-8"))
+                self.assertEqual([t["name"] for t in retained["tasks"]], ["demo-real-input-smoke"])
 
 
 if __name__ == "__main__":
