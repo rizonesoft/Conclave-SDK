@@ -556,6 +556,14 @@ public static class LockDriver {
                 return 0;
             }
             if (cmd == "check-dacl") {
+                if (!DesktopLock.IsValidRecordDirectoryDacl("D:(A;OICI;FA;;;SY)(A;OICI;0x1301bf;;;AU)"))
+                    throw new InvalidOperationException("valid AU Modify inherited DACL rejected");
+                if (DesktopLock.IsValidRecordDirectoryDacl("D:(A;OICI;FR;;;AU)"))
+                    throw new InvalidOperationException("read-only AU DACL accepted");
+                if (DesktopLock.IsValidRecordDirectoryDacl("D:(A;;0x1301bf;;;AU)"))
+                    throw new InvalidOperationException("non-inherited AU DACL accepted");
+                if (DesktopLock.IsValidRecordDirectoryDacl("D:(A;OICI;0x1301bf;;;AU)(A;OICI;FW;;;WD)"))
+                    throw new InvalidOperationException("Everyone FW DACL accepted");
                 using (var h = DesktopLock.Acquire(prefix, "lock-driver-dacl")) {
                     IntPtr hm = OpenMutexW(READ_CONTROL, false, h.LockName);
                     IntPtr he = OpenEventW(READ_CONTROL, false, h.LeaseEventName);
@@ -599,8 +607,8 @@ public static class LockDriver {
                     Console.WriteLine("WAITING");
                     Console.Out.Flush();
                 };
-                DesktopLock.BeforeRecordPublishForTest = () => {
-                    Console.WriteLine("BEFORE_PUBLISH");
+                DesktopLock.BeforeRecordPublishForTest = abandoned => {
+                    Console.WriteLine("BEFORE_PUBLISH abandoned=" + abandoned);
                     Console.Out.Flush();
                     DateTime dl = DateTime.UtcNow.AddSeconds(15);
                     while (!File.Exists(resumeFile) && DateTime.UtcNow < dl) Thread.Sleep(25);
@@ -1447,7 +1455,9 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
             t_kill = time.monotonic()
             p1.kill()
             p1.communicate(timeout=10)
-            self.assertEqual(p2.stdout.readline().strip(), "BEFORE_PUBLISH")
+            bp1 = p2.stdout.readline().strip()
+            self.assertEqual(bp1, "BEFORE_PUBLISH abandoned=True",
+                             f"blocked waiter must receive WAIT_ABANDONED on owner kill, got: {bp1}")
             elapsed = time.monotonic() - t_kill
             self.assertLess(elapsed, 4.0, f"abandoned mutex recovery took {elapsed:.2f}s")
             # Positive proof via retained SYNCHRONIZE handle that prior job child exited BEFORE p2 publishes!
@@ -1495,7 +1505,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                                   text=True, env=env2, creationflags=NO_WINDOW)
         try:
             self.assertEqual(p_late.stdout.readline().strip(), "WAITING")
-            self.assertEqual(p_late.stdout.readline().strip(), "BEFORE_PUBLISH")
+            self.assertEqual(p_late.stdout.readline().strip(), "BEFORE_PUBLISH abandoned=False")
             self.assertEqual(kernel32.WaitForSingleObject(h_ch2, 0), 0, "prior desktop job child must have exited before late successor publishes")
         finally:
             kernel32.CloseHandle(h_ch2)
@@ -1558,7 +1568,7 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                   text=True, env={**env4, "DEMO_DESKTOP_WAIT_S": "5"}, creationflags=NO_WINDOW)
             self.assertEqual(pb.stdout.readline().strip(), "WAITING")
-            self.assertEqual(pb.stdout.readline().strip(), "BEFORE_PUBLISH")
+            self.assertEqual(pb.stdout.readline().strip(), "BEFORE_PUBLISH abandoned=False")
             # Reader 2 (zero-wait Acquire) runs while Reader 1 still holds A's lease handle and A's JSON is on disk.
             r2 = run_cmd([str(self.lock_drv_exe), "wait-acquire", "demo"],
                          env={**env4, "DEMO_DESKTOP_HELD": info_a["token"]})

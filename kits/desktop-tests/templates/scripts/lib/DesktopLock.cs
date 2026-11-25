@@ -60,6 +60,7 @@ namespace Conclave.DesktopTests
         public string LeaseEventName { get { return _leaseEventName; } }
         public string JobName { get { return _jobName; } }
         public bool Inherited { get { return _inherited; } }
+        public bool AcquiredAbandoned { get; private set; }
         public int HolderPid { get; private set; }
         public long HolderStartTicks { get; private set; }
         public string HolderStartUtc { get; private set; }
@@ -77,6 +78,7 @@ namespace Conclave.DesktopTests
             string leaseEventName,
             string jobName,
             bool inherited,
+            bool acquiredAbandoned,
             int holderPid,
             long holderStartTicks,
             string holderStartUtc)
@@ -91,6 +93,7 @@ namespace Conclave.DesktopTests
             _leaseEventName = leaseEventName;
             _jobName = jobName;
             _inherited = inherited;
+            AcquiredAbandoned = acquiredAbandoned;
             HolderPid = holderPid;
             HolderStartTicks = holderStartTicks;
             HolderStartUtc = holderStartUtc;
@@ -228,7 +231,7 @@ namespace Conclave.DesktopTests
 
         // Test-only hooks (default null/false in production).
         internal static Action BeforeWaitForMutexForTest { get; set; }
-        internal static Action BeforeRecordPublishForTest { get; set; }
+        internal static Action<bool> BeforeRecordPublishForTest { get; set; }
         internal static bool FailRecordPublishForTest { get; set; }
 
         internal sealed class HolderRecord
@@ -376,6 +379,7 @@ namespace Conclave.DesktopTests
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "WaitForSingleObject failed on " + canonicalLock + " (rc=0x" + rc.ToString("X") + ")");
                 }
 
+                bool acquiredAbandoned = (rc == WAIT_ABANDONED);
                 IntPtr hLease = IntPtr.Zero;
                 IntPtr hJob = IntPtr.Zero;
                 bool published = false;
@@ -384,8 +388,8 @@ namespace Conclave.DesktopTests
                     // On EVERY handoff (normal, abandoned, late-arriving, or post-probe), verify prior desktop job quiescence.
                     DrainPriorJobFromRecord(recordPath, 5000);
 
-                    Action beforePub = BeforeRecordPublishForTest;
-                    if (beforePub != null) beforePub();
+                    Action<bool> beforePub = BeforeRecordPublishForTest;
+                    if (beforePub != null) beforePub(acquiredAbandoned);
 
                     int selfPid = Process.GetCurrentProcess().Id;
                     long selfTicks;
@@ -427,6 +431,7 @@ namespace Conclave.DesktopTests
                         leaseName,
                         jobName,
                         false,
+                        acquiredAbandoned,
                         selfPid,
                         selfTicks,
                         selfUtc);
@@ -506,6 +511,7 @@ namespace Conclave.DesktopTests
                 leaseName,
                 jobName,
                 true,
+                false,
                 tokPid,
                 tokTicks,
                 rec.StartUtc);
@@ -942,11 +948,7 @@ namespace Conclave.DesktopTests
                 try
                 {
                     string sddl = Marshal.PtrToStringUni(sddlPtr) ?? "";
-                    bool hasAu = sddl.IndexOf(";;;AU)", StringComparison.OrdinalIgnoreCase) >= 0;
-                    bool hasWorldWrite = sddl.IndexOf("FA;;;WD)", StringComparison.OrdinalIgnoreCase) >= 0
-                        || sddl.IndexOf("GW;;;WD)", StringComparison.OrdinalIgnoreCase) >= 0
-                        || sddl.IndexOf("0x1301bf;;;WD)", StringComparison.OrdinalIgnoreCase) >= 0;
-                    if (!hasAu || hasWorldWrite)
+                    if (!IsValidRecordDirectoryDacl(sddl))
                         throw new UnauthorizedAccessException("shared desktop-locks directory DACL is invalid: " + sddl);
                 }
                 finally
@@ -958,6 +960,65 @@ namespace Conclave.DesktopTests
             {
                 LocalFree(existingSd);
             }
+        }
+
+        internal static bool IsValidRecordDirectoryDacl(string sddl)
+        {
+            if (string.IsNullOrWhiteSpace(sddl)) return false;
+            bool auModifyInherited = false;
+            foreach (Match m in Regex.Matches(sddl, "\\(([^()]+)\\)"))
+            {
+                string[] parts = m.Groups[1].Value.Split(';');
+                if (parts.Length < 6) continue;
+                string aceType = parts[0].Trim().ToUpperInvariant();
+                string aceFlags = parts[1].Trim().ToUpperInvariant();
+                string rightsStr = parts[2].Trim();
+                string trustee = parts[5].Trim().ToUpperInvariant();
+                uint mask = ParseSddlFileRights(rightsStr);
+                if (trustee == "AU")
+                {
+                    if (aceType == "D") return false;
+                    if (aceType == "A" && aceFlags.IndexOf("OI", StringComparison.Ordinal) >= 0
+                        && aceFlags.IndexOf("CI", StringComparison.Ordinal) >= 0
+                        && (mask & 0x001301BFu) == 0x001301BFu)
+                    {
+                        auModifyInherited = true;
+                    }
+                }
+                else if (trustee == "WD" && aceType == "A")
+                {
+                    // Reject any Everyone write, delete, generic-write, generic-all, or DAC/owner-modify grant.
+                    if ((mask & 0x500D0116u) != 0) return false;
+                }
+            }
+            return auModifyInherited;
+        }
+
+        private static uint ParseSddlFileRights(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return 0;
+            if (s.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+            {
+                uint hex;
+                return uint.TryParse(s.Substring(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out hex) ? hex : 0;
+            }
+            uint mask = 0;
+            for (int i = 0; i + 1 < s.Length; i += 2)
+            {
+                string tok = s.Substring(i, 2).ToUpperInvariant();
+                if (tok == "FA") mask |= 0x001F01FFu;
+                else if (tok == "FR") mask |= 0x00120089u;
+                else if (tok == "FW") mask |= 0x00120116u;
+                else if (tok == "FX") mask |= 0x001200A0u;
+                else if (tok == "GA") mask |= 0x101F01FFu;
+                else if (tok == "GW") mask |= 0x40120116u;
+                else if (tok == "GR") mask |= 0x80120089u;
+                else if (tok == "SD") mask |= 0x00010000u;
+                else if (tok == "RC") mask |= 0x00020000u;
+                else if (tok == "WD") mask |= 0x00040000u;
+                else if (tok == "WO") mask |= 0x00080000u;
+            }
+            return mask;
         }
 
         private static SECURITY_ATTRIBUTES MakeSecurityAttributes(string sddl, out IntPtr sd)
