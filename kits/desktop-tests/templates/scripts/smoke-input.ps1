@@ -639,7 +639,11 @@ if ($Uninstall) {
             }
             $kept.Add($t)
         }
-        if ($removedTask -and (-not $NoRegister) -and $doc.PSObject.Properties['folder'] -and $doc.folder) {
+        if ($removedTask -and (-not $NoRegister)) {
+            if (-not $doc.PSObject.Properties['folder'] -or [string]::IsNullOrWhiteSpace([string]$doc.folder)) {
+                [Console]::Error.WriteLine('smoke-input: .conclave/automations/tasks.json has no folder set; manifest retained')
+                exit 2
+            }
             # Verify ownership of any live task at ($doc.folder, $taskName) BEFORE mutating tasks.json.
             $existingLive = Get-ScheduledTaskOrFailClosed ([string]$doc.folder) $taskName 'manifest retained'
             if ($existingLive) {

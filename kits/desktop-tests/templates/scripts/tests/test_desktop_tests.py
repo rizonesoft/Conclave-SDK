@@ -818,6 +818,49 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
         finally:
             run_cmd([PWSH, "-NoProfile", "-NonInteractive", "-Command", cleanup_ps])
 
+    def test_uninstall_fails_closed_on_scheduler_errors_and_missing_folder(self):
+        # 1. Standalone uninstall with ObjectNotFound followed by PermissionDenied from Get-ScheduledTask
+        # must exit 2, retain installed.json, and never invoke Unregister-ScheduledTask.
+        inst = self.run_smoke("-Install", "-NoRegister", "-NowOverride", "2026-11-25T10:00:00", include_watcher=False)
+        self.assertEqual(inst.returncode, 0, inst.stdout + inst.stderr)
+        inst_file = self.state / "installed.json"
+        self.assertTrue(inst_file.exists())
+        unreg_marker = Path(self._tmp.name) / "unreg_called.txt"
+        script = str(self.root / "scripts" / "smoke-input.ps1")
+        shadow_cmd = (
+            "function Get-ScheduledTask { [CmdletBinding()] param($TaskPath, $TaskName) "
+            "Write-Error -Message 'not found' -Category ObjectNotFound; "
+            "Write-Error -Message 'access denied 0x80041003' -Category PermissionDenied }; "
+            f"function Unregister-ScheduledTask {{ Set-Content -LiteralPath '{unreg_marker}' -Value 'called' }}; "
+            f"& '{script}' -ProjectRoot '{self.root}' -StateFolder '{self.state}' -Python '{sys.executable}' -Uninstall; "
+            "exit $LASTEXITCODE"
+        )
+        res = run_cmd([PWSH, "-NoProfile", "-NonInteractive", "-Command", shadow_cmd], cwd=self.root)
+        self.assertEqual(res.returncode, 2, res.stdout + res.stderr)
+        self.assertIn("installed state retained", res.stderr)
+        self.assertTrue(inst_file.exists(), "installed.json must be retained on scheduler lookup failure")
+        self.assertFalse(unreg_marker.exists(), "Unregister-ScheduledTask must not run on lookup failure")
+        # 2. Combined uninstall with cleared folder in tasks.json must exit 2 and retain the manifest entry.
+        auto_dir = self.root / ".conclave" / "automations"
+        auto_dir.mkdir(parents=True)
+        manifest = {
+            "schema_version": 1, "folder": None,
+            "tasks": [{
+                "name": "demo-real-input-smoke",
+                "description": "Nightly real-input desktop UI tests for demo",
+                "command": ["pwsh", "-NoProfile", "-NonInteractive", "-File", "scripts/smoke-input.ps1", "-Scheduled"],
+                "trigger": {"daily": True, "at": "03:00", "random_delay_minutes": 0},
+                "timeout_minutes": 180, "start_when_available": False, "wake_to_run": False, "exact_timeout": True,
+            }],
+        }
+        manifest_path = auto_dir / "tasks.json"
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        comb_res = self.run_smoke("-Uninstall", include_watcher=False)
+        self.assertEqual(comb_res.returncode, 2, comb_res.stdout + comb_res.stderr)
+        self.assertIn("manifest retained", comb_res.stderr)
+        retained = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual([t["name"] for t in retained["tasks"]], ["demo-real-input-smoke"])
+
 
 if __name__ == "__main__":
     unittest.main()
