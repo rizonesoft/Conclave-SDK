@@ -1654,8 +1654,9 @@ class DesktopTestsWindowsSuite(unittest.TestCase):
                 p_late.kill()
                 p_late.communicate()
 
-        # 2b. Grandchild surviving direct child exit: outer tracking job handle inherited by grandchild keeps job
-        # queryable across owner death until the grandchild finishes exiting, even after direct child already exited!
+        # 2b. Non-inheriting (bInheritHandles=false) grandchild surviving direct child exit: waiting successor pins
+        # the named tracking job and snapshots member SYNCHRONIZE handles before waiting, so after owner death
+        # _hKillJob terminates the grandchild and the successor waits for EPROCESS exit before publishing!
         lock2b = f"conclave-dt-gc-{os.getpid()}-{time.time_ns()}"
         env2b = {**os.environ, "DEMO_DESKTOP_LOCK": lock2b, "DEMO_DESKTOP_WAIT_S": "15"}
         gc_pid_file = Path(self._tmp.name) / "gc-pid.txt"

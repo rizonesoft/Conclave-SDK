@@ -849,45 +849,54 @@ namespace Conclave.DesktopTests
 
         private static int QueryJobActiveProcessCount(IntPtr hJob, List<IntPtr> collectSyncHandles)
         {
-            // Buffer for JOBOBJECT_BASIC_PROCESS_ID_LIST (2 uint header + up to 64 IntPtr PIDs).
-            int bufSize = 8 + IntPtr.Size * 64;
-            IntPtr buf = Marshal.AllocHGlobal(bufSize);
-            try
+            // Dynamically grow JOBOBJECT_BASIC_PROCESS_ID_LIST buffer on ERROR_MORE_DATA so large process trees
+            // never skip SYNCHRONIZE handle collection.
+            int capacity = 64;
+            while (true)
             {
-                uint retLen;
-                bool ok = QueryInformationJobObject(hJob, JobObjectBasicProcessIdList, buf, (uint)bufSize, out retLen);
-                if (!ok)
+                int bufSize = 8 + IntPtr.Size * capacity;
+                IntPtr buf = Marshal.AllocHGlobal(bufSize);
+                try
                 {
-                    int err = Marshal.GetLastWin32Error();
-                    if (err == 234) // ERROR_MORE_DATA -> definitely > 0 active processes
-                        return 65;
-                    throw new Win32Exception(err, "QueryInformationJobObject failed");
-                }
-                int assigned = Marshal.ReadInt32(buf, 0);
-                int inList = Marshal.ReadInt32(buf, 4);
-                if (collectSyncHandles != null && inList > 0)
-                {
-                    int limit = Math.Min(inList, 64);
-                    for (int i = 0; i < limit; i++)
+                    uint retLen;
+                    bool ok = QueryInformationJobObject(hJob, JobObjectBasicProcessIdList, buf, (uint)bufSize, out retLen);
+                    if (!ok)
                     {
-                        long pidVal = (IntPtr.Size == 8)
-                            ? Marshal.ReadInt64(buf, 8 + i * 8)
-                            : Marshal.ReadInt32(buf, 8 + i * 4);
-                        if (pidVal > 0 && pidVal <= uint.MaxValue)
+                        int err = Marshal.GetLastWin32Error();
+                        if (err == 234) // ERROR_MORE_DATA
                         {
-                            IntPtr hp = OpenProcess(SYNCHRONIZE, false, (uint)pidVal);
-                            if (hp != IntPtr.Zero)
+                            if (capacity >= 4096) return capacity + 1;
+                            capacity *= 2;
+                            continue;
+                        }
+                        throw new Win32Exception(err, "QueryInformationJobObject failed");
+                    }
+                    int assigned = Marshal.ReadInt32(buf, 0);
+                    int inList = Marshal.ReadInt32(buf, 4);
+                    if (collectSyncHandles != null && inList > 0)
+                    {
+                        int limit = Math.Min(inList, capacity);
+                        for (int i = 0; i < limit; i++)
+                        {
+                            long pidVal = (IntPtr.Size == 8)
+                                ? Marshal.ReadInt64(buf, 8 + i * 8)
+                                : Marshal.ReadInt32(buf, 8 + i * 4);
+                            if (pidVal > 0 && pidVal <= uint.MaxValue)
                             {
-                                collectSyncHandles.Add(hp);
+                                IntPtr hp = OpenProcess(SYNCHRONIZE, false, (uint)pidVal);
+                                if (hp != IntPtr.Zero)
+                                {
+                                    collectSyncHandles.Add(hp);
+                                }
                             }
                         }
                     }
+                    return Math.Max(assigned, inList);
                 }
-                return Math.Max(assigned, inList);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buf);
+                finally
+                {
+                    Marshal.FreeHGlobal(buf);
+                }
             }
         }
 
