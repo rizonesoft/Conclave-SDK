@@ -6104,20 +6104,21 @@ sys.exit(2)
             ref = plan.get("ref", f"D01 T01 §{sec_num}")
             fail_mode = plan.get("fail_mode")
             if plan.get("covered_open"):
-                old = target_file.read_text(encoding="utf-8")
-                anchor = "\n## 2. Shipped [x]"
+                old = target_file.read_bytes()
+                anchor = b"\n## 2. Shipped [x]"
+                ins = f"\nHeliograph: {mid}\n".encode("utf-8")
                 if anchor in old:
-                    updated = old.replace(anchor, f"\nHeliograph: {mid}\n{anchor}", 1)
+                    updated = old.replace(anchor, ins + anchor, 1)
                 else:
-                    updated = old + f"\nHeliograph: {mid}\n"
-                target_file.write_text(updated, encoding="utf-8")
+                    updated = old + ins
+                target_file.write_bytes(updated)
                 append_event(f"- helio-ref: {mid} -> {ref}")
                 append_event(f"- helio {mid}: taken -> {ref}")
                 continue
 
             if fail_mode == "after_marker":
-                old = target_file.read_text(encoding="utf-8")
-                target_file.write_text(old + f"\n## {sec_num}. Filed {mid}\n\nHeliograph: {mid}\n", encoding="utf-8")
+                old = target_file.read_bytes()
+                target_file.write_bytes(old + f"\n## {sec_num}. Filed {mid}\n\nHeliograph: {mid}\n".encode("utf-8"))
                 # Simulate in-process failure after marker write: read back todo/ first
                 found_after = self._find_marker_ref(todo_root, mid)
                 if found_after:
@@ -6141,8 +6142,8 @@ sys.exit(2)
                         log_err_once(f"release-{mid}", rr.returncode)
                 continue
 
-            old = target_file.read_text(encoding="utf-8")
-            target_file.write_text(old + f"\n## {sec_num}. Filed {mid}\n\nHeliograph: {mid}\n", encoding="utf-8")
+            old = target_file.read_bytes()
+            target_file.write_bytes(old + f"\n## {sec_num}. Filed {mid}\n\nHeliograph: {mid}\n".encode("utf-8"))
             append_event(f"- helio-ref: {mid} -> {ref}")
             append_event(f"- helio {mid}: taken -> {ref}")
 
@@ -6231,10 +6232,9 @@ sys.exit(2)
                 (repo / "todo" / "01-core").mkdir(parents=True)
                 (repo / "docs" / "phase-runs").mkdir(parents=True)
                 todo_file = repo / "todo" / "01-core" / "TODO-01-sample.md"
-                todo_file.write_text(
-                    "## 1. Existing Open\n\nCovers open work and mentions m_incidental in prose.\n\n"
-                    "## 2. Shipped [x]\n\nAlready shipped work.\n",
-                    encoding="utf-8",
+                todo_file.write_bytes(
+                    b"## 1. Existing Open\n\nCovers open work and mentions m_incidental in prose.\n\n"
+                    b"## 2. Shipped [x]\n\nAlready shipped work.\n"
                 )
                 run_file = repo / "docs" / "phase-runs" / "2026-11-26-phase-1.md"
                 run_file.write_text("# Run\n\n## Critical events\n", encoding="utf-8")
@@ -6310,14 +6310,17 @@ sys.exit(2)
 
                 handled: set[str] = set()
                 logged_errs: set[str] = set()
-                def _extract_shipped_bytes(path: pathlib.Path) -> bytes:
-                    raw = path.read_bytes()
-                    start = raw.index(b"## 2. Shipped [x]")
-                    rest = raw[start:]
+                def _extract_shipped_bytes(raw: bytes) -> bytes:
+                    m_start = re.search(rb"(?:^|\n)(## 2\. Shipped \[x\](?:\r?\n|$))", raw)
+                    if not m_start:
+                        raise ValueError("level-two shipped heading not found")
+                    rest = raw[m_start.start(1):]
                     m_nxt = re.search(rb"\r?\n## ", rest[1:])
                     return rest[: m_nxt.start() + 1] if m_nxt else rest
 
-                shipped_bytes_before = _extract_shipped_bytes(todo_file)
+                shipped_bytes_before = _extract_shipped_bytes(todo_file.read_bytes())
+                with self.assertRaises(ValueError):
+                    _extract_shipped_bytes(todo_file.read_bytes().replace(b"\n## 2. Shipped [x]", b"\n### 2. Shipped [x]"))
                 filing_plan = {
                     "m_open_cov": {"covered_open": True, "todo_rel": "todo/01-core/TODO-01-sample.md", "ref": "D01 T01 §1"},
                     "m_shipped_cov": {"covered_shipped": True},
@@ -6368,7 +6371,7 @@ sys.exit(2)
                 run_text = run_file.read_text(encoding="utf-8")
                 todo_text = todo_file.read_text(encoding="utf-8")
                 self.assertIn("- helio m_shipped_cov: skipped", run_text)
-                self.assertEqual(_extract_shipped_bytes(todo_file), shipped_bytes_before)
+                self.assertEqual(_extract_shipped_bytes(todo_file.read_bytes()), shipped_bytes_before)
                 self.assertNotIn("Heliograph: m_shipped_cov", todo_text)
                 combined = run_text + "\n" + todo_text + "\n" + json.dumps(calls)
                 for secret in ("PRIVATE-BODY-1", "PRIVATE-BODY-2", "PRIVATE-BODY-3", "PRIVATE-STDERR-DAMAGE", "SECRET-SESSION-ID-777", legacy_secret):
