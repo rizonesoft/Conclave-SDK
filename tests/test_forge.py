@@ -6105,7 +6105,12 @@ sys.exit(2)
             fail_mode = plan.get("fail_mode")
             if plan.get("covered_open"):
                 old = target_file.read_text(encoding="utf-8")
-                target_file.write_text(old + f"\nHeliograph: {mid}\n", encoding="utf-8")
+                anchor = "\n## 2. Shipped [x]"
+                if anchor in old:
+                    updated = old.replace(anchor, f"\nHeliograph: {mid}\n{anchor}", 1)
+                else:
+                    updated = old + f"\nHeliograph: {mid}\n"
+                target_file.write_text(updated, encoding="utf-8")
                 append_event(f"- helio-ref: {mid} -> {ref}")
                 append_event(f"- helio {mid}: taken -> {ref}")
                 continue
@@ -6305,8 +6310,14 @@ sys.exit(2)
 
                 handled: set[str] = set()
                 logged_errs: set[str] = set()
-                shipped_marker_before = "## 2. Shipped [x]\n\nAlready shipped work.\n"
-                self.assertIn(shipped_marker_before, todo_file.read_text(encoding="utf-8"))
+                def _extract_shipped_bytes(path: pathlib.Path) -> bytes:
+                    raw = path.read_bytes()
+                    start = raw.index(b"## 2. Shipped [x]")
+                    rest = raw[start:]
+                    m_nxt = re.search(rb"\r?\n## ", rest[1:])
+                    return rest[: m_nxt.start() + 1] if m_nxt else rest
+
+                shipped_bytes_before = _extract_shipped_bytes(todo_file)
                 filing_plan = {
                     "m_open_cov": {"covered_open": True, "todo_rel": "todo/01-core/TODO-01-sample.md", "ref": "D01 T01 §1"},
                     "m_shipped_cov": {"covered_shipped": True},
@@ -6357,7 +6368,7 @@ sys.exit(2)
                 run_text = run_file.read_text(encoding="utf-8")
                 todo_text = todo_file.read_text(encoding="utf-8")
                 self.assertIn("- helio m_shipped_cov: skipped", run_text)
-                self.assertIn(shipped_marker_before, todo_text)
+                self.assertEqual(_extract_shipped_bytes(todo_file), shipped_bytes_before)
                 self.assertNotIn("Heliograph: m_shipped_cov", todo_text)
                 combined = run_text + "\n" + todo_text + "\n" + json.dumps(calls)
                 for secret in ("PRIVATE-BODY-1", "PRIVATE-BODY-2", "PRIVATE-BODY-3", "PRIVATE-STDERR-DAMAGE", "SECRET-SESSION-ID-777", legacy_secret):
