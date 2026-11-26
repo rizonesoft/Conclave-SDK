@@ -170,8 +170,10 @@ with zipfile.ZipFile(src) as z:
     modes = {m: (z.getinfo(m).external_attr >> 16) & 0o777 for m in payload if (z.getinfo(m).external_attr >> 16) != 0}
 to_publish = sorted(payload)
 ref_tree = {}
-for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", ref, "--", *retired], text=True).splitlines():
-    meta, rel = line.split("\t", 1)
+for rec in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "-z", ref, "--", *retired], text=True, encoding="utf-8", errors="replace").split("\0"):
+    if not rec:
+        continue
+    meta, rel = rec.split("\t", 1)
     mode, _kind, oid = meta.split()
     ref_tree[rel] = (mode, oid)
 present_retired = sorted(ref_tree)
@@ -187,12 +189,16 @@ if to_publish:
     for p in parents:
         if (top / p).exists() and not (top / p).is_dir():
             raise RuntimeError(f"parent path is not a directory: {p}")
-    for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "HEAD", "--", *to_publish], text=True).splitlines():
-        meta, rel = line.split("\t", 1)
+    for rec in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "-z", "HEAD", "--", *to_publish], text=True, encoding="utf-8", errors="replace").split("\0"):
+        if not rec:
+            continue
+        meta, rel = rec.split("\t", 1)
         mode, _kind, oid = meta.split()
         head_tree[rel] = (mode, oid)
-    for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *to_publish, *parents], text=True).splitlines():
-        meta, rel = line.split("\t", 1)
+    for rec in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "-z", "--", *to_publish, *parents], text=True, encoding="utf-8", errors="replace").split("\0"):
+        if not rec:
+            continue
+        meta, rel = rec.split("\t", 1)
         if rel in parents:
             raise RuntimeError(f"indexed file blocks parent directory: {rel}")
         if any(rel.startswith(t + "/") for t in to_publish):

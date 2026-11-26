@@ -1390,26 +1390,32 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertFalse((project / ".agents/agents/git-runner.md").exists())
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_arc_del)
             _git("reset", "-q", "--hard", "HEAD~1")
-            # 2) Staged descendant beneath a retired wrapper path must refuse without mutating the index.
+            # 2) Staged descendant (including non-ASCII path that Git quotes without -z) beneath a retired
+            # wrapper path must refuse without mutating the index.
             desc_dir = project / ".agents/agents/code-explorer.md"
             desc_dir.mkdir(parents=True)
-            (desc_dir / "nested.txt").write_text("descendant\n", encoding="utf-8")
-            _git("add", ".agents/agents/code-explorer.md/nested.txt")
+            (desc_dir / "caf\u00e9.txt").write_text("descendant\n", encoding="utf-8")
+            _git("add", ".agents/agents/code-explorer.md/caf\u00e9.txt")
             shutil.rmtree(desc_dir)
-            stage_before_desc = _git("ls-files", "--stage").stdout
+            stage_before_desc = subprocess.check_output(["git", "-C", str(project), "ls-files", "--stage", "-z"])
             desc_refusal = subprocess.run(
                 [sys.executable, "-c", restore_script],
                 cwd=str(subdir),
                 env=partial_env,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
-            self.assertNotEqual(desc_refusal.returncode, 0, "rollback must refuse staged descendant")
+            self.assertNotEqual(desc_refusal.returncode, 0, "rollback must refuse non-ASCII staged descendant")
             self.assertIn("staged descendant blocks restore", desc_refusal.stderr)
-            self.assertIn("code-explorer.md/nested.txt", desc_refusal.stderr)
-            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_desc)
-            _git("rm", "-q", "--cached", ".agents/agents/code-explorer.md/nested.txt")
+            self.assertIn("code-explorer.md/", desc_refusal.stderr)
+            self.assertEqual(
+                subprocess.check_output(["git", "-C", str(project), "ls-files", "--stage", "-z"]),
+                stage_before_desc,
+            )
+            _git("rm", "-q", "--cached", ".agents/agents/code-explorer.md/caf\u00e9.txt")
             # 3) Tracked .conclave/kits.json unstaged deletion, staged deletion, and single stage-2 unmerged entry.
             kits_file.unlink()
             stage_before_kits_del = _git("ls-files", "--stage").stdout
