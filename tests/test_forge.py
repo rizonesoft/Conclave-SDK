@@ -6137,16 +6137,28 @@ sys.exit(2)
                     append_event(f"- helio-ref: {mid} -> {found_after}")
                 else:
                     sr_rel = self._run_helio_cmd(["show", mid], repo, env)
-                    hdrs_rel = self._parse_helio_lines(sr_rel.stdout) if sr_rel.returncode == 0 else []
-                    status_rel = hdrs_rel[0]["status"] if hdrs_rel else ""
-                    if status_rel.startswith("taken by "):
-                        holder_rel = status_rel[len("taken by "):].strip()
-                        if holder_rel != lane:
-                            append_event(f"- helio {mid}: release-skipped-holder")
-                            continue
-                        if is_owner_lane:
-                            append_event(f"- helio {mid}: release-pending")
-                            continue
+                    if sr_rel.returncode != 0:
+                        append_event(f"- helio {mid}: release-pending")
+                        log_err_once(f"show-{mid}", sr_rel.returncode)
+                        continue
+                    hdrs_rel = self._parse_helio_lines(sr_rel.stdout)
+                    if not hdrs_rel:
+                        append_event(f"- helio {mid}: release-pending")
+                        continue
+                    status_rel = hdrs_rel[0]["status"]
+                    if status_rel == "open" or status_rel.startswith("done by ") or status_rel.startswith("refused by "):
+                        append_event(f"- helio {mid}: release-cleared")
+                        continue
+                    if not status_rel.startswith("taken by "):
+                        append_event(f"- helio {mid}: release-pending")
+                        continue
+                    holder_rel = status_rel[len("taken by "):].strip()
+                    if holder_rel != lane:
+                        append_event(f"- helio {mid}: release-skipped-holder")
+                        continue
+                    if is_owner_lane:
+                        append_event(f"- helio {mid}: release-pending")
+                        continue
                     rr = self._run_helio_cmd(["release", mid], repo, env)
                     if rr.returncode == 0:
                         append_event(f"- helio {mid}: released")
@@ -6322,6 +6334,7 @@ sys.exit(2)
                         {"id": "m_refused_take", "kind": "request", "state": "open", "subject": "RaceTaken", "body": "IN_SCOPE"},
                         {"id": "m_other_done", "kind": "request", "state": "taken", "by": "proj/other", "session": "other-s", "subject": "OtherDone", "body": "IN_SCOPE"},
                         {"id": "m_owner_self", "kind": "request", "state": "taken", "by": "proj/owner", "session": "owner-other-s", "subject": "OwnerSelf", "body": "IN_SCOPE"},
+                        {"id": "m_mid_done_err", "kind": "request", "state": "taken", "by": f"proj/{agent}", "session": "SECRET-SESSION-ID-777", "subject": "MidRow", "body": "IN_SCOPE"},
                         {"id": "m_final_err", "kind": "request", "state": "taken", "by": f"proj/{agent}", "session": "SECRET-SESSION-ID-777", "subject": "FinalRow", "body": "IN_SCOPE"},
                     ],
                     "calls": [],
@@ -6330,6 +6343,7 @@ sys.exit(2)
                         "show:m_badshow": [{"rc": 3, "stderr": "PRIVATE-STDERR-DAMAGE"}],
                         "take:m_refused_take": [{"rc": 2, "stderr": "it is already taken"}],
                         "release:m_pre_mark": [{"rc": 3, "stderr": "store damaged"}],
+                        "done:m_mid_done_err": [{"rc": 3, "stderr": "store damaged"}],
                         "done:m_final_err": [{"rc": 3, "stderr": "store damaged"}],
                     },
                 }
@@ -6379,14 +6393,17 @@ sys.exit(2)
                 ]
                 state_file.write_text(json.dumps(st_mid), encoding="utf-8")
 
-                # Boundary 2 (damaged poll #1 with partial m_partial_dmg, plus release-pending retry)
-                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §2", [], handled, logged_errs, filing_plan)
+                # Boundary 2 (damaged poll #1 with partial m_partial_dmg, release-pending retry, and mid-phase done exit 3)
+                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §2", ["m_mid_done_err"], handled, logged_errs, filing_plan)
+                post_b2 = {m["id"]: m for m in json.loads(state_file.read_text(encoding="utf-8"))["messages"]}
+                self.assertEqual(post_b2["m_mid_done_err"]["state"], "taken")
 
-                # Boundary 3 (final row ships m_final_err -> done exit 3 -> done-pending; damaged poll #2 must NOT duplicate exit-3)
+                # Boundary 3 (retries m_mid_done_err -> done; ships m_final_err -> done exit 3; damaged poll #2 no duplicate)
                 self._walk_boundary(contract, repo, run_file, env, "D01 T01 §3", ["m_final_err"], handled, logged_errs, filing_plan)
 
-                # Verify m_final_err is still taken before Step 4 closeout, then done immediately after
+                # Verify m_mid_done_err closed at next boundary BEFORE closeout, while m_final_err waits for closeout
                 pre_close = {m["id"]: m for m in json.loads(state_file.read_text(encoding="utf-8"))["messages"]}
+                self.assertEqual(pre_close["m_mid_done_err"]["state"], "done")
                 self.assertEqual(pre_close["m_final_err"]["state"], "taken")
                 self._walk_closeout(repo, run_file, env)
 
@@ -6425,6 +6442,7 @@ sys.exit(2)
                 self.assertIn("- helio m_info: info", run_text)
                 self.assertIn("- helio m_find: info", run_text)
                 self.assertIn("- helio-ref: m_after_mark -> D01 T01 §4", run_text)
+                self.assertIn("- done-pending: m_other_done (D01 T01 §1)", run_text)
                 self.assertIn("- helio m_shipped_cov: skipped", run_text)
                 self.assertEqual(_extract_shipped_bytes(todo_file.read_bytes()), shipped_bytes_before)
                 self.assertNotIn("Heliograph: m_shipped_cov", todo_text)
@@ -6439,10 +6457,12 @@ sys.exit(2)
                 # - different holder (m_other_done) -> release-skipped-holder, cleared
                 # - same-lane /owner holder (m_owner_self) -> NOT released, retained in Closeout
                 # - immediate pre-marker failure where another writer takes claim mid-interval -> NOT released
+                # - immediate pre-marker failure where recovery show exits 3 -> NOT released, retained in Closeout
                 st_owner = json.loads(state_file.read_text(encoding="utf-8"))
-                st_owner["messages"].append(
-                    {"id": "m_owner_race", "kind": "request", "state": "open", "subject": "OwnerRace", "body": "IN_SCOPE"}
-                )
+                st_owner["messages"].extend([
+                    {"id": "m_owner_race", "kind": "request", "state": "open", "subject": "OwnerRace", "body": "IN_SCOPE"},
+                    {"id": "m_owner_show_err", "kind": "request", "state": "open", "subject": "OwnerShowErr", "body": "IN_SCOPE"},
+                ])
                 state_file.write_text(json.dumps(st_owner), encoding="utf-8")
 
                 def _reassign_to_other() -> None:
@@ -6452,6 +6472,11 @@ sys.exit(2)
                             msg["state"] = "taken"
                             msg["by"] = "proj/other"
                             msg["session"] = "other-race-s"
+                    state_file.write_text(json.dumps(s_cur), encoding="utf-8")
+
+                def _inject_recovery_show_err() -> None:
+                    s_cur = json.loads(state_file.read_text(encoding="utf-8"))
+                    s_cur.setdefault("overrides", {})["show:m_owner_show_err"] = [{"rc": 3, "stderr": "store damaged"}]
                     state_file.write_text(json.dumps(s_cur), encoding="utf-8")
 
                 owner_env = env.copy()
@@ -6468,7 +6493,14 @@ sys.exit(2)
                         "ref": "D01 T01 §7",
                         "fail_mode": "before_marker",
                         "on_before_recovery": _reassign_to_other,
-                    }
+                    },
+                    "m_owner_show_err": {
+                        "todo_rel": "todo/01-core/TODO-01-sample.md",
+                        "sec_num": 8,
+                        "ref": "D01 T01 §8",
+                        "fail_mode": "before_marker",
+                        "on_before_recovery": _inject_recovery_show_err,
+                    },
                 }
                 self._walk_boundary(contract, repo, owner_run, owner_env, None, [], set(), set(), owner_plan)
                 self._walk_closeout(repo, owner_run, owner_env)
@@ -6478,8 +6510,11 @@ sys.exit(2)
                 self.assertEqual(after_by_id["m_owner_self"]["state"], "taken")
                 self.assertEqual(after_by_id["m_owner_race"]["state"], "taken")
                 self.assertEqual(after_by_id["m_owner_race"]["by"], "proj/other")
+                self.assertEqual(after_by_id["m_owner_show_err"]["state"], "taken")
                 self.assertNotIn(["release", "m_owner_race"], after_owner["calls"])
+                self.assertNotIn(["release", "m_owner_show_err"], after_owner["calls"])
                 owner_text = owner_run.read_text(encoding="utf-8")
                 self.assertIn("release-skipped-holder", owner_text)
                 self.assertIn("- helio m_owner_race: release-skipped-holder", owner_text)
                 self.assertIn("- release-pending: m_owner_self", owner_text)
+                self.assertIn("- release-pending: m_owner_show_err", owner_text)
