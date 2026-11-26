@@ -1,0 +1,92 @@
+{
+  "ref": "D02 T01 \u00a78",
+  "title": "Heliograph inbox between sections of a Codex or Antigravity run",
+  "implementation_sha": "e0ec5cd05bb9c78f1440b78a8a7e9a01f163196a",
+  "date": "2026-11-26",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/02-unattended/D02-T01-s8.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "GitHub Actions tests.yml at 1878c11b46a1 (https://github.com/rizonesoft/Conclave-SDK/actions/runs/45762849040) -> green (7/7 jobs; e0ec5cd05bb9 run 45762210458 cancelled by P3 fix 1878c11b46a1)",
+    "python -m unittest tests.test_forge.ProcessPhaseHeliographTests (Windows + WSL) -> OK",
+    "python forge.py skill-copies --check -> check: true"
+  ],
+  "completion": {
+    "report": "docs/reviews/02-unattended/D02-T01-s8.md",
+    "verdict": "filed",
+    "candidate": "e0ec5cd05bb9c78f1440b78a8a7e9a01f163196a",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D06 T04 \u00a71"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/02-unattended/D02-T01-s8.md",
+    "candidate": "05b1b803c9e43106cfe869401b18f63744290d4f",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "05b1b803c9e43106cfe869401b18f63744290d4f",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 14,
+  "pass_cap": 33
+}

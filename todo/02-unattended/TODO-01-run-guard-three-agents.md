@@ -2,7 +2,7 @@
 schema_version: 1
 id: run-guard-three-agents
 domain: 02-unattended
-status: active
+status: done
 title: "TODO-01 -- Run guard for Antigravity and Codex"
 ---
 
@@ -44,7 +44,7 @@ title: "TODO-01 -- Run guard for Antigravity and Codex"
 | 5 | §5 | Guard self-test through each wired hook | §2, §3 | [x] |
 | 6 | §6 | Run guard steps in the Antigravity and Codex skill copies | §2, §3, §4 | [x] |
 | 7 | §7 | Live Codex run held by its approved Stop hook | §3 | [x] |
-| 8 | §8 | Heliograph inbox between sections of a Codex or Antigravity run | §6 | [ ] |
+| 8 | §8 | Heliograph inbox between sections of a Codex or Antigravity run | §6 | [x] |
 
 ## 1. Antigravity payload handled by the Stop hook
 
@@ -286,6 +286,9 @@ Filed 2026-11-26 from Heliograph (`~/impossible/Heliograph`, design `docs/specs/
 - [x] Commit: `todo: Codex and Antigravity runs read the Heliograph inbox between sections` (`0f854ff3`, fixes `060edff0`, `6c42fdd3`)
 
 **Test checkpoint:** `python -m unittest discover -s tests -p test_forge.py` ends `OK`; deleting the Heliograph step from the Codex copy makes the new test fail.
+
+> **Verified:** 2026-11-26 | §8 | e0ec5cd05bb9c78f1440b78a8a7e9a01f163196a
+> **Review:** `docs/reviews/d02-t01-s8.json`
 
 ## Verification
 

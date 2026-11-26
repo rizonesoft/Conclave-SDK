@@ -50,7 +50,7 @@ Sections: 20 | Checklist items: 140
 | [x]    | D02 T01 §5  | Guard self-test through each wired hook                           | none         | 6     |
 | [x]    | D02 T01 §6  | Run guard steps in the Antigravity and Codex skill copies         | none         | 10    |
 | [x]    | D02 T01 §7  | Live Codex run held by its approved Stop hook                     | none         | 4     |
-| [ ]    | D02 T01 §8  | Heliograph inbox between sections of a Codex or Antigravity run   | none         | 7     |
+| [x]    | D02 T01 §8  | Heliograph inbox between sections of a Codex or Antigravity run   | none         | 7     |
 | [x]    | D02 T02 §1  | Unattended kit known to `forge.py`                                | none         | 6     |
 | [x]    | D02 T02 §2  | Run profile `.conclave/unattended.json` and its loader            | none         | 6     |
 | [x]    | D02 T02 §3  | Preflight with a PASS or FAIL line per precondition               | none         | 9     |
@@ -246,6 +246,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 133/156 verified sections, 5 ready to run now.
+Progress: 134/156 verified sections, 4 ready to run now.
 
 Checklist: 1054/1179 items completed (includes Commit items).
