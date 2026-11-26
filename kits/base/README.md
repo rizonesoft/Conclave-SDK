@@ -87,7 +87,87 @@ Because `forge.py update <project> base` is additive-only and preserves deleted 
 Follow this reversible cleanup after `python forge.py update <project> base`:
 
 1. Inspect retired files with `python forge.py diff <project> base` (each retired file reports `project-only`). Compare against `.conclave/kits.json` or `git diff`: copy any local customizations you still need from a retired file into a retained project-custom file (for example `.agents/agents/preserved-code-explorer.md`), and leave existing project-custom `.agents/agents/<custom>.md` files untouched.
-2. Commit your pre-cleanup repository state, anchor a durable recovery ref (`git branch pre-orchestrator-migration`, or record `git rev-parse HEAD`), and save a raw byte-preserving archive of only the seven paths cleanup touches before deleting anything (`python -c "import os, pathlib, subprocess, tempfile, zipfile; top = pathlib.Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()); dst = pathlib.Path(subprocess.check_output(['git', 'rev-parse', '--git-path', 'pre-orchestrator-migration.zip'], text=True).strip()); dst.exists() and (_ for _ in ()).throw(FileExistsError(dst)); allow = ('.agents/agents/code-explorer.md', '.agents/agents/debug-evidence.md', '.agents/agents/git-runner.md', '.agents/agents/mutation-tester.md', '.agents/agents/test-runner.md', 'scripts/agy-subagent.py', '.conclave/kits.json'); [(_ for _ in ()).throw(ValueError(f'symlink: {r}')) for r in allow if (top / r).is_symlink()]; found = [r for r in allow if (top / r).is_file()]; (not found) and (_ for _ in ()).throw(RuntimeError('no retired paths found')); fd, tmp_s = tempfile.mkstemp(dir=dst.parent, prefix='.pre-orchestrator-migration.', suffix='.tmp'); os.close(fd); tmp = pathlib.Path(tmp_s); z = zipfile.ZipFile(tmp, 'w'); [z.write(top / r, arcname=r) for r in found]; z.close(); bad = zipfile.ZipFile(tmp).testzip(); bad is not None and (_ for _ in ()).throw(zipfile.BadZipFile(bad)); os.link(tmp, dst); tmp.unlink()"` (if `pre-orchestrator-migration.zip` already exists on a retry, reuse it instead of overwriting it; if a prior attempt was interrupted, delete only its `.pre-orchestrator-migration.*.tmp` file and rerun)). Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup runs `git -c core.autocrlf=false checkout <recovery-ref> -- .agents/agents/code-explorer.md .agents/agents/debug-evidence.md .agents/agents/git-runner.md .agents/agents/mutation-tester.md .agents/agents/test-runner.md scripts/agy-subagent.py .conclave/kits.json` (using `pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA) followed by extracting only those seven paths relative to the repository root (`python -c "import pathlib, subprocess, zipfile; top = pathlib.Path(subprocess.check_output(['git', 'rev-parse', '--show-toplevel'], text=True).strip()); allow = {'.agents/agents/code-explorer.md', '.agents/agents/debug-evidence.md', '.agents/agents/git-runner.md', '.agents/agents/mutation-tester.md', '.agents/agents/test-runner.md', 'scripts/agy-subagent.py', '.conclave/kits.json'}; src = pathlib.Path(subprocess.check_output(['git', 'rev-parse', '--git-path', 'pre-orchestrator-migration.zip'], text=True).strip()); z = zipfile.ZipFile(src); [((top / m).is_symlink() and (_ for _ in ()).throw(ValueError(f'symlink: {m}')), (top / m).parent.mkdir(parents=True, exist_ok=True), (top / m).write_bytes(z.read(m))) for m in z.namelist() if m in allow]; z.close()"`) to restore Git tracking plus exact pre-cleanup bytes across the six retired paths and `.conclave/kits.json` without overwriting retained custom agents or symlink targets.
+2. Commit your pre-cleanup repository state, anchor a durable recovery ref (`git branch pre-orchestrator-migration`, or record `git rev-parse HEAD`), and save a raw byte-preserving archive of only the seven paths cleanup touches before deleting anything (works from any subdirectory and in linked worktrees; refuses symlinks or Windows junctions on any parent or target component; cleans up its unique temporary file in `finally`; if `pre-orchestrator-migration.zip` already exists on a retry, reuse it instead of overwriting it):
+
+```python
+import os, pathlib, subprocess, tempfile, zipfile
+
+top = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
+dst = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--git-path", "pre-orchestrator-migration.zip"], text=True).strip())
+if dst.exists():
+    raise FileExistsError(dst)
+allow = (
+    ".agents/agents/code-explorer.md",
+    ".agents/agents/debug-evidence.md",
+    ".agents/agents/git-runner.md",
+    ".agents/agents/mutation-tester.md",
+    ".agents/agents/test-runner.md",
+    "scripts/agy-subagent.py",
+    ".conclave/kits.json",
+)
+def check_no_links(rel: str) -> None:
+    cur = top
+    for part in pathlib.Path(rel).parts:
+        cur = cur / part
+        if cur.is_symlink() or (hasattr(cur, "is_junction") and cur.is_junction()) or (hasattr(os.path, "isjunction") and os.path.isjunction(cur)):
+            raise ValueError(f"link not allowed: {cur}")
+for r in allow:
+    check_no_links(r)
+found = [r for r in allow if (top / r).is_file()]
+if not found:
+    raise RuntimeError("no retired paths found")
+fd, tmp_s = tempfile.mkstemp(dir=dst.parent, prefix=".pre-orchestrator-migration.", suffix=".tmp")
+os.close(fd)
+tmp = pathlib.Path(tmp_s)
+try:
+    with zipfile.ZipFile(tmp, "w") as z:
+        for r in found:
+            z.write(top / r, arcname=r)
+    with zipfile.ZipFile(tmp) as z:
+        bad = z.testzip()
+        if bad is not None:
+            raise zipfile.BadZipFile(bad)
+    os.link(tmp, dst)
+finally:
+    tmp.unlink(missing_ok=True)
+```
+
+Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA) and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents, and refuses symlinks or Windows junctions on any parent or target component):
+
+```python
+import os, pathlib, subprocess, zipfile
+
+ref = os.environ.get("RECOVERY_REF", "pre-orchestrator-migration")
+top = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
+src = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--git-path", "pre-orchestrator-migration.zip"], text=True).strip())
+allow = (
+    ".agents/agents/code-explorer.md",
+    ".agents/agents/debug-evidence.md",
+    ".agents/agents/git-runner.md",
+    ".agents/agents/mutation-tester.md",
+    ".agents/agents/test-runner.md",
+    "scripts/agy-subagent.py",
+    ".conclave/kits.json",
+)
+def check_no_links(rel: str) -> None:
+    cur = top
+    for part in pathlib.Path(rel).parts:
+        cur = cur / part
+        if cur.is_symlink() or (hasattr(cur, "is_junction") and cur.is_junction()) or (hasattr(os.path, "isjunction") and os.path.isjunction(cur)):
+            raise ValueError(f"link not allowed: {cur}")
+for r in allow:
+    check_no_links(r)
+present = subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", ref, "--", *allow], text=True).splitlines()
+if present:
+    subprocess.run(["git", "-C", str(top), "-c", "core.autocrlf=false", "checkout", ref, "--", *present], check=True)
+with zipfile.ZipFile(src) as z:
+    for m in z.namelist():
+        if m in allow:
+            check_no_links(m)
+            target = top / m
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(z.read(m))
+```
 3. Remove only the six retired SDK paths (and `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
 4. Switch interactive and CLI Antigravity launches to `agy --model gemini-4-neon-medium --effort=medium` (or keep `--model gemini-pro-orchestrator` without `--effort` if staying on Orchestrator compatibility).
 5. Verify native operation: confirm none of the five SDK wrappers remain in `.agents/agents/`, confirm `agy --model gemini-4-neon-medium --effort=medium` lists built-in `self`, `research`, and `image-generator` in `<subagents>`, and confirm a single-session edit and test run finishes cleanly.

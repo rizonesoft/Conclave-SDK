@@ -1024,18 +1024,27 @@ class OrchestratorContractTests(unittest.TestCase):
             _git("branch", "pre-orchestrator-migration")
 
             readme_text = (KIT_BASE / "README.md").read_text(encoding="utf-8")
-            m_backup = re.search(r'`python -c "(import os, pathlib, subprocess, tempfile, zipfile; [^`]+?)"`', readme_text)
-            self.assertIsNotNone(m_backup, "documented backup command not found in kits/base/README.md")
-            archive_script = m_backup.group(1)
-            m_restore = re.search(r'`python -c "(import pathlib, subprocess, zipfile; top = [^`]+?)"`', readme_text)
-            self.assertIsNotNone(m_restore, "documented restore command not found in kits/base/README.md")
-            restore_script = m_restore.group(1)
+            py_blocks = re.findall(r"```python\n(.*?)\n```", readme_text, re.DOTALL)
+            self.assertGreaterEqual(len(py_blocks), 2, "backup and rollback python blocks missing in kits/base/README.md")
+            archive_script, restore_script = py_blocks[0], py_blocks[1]
 
-            # Run two concurrent backup invocations from a subdirectory under PYTHONOPTIMIZE=1:
-            # one must win and one must fail without truncating the published archive.
+            # Synchronize two concurrent backup processes AFTER dst.exists() so both compete at os.link(tmp, dst).
+            # Wrap both children in guaranteed process-tree teardown.
             subdir = project / "scripts"
             opt_env = os.environ.copy()
             opt_env["PYTHONOPTIMIZE"] = "1"
+            barrier_dir = Path(tmp) / "barrier"
+            barrier_dir.mkdir()
+            sync_code = (
+                "    import time\n"
+                f"    b = pathlib.Path({str(barrier_dir)!r})\n"
+                "    (b / f'ready-{os.getpid()}').write_text('1', encoding='utf-8')\n"
+                "    deadline = time.monotonic() + 10.0\n"
+                "    while len(list(b.glob('ready-*'))) < 2 and time.monotonic() < deadline:\n"
+                "        time.sleep(0.02)\n"
+            )
+            instrumented_archive = archive_script.replace("    os.link(tmp, dst)", sync_code + "    os.link(tmp, dst)", 1)
+            self.assertIn("ready-", instrumented_archive)
             popen_kwargs: dict = {
                 "cwd": str(subdir),
                 "env": opt_env,
@@ -1045,11 +1054,29 @@ class OrchestratorContractTests(unittest.TestCase):
             }
             if os.name == "nt":
                 popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            p1 = subprocess.Popen([sys.executable, "-c", archive_script], **popen_kwargs)
-            p2 = subprocess.Popen([sys.executable, "-c", archive_script], **popen_kwargs)
-            p1.communicate(timeout=20)
-            p2.communicate(timeout=20)
-            self.assertEqual(sorted([p1.returncode == 0, p2.returncode == 0]), [False, True])
+            procs: list[subprocess.Popen] = []
+            try:
+                for _ in range(2):
+                    procs.append(subprocess.Popen([sys.executable, "-c", instrumented_archive], **popen_kwargs))
+                outputs = [p.communicate(timeout=20) for p in procs]
+            finally:
+                for p in procs:
+                    if p.poll() is None:
+                        if os.name == "nt":
+                            subprocess.run(
+                                ["taskkill", "/F", "/T", "/PID", str(p.pid)],
+                                capture_output=True,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                            )
+                        else:
+                            p.kill()
+                        p.wait(timeout=5)
+            rcs = [p.returncode for p in procs]
+            self.assertEqual(sorted([rc == 0 for rc in rcs]), [False, True], outputs)
+            loser_stderr = outputs[0][1] if rcs[0] != 0 else outputs[1][1]
+            self.assertIn("FileExistsError", loser_stderr)
+            # Loser's temporary file must be cleaned up by finally.
+            self.assertEqual(list((project / ".git").glob(".pre-orchestrator-migration.*.tmp")), [])
             archive_path = project / ".git" / "pre-orchestrator-migration.zip"
             self.assertTrue(archive_path.is_file())
             with zipfile.ZipFile(archive_path) as zf:
@@ -1124,19 +1151,10 @@ class OrchestratorContractTests(unittest.TestCase):
                 expected_pre_bytes["scripts/agy-subagent.py"],
             )
 
-            # Edit retained custom agent AFTER migration; rollback must preserve this post-migration edit.
+            # Edit retained custom agent AFTER migration; rollback from subdir must preserve this post-migration edit.
             post_migration_custom = custom_text + "# post-migration edit\n"
             custom_agent.write_text(post_migration_custom, encoding="utf-8")
 
-            _git(
-                "-c",
-                "core.autocrlf=false",
-                "checkout",
-                "pre-orchestrator-migration",
-                "--",
-                *retired_paths,
-                ".conclave/kits.json",
-            )
             subprocess.run(
                 [sys.executable, "-c", restore_script],
                 cwd=str(subdir),
@@ -1147,6 +1165,27 @@ class OrchestratorContractTests(unittest.TestCase):
                 self.assertEqual((project / rel).read_bytes(), raw_bytes, f"byte mismatch on {rel}")
             self.assertEqual(json.loads(kits_file.read_text(encoding="utf-8")), kits_data)
             self.assertEqual(custom_agent.read_text(encoding="utf-8"), post_migration_custom)
+
+            # Partial-install rollback: remove one wrapper BEFORE backup, commit cleanup, then rollback from subdir.
+            (project / ".agents/agents/test-runner.md").unlink()
+            _git("add", "-A")
+            _git("commit", "-m", "chore: partial pre-migration baseline")
+            partial_sha = _git("rev-parse", "HEAD").stdout.strip()
+            archive_path.unlink()
+            subprocess.run([sys.executable, "-c", archive_script], cwd=str(subdir), env=opt_env, check=True)
+            for rel in retired_paths:
+                if (project / rel).exists():
+                    (project / rel).unlink()
+            _git("add", "-A")
+            _git("commit", "-m", "chore: partial cleanup")
+            partial_env = os.environ.copy()
+            partial_env["RECOVERY_REF"] = partial_sha
+            subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), env=partial_env, check=True)
+            self.assertFalse((project / ".agents/agents/test-runner.md").exists())
+            self.assertEqual(
+                (project / ".agents/agents/code-explorer.md").read_bytes(),
+                expected_pre_bytes[".agents/agents/code-explorer.md"],
+            )
             self.assertEqual(
                 preserved_agent.read_bytes(),
                 expected_pre_bytes[".agents/agents/code-explorer.md"],
