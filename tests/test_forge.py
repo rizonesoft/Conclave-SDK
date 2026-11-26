@@ -5633,7 +5633,7 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
 
         # Step 4 closeout final done attempt + pending listing
         for phrase in (
-            "any `done-pending` ID remains at closeout, make one final `helio done <id>` attempt",
+            "if Heliograph is active and any `done-pending` ID remains at closeout, make one final `helio done <id>` attempt",
             "helio answer <id> \"Shipped <ref>\"",
             "`done-pending` IDs with their shipped refs",
             "`release-pending` IDs",
@@ -6232,17 +6232,18 @@ sys.exit(2)
             append_event(f"- helio {mid}: taken -> {ref}")
 
     def _walk_closeout(self, repo: pathlib.Path, run_file: pathlib.Path, env: dict[str, str]) -> None:
-        """Step 4 closeout: final done attempt on every remaining done-pending + Closeout listing."""
+        """Step 4 closeout: final done attempt when Heliograph is active + Closeout listing."""
         done_pending, release_pending, answered = self._read_pending_from_run_file(run_file)
-        with run_file.open("a", encoding="utf-8") as fh:
-            for mid, ref in sorted(done_pending.items()):
-                r = self._run_helio_cmd(["done", mid], repo, env)
-                if r.returncode == 0:
-                    fh.write(f"- helio {mid}: done\n")
-                elif r.returncode == 2 and mid not in answered:
-                    ans = self._run_helio_cmd(["answer", mid, f"Shipped {ref}"], repo, env)
-                    if ans.returncode == 0:
-                        fh.write(f"- helio-answered: {mid}\n")
+        if self._is_helio_active(repo, env):
+            with run_file.open("a", encoding="utf-8") as fh:
+                for mid, ref in sorted(done_pending.items()):
+                    r = self._run_helio_cmd(["done", mid], repo, env)
+                    if r.returncode == 0:
+                        fh.write(f"- helio {mid}: done\n")
+                    elif r.returncode == 2 and mid not in answered:
+                        ans = self._run_helio_cmd(["answer", mid, f"Shipped {ref}"], repo, env)
+                        if ans.returncode == 0:
+                            fh.write(f"- helio-answered: {mid}\n")
         done_pending, release_pending, _ = self._read_pending_from_run_file(run_file)
         with run_file.open("a", encoding="utf-8") as fh:
             fh.write("\n## Closeout run=test\n\n")
@@ -6274,6 +6275,7 @@ sys.exit(2)
                 ("empty session flag", tpl_text + "\nhelio take m1 --session \"\"\n"),
                 ("pending-only close", tpl_text.replace("first close any `Heliograph: <id>` declared as a standalone line in the just-shipped section body and any un-answered `done-pending` ID", "first close only previously pending `done-pending` IDs")),
                 ("inbox-only guard", tpl_text.replace("if `command -v helio` (or `Get-Command helio -ErrorAction SilentlyContinue` in PowerShell) succeeds and a regular `helio.conf` file is found in the repository or a folder above it, first close any `Heliograph: <id>`", "first close any `Heliograph: <id>`")),
+                ("unconditional closeout", tpl_text.replace("if Heliograph is active and any `done-pending`", "if any `done-pending`")),
                 ("missing Step 4 final done", tpl_text.replace("make one final `helio done <id>` attempt", "only for IDs without a recorded answer make one final `helio done <id>` attempt")),
             ]
             for label, mutated in mutations:
@@ -6355,9 +6357,11 @@ sys.exit(2)
                 self.assertEqual(self._run_guard_fence(step0_fence, repo, env, is_win).returncode, 0)
                 self.assertEqual(self._run_guard_fence(step3_fence, repo, env, is_win).returncode, 0)
                 noop_run = repo / "docs" / "phase-runs" / "noop-run.md"
-                noop_run.write_text("# Noop\n- helio m_pending_noop: release-pending\n", encoding="utf-8")
+                noop_run.write_text("# Noop\n- helio-done-pending: m_done_noop -> D01 T02 §1\n- helio m_pending_noop: release-pending\n", encoding="utf-8")
                 self._walk_boundary(contract, repo, noop_run, env, "D01 T02 §1", set(), set(), {})
+                self._walk_closeout(repo, noop_run, env)
                 self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
+                self.assertIn("- done-pending: m_done_noop (D01 T02 §1)", noop_run.read_text(encoding="utf-8"))
 
                 # 1b. Directory named helio.conf must NOT activate EITHER Step 0 or Step 3 guard
                 (repo / "helio.conf").mkdir()
