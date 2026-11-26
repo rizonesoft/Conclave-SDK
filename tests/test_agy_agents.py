@@ -1426,6 +1426,9 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertIn(".conclave/kits.json", kits_del_refusal.stderr)
             self.assertFalse(kits_file.exists())
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_kits_del)
+            # Restore working copy before `git rm --cached` so staged-deletion guard is proven independently.
+            _git("checkout", "HEAD", "--", ".conclave/kits.json")
+            kits_bytes_before_cached_rm = kits_file.read_bytes()
             _git("rm", "-q", "--cached", ".conclave/kits.json")
             stage_before_kits_staged_del = _git("ls-files", "--stage").stdout
             kits_staged_del = subprocess.run(
@@ -1439,6 +1442,7 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertNotEqual(kits_staged_del.returncode, 0, "rollback must refuse resurrecting staged-deleted kits.json")
             self.assertIn("pending deletion would be undone", kits_staged_del.stderr)
             self.assertIn(".conclave/kits.json", kits_staged_del.stderr)
+            self.assertEqual(kits_file.read_bytes(), kits_bytes_before_cached_rm)
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_kits_staged_del)
             _git("checkout", "HEAD", "--", ".conclave/kits.json")
             kits_oid = _git("rev-parse", "HEAD:.conclave/kits.json").stdout.strip()
@@ -1461,6 +1465,55 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertIn("unmerged index entry", unmerged_refusal.stderr)
             self.assertIn(".conclave/kits.json", unmerged_refusal.stderr)
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_unmerged)
+            _git("reset", "-q", "--hard", "HEAD")
+            # 4) Directory at .conclave/kits.json after manifest removal must refuse before restoring wrappers.
+            _git("rm", "-q", ".conclave/kits.json")
+            _git("commit", "-m", "chore: remove optional manifest")
+            kits_file.mkdir()
+            stage_before_kits_dir = _git("ls-files", "--stage").stdout
+            kits_dir_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(kits_dir_refusal.returncode, 0, "rollback must refuse directory at .conclave/kits.json")
+            self.assertIn("existing path is not a regular file", kits_dir_refusal.stderr)
+            self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_kits_dir)
+            kits_file.rmdir()
+            _git("reset", "-q", "--hard", "HEAD~1")
+            # 5) Regular file staged at parent path .agents/agents must refuse before mutating index or worktree.
+            shutil.rmtree(project / ".agents/agents")
+            (project / ".agents/agents").write_text("file-blocking-parent\n", encoding="utf-8")
+            _git("add", ".agents/agents")
+            stage_before_parent_file = _git("ls-files", "--stage").stdout
+            parent_file_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(parent_file_refusal.returncode, 0, "rollback must refuse file at parent path")
+            self.assertIn("parent path is not a directory", parent_file_refusal.stderr)
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_parent_file)
+            (project / ".agents/agents").unlink()
+            stage_before_indexed_parent = _git("ls-files", "--stage").stdout
+            indexed_parent_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(indexed_parent_refusal.returncode, 0, "rollback must refuse indexed file at parent path")
+            self.assertIn("indexed file blocks parent directory", indexed_parent_refusal.stderr)
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_indexed_parent)
             _git("reset", "-q", "--hard", "HEAD")
 
             # Junction (Windows) / symlink (POSIX) parent-directory refusal before backup or rollback mutation.

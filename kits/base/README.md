@@ -182,22 +182,31 @@ if missing:
 # archive-only wrappers, and .conclave/kits.json): check HEAD, index, and worktree together before mutating.
 head_tree = {}
 staged = {}
+parents = sorted({p.as_posix() for rel in to_publish for p in pathlib.Path(rel).parents if p.as_posix() != "."})
 if to_publish:
+    for p in parents:
+        if (top / p).exists() and not (top / p).is_dir():
+            raise RuntimeError(f"parent path is not a directory: {p}")
     for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "HEAD", "--", *to_publish], text=True).splitlines():
         meta, rel = line.split("\t", 1)
         mode, _kind, oid = meta.split()
         head_tree[rel] = (mode, oid)
-    for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *to_publish], text=True).splitlines():
+    for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *to_publish, *parents], text=True).splitlines():
         meta, rel = line.split("\t", 1)
-        if rel not in payload:
+        if rel in parents:
+            raise RuntimeError(f"indexed file blocks parent directory: {rel}")
+        if any(rel.startswith(t + "/") for t in to_publish):
             raise RuntimeError(f"staged descendant blocks restore: {rel}")
-        mode, oid, stage = meta.split()
-        staged.setdefault(rel, []).append((mode, oid, stage))
+        if rel in payload:
+            mode, oid, stage = meta.split()
+            staged.setdefault(rel, []).append((mode, oid, stage))
 for rel in to_publish:
     target = top / rel
     if rel in head_tree and (rel not in staged or not target.exists()):
         raise RuntimeError(f"pending deletion would be undone: {rel}")
     if rel == ".conclave/kits.json":
+        if target.exists() and not target.is_file():
+            raise RuntimeError(f"existing path is not a regular file: {target}")
         if rel in staged and (len(staged[rel]) != 1 or staged[rel][0][2] != "0"):
             raise RuntimeError(f"unmerged index entry: {rel}")
         continue
