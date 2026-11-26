@@ -5563,14 +5563,14 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
             raise AssertionError(f"{agent}: Step 0 guard must run helio hello {agent}")
         if f"helio hello {other}" in step0 or "helio hello claude" in step0:
             raise AssertionError(f"{agent}: Step 0 names another agent")
-        if "then helio; fi" not in step3_sh[0] or "{ helio }" not in step3_ps[0]:
-            raise AssertionError(f"{agent}: Step 3 guard must run bare helio")
+        if "then helio; fi" not in step3_sh[0] or "{ helio; exit $LASTEXITCODE }" not in step3_ps[0]:
+            raise AssertionError(f"{agent}: Step 3 guard must run bare helio and propagate exit code")
         for fence_name, sh_fence in (("Step 0", step0_sh[0]), ("Step 3", step3_sh[0])):
             if '[ -f "$d/helio.conf" ]' not in sh_fence or '[ -e ' in sh_fence:
                 raise AssertionError(f"{agent}: {fence_name} POSIX guard must test regular file with -f")
         for fence_name, ps_fence in (("Step 0", step0_ps[0]), ("Step 3", step3_ps[0])):
-            if "-LiteralPath" not in ps_fence or "-PathType Leaf" not in ps_fence:
-                raise AssertionError(f"{agent}: {fence_name} PowerShell guard must use -LiteralPath and -PathType Leaf")
+            if "-LiteralPath" not in ps_fence or "-PathType Leaf" not in ps_fence or "exit $LASTEXITCODE" not in ps_fence:
+                raise AssertionError(f"{agent}: {fence_name} PowerShell guard must use -LiteralPath, -PathType Leaf, and exit $LASTEXITCODE")
 
         # Ordering: Step 3 Heliograph block must come AFTER stamp/push/ci_status
         stamp_idx = step3.find("stamp")
@@ -6253,18 +6253,32 @@ sys.exit(2)
                 env["HELIO_TEST_LANE"] = f"proj/{agent}"
                 env["HELIO_SESSION"] = "SECRET-SESSION-ID-777"
 
-                # 1. Directory named helio.conf must NOT activate EITHER Step 0 or Step 3 guard
-                (repo / "helio.conf").mkdir()
+                # 1a. Missing helio.conf anywhere in ancestry: both Step 0 and Step 3 are no-op (exit 0)
                 state_file.write_text(json.dumps({"messages": [], "calls": [], "overrides": {}}), encoding="utf-8")
                 step0_fence = contract["step0_ps"] if is_win else contract["step0_sh"]
                 step3_fence = contract["step3_ps"] if is_win else contract["step3_sh"]
+                self.assertEqual(self._run_guard_fence(step0_fence, repo, env, is_win).returncode, 0)
+                self.assertEqual(self._run_guard_fence(step3_fence, repo, env, is_win).returncode, 0)
+                self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
+
+                # 1b. Directory named helio.conf must NOT activate EITHER Step 0 or Step 3 guard
+                (repo / "helio.conf").mkdir()
                 self._run_guard_fence(step0_fence, repo, env, is_win)
                 self._run_guard_fence(step3_fence, repo, env, is_win)
                 self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
                 (repo / "helio.conf").rmdir()
 
-                # 2a. Place regular helio.conf INSIDE repo[1] so -LiteralPath evaluates literal brackets directly
+                # 1c. Regular helio.conf present, but helio absent from PATH: both Step 0 and Step 3 are no-op (exit 0)
                 (repo / "helio.conf").write_text("store=local\n", encoding="utf-8")
+                env_no_helio = env.copy()
+                env_no_helio["PATH"] = os.pathsep.join(
+                    p for p in env["PATH"].split(os.pathsep) if pathlib.Path(p) != bin_dir and not (pathlib.Path(p) / ("helio.cmd" if is_win else "helio")).exists()
+                )
+                self.assertEqual(self._run_guard_fence(step0_fence, repo, env_no_helio, is_win).returncode, 0)
+                self.assertEqual(self._run_guard_fence(step3_fence, repo, env_no_helio, is_win).returncode, 0)
+                self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
+
+                # 2a. Regular helio.conf INSIDE repo[1] with helio on PATH: -LiteralPath evaluates literal brackets directly
                 r_br = self._run_guard_fence(step3_fence, repo, env, is_win)
                 self.assertIn(r_br.returncode, (0, 1))
                 self.assertEqual(len(json.loads(state_file.read_text(encoding="utf-8"))["calls"]), 1)
@@ -6285,7 +6299,7 @@ sys.exit(2)
                         {"id": "m_incidental", "kind": "handoff", "state": "open", "subject": "Incidental", "body": "IN_SCOPE"},
                         {"id": "m_after_mark", "kind": "request", "state": "open", "subject": "AfterMark", "body": "IN_SCOPE"},
                         {"id": "m_pre_mark", "kind": "request", "state": "open", "subject": "PreMark", "body": "IN_SCOPE"},
-                        {"id": "m_refused_take", "kind": "request", "state": "taken", "by": "proj/other", "session": "other-s", "subject": "Taken", "body": "IN_SCOPE"},
+                        {"id": "m_refused_take", "kind": "request", "state": "open", "subject": "RaceTaken", "body": "IN_SCOPE"},
                         {"id": "m_other_done", "kind": "request", "state": "taken", "by": "proj/other", "session": "other-s", "subject": "OtherDone", "body": "IN_SCOPE"},
                         {"id": "m_owner_self", "kind": "request", "state": "taken", "by": "proj/owner", "session": "owner-other-s", "subject": "OwnerSelf", "body": "IN_SCOPE"},
                         {"id": "m_final_err", "kind": "request", "state": "taken", "by": f"proj/{agent}", "session": "SECRET-SESSION-ID-777", "subject": "FinalRow", "body": "IN_SCOPE"},
@@ -6294,6 +6308,7 @@ sys.exit(2)
                     "answers": [],
                     "overrides": {
                         "show:m_badshow": [{"rc": 3, "stderr": "PRIVATE-STDERR-DAMAGE"}],
+                        "take:m_refused_take": [{"rc": 2, "stderr": "it is already taken"}],
                         "release:m_pre_mark": [{"rc": 3, "stderr": "store damaged"}],
                         "done:m_final_err": [{"rc": 3, "stderr": "store damaged"}],
                     },
@@ -6327,16 +6342,28 @@ sys.exit(2)
                     "m_incidental": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 3, "ref": "D01 T01 §3"},
                     "m_after_mark": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 4, "ref": "D01 T01 §4", "fail_mode": "after_marker"},
                     "m_pre_mark": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 5, "ref": "D01 T01 §5", "fail_mode": "before_marker"},
+                    "m_partial_dmg": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 6, "ref": "D01 T01 §6"},
                 }
 
                 # Boundary 1: ship m_other_done (ownership refusal -> 1 answer) and poll 6+ inbox -> --all
                 self._walk_boundary(contract, repo, run_file, env, "D01 T01 §1", ["m_other_done"], handled, logged_errs, filing_plan)
 
-                # Boundary 2 (fresh-process simulation: reads pending from disk):
-                # - m_other_done must NOT send a duplicate answer
-                # - m_pre_mark retries release (show -> taken by this lane -> release exit 0)
-                # - m_final_err gets done exit 3 -> done-pending on disk
+                # Inject a new message arriving with two damaged-store inbox polls (exit 3)
+                st_mid = json.loads(state_file.read_text(encoding="utf-8"))
+                st_mid["messages"].append(
+                    {"id": "m_partial_dmg", "kind": "request", "state": "open", "subject": "PartialDmg", "body": "IN_SCOPE"}
+                )
+                st_mid["overrides"]["inbox"] = [
+                    {"rc": 3, "partial_ids": ["m_partial_dmg"], "stderr": "PRIVATE-DAMAGE-1"},
+                    {"rc": 3, "partial_ids": [], "stderr": "PRIVATE-DAMAGE-2"},
+                ]
+                state_file.write_text(json.dumps(st_mid), encoding="utf-8")
+
+                # Boundary 2 (damaged poll #1 with partial m_partial_dmg, plus release-pending retry & done exit 3)
                 self._walk_boundary(contract, repo, run_file, env, "D01 T01 §2", ["m_final_err"], handled, logged_errs, filing_plan)
+
+                # Boundary 3 (damaged poll #2: must NOT duplicate inbox exit-3 diagnostic)
+                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §3", [], handled, logged_errs, filing_plan)
 
                 # Step 4 closeout: final done attempt on m_final_err succeeds (exit 0), m_other_done listed in Closeout
                 self._walk_closeout(repo, run_file, env)
@@ -6360,6 +6387,9 @@ sys.exit(2)
                 self.assertEqual(by_id["m_incidental"]["state"], "taken")
                 self.assertEqual(by_id["m_after_mark"]["state"], "taken")
                 self.assertEqual(by_id["m_pre_mark"]["state"], "open")
+                self.assertEqual(by_id["m_refused_take"]["state"], "open")
+                self.assertIn(["take", "m_refused_take"], calls)
+                self.assertEqual(by_id["m_partial_dmg"]["state"], "taken")
                 self.assertEqual(by_id["m_final_err"]["state"], "done")
 
                 # Ownership refusal sent exactly ONE answer (no duplicate on boundary 2)
@@ -6367,14 +6397,17 @@ sys.exit(2)
                 self.assertEqual(len(other_answers), 1)
                 self.assertIn("Shipped D01 T01 §1", other_answers[0]["subject"])
 
-                # Privacy: no secret body, stderr, session ID, or legacy token leaked into committed files or calls
+                # Privacy + damaged-store once-only diagnostic + refused-take no-TODO check
                 run_text = run_file.read_text(encoding="utf-8")
                 todo_text = todo_file.read_text(encoding="utf-8")
                 self.assertIn("- helio m_shipped_cov: skipped", run_text)
                 self.assertEqual(_extract_shipped_bytes(todo_file.read_bytes()), shipped_bytes_before)
                 self.assertNotIn("Heliograph: m_shipped_cov", todo_text)
+                self.assertIn("- helio take-m_refused_take: error (exit 2)", run_text)
+                self.assertNotIn("m_refused_take", todo_text)
+                self.assertEqual(run_text.count("- helio inbox: error (exit 3)"), 1)
                 combined = run_text + "\n" + todo_text + "\n" + json.dumps(calls)
-                for secret in ("PRIVATE-BODY-1", "PRIVATE-BODY-2", "PRIVATE-BODY-3", "PRIVATE-STDERR-DAMAGE", "SECRET-SESSION-ID-777", legacy_secret):
+                for secret in ("PRIVATE-BODY-1", "PRIVATE-BODY-2", "PRIVATE-BODY-3", "PRIVATE-STDERR-DAMAGE", "PRIVATE-DAMAGE-1", "PRIVATE-DAMAGE-2", "SECRET-SESSION-ID-777", legacy_secret):
                     self.assertNotIn(secret, combined)
 
                 # Owner-lane release-pending safety:
