@@ -1368,12 +1368,14 @@ class OrchestratorContractTests(unittest.TestCase):
                 conflict_entry,
             )
             _git("checkout", "--", ".conclave/kits.json")
-            # Unified deletion guard on archive-only wrapper (git-runner.md) and tracked manifest (.conclave/kits.json):
-            # 1) Archive-only wrapper later committed then deleted in worktree must stop rollback.
+            # Unified guard on archive-only wrapper (git-runner.md), staged descendants, and tracked manifest:
+            # 1) Committed unchanged archive-only wrapper must NOT block rollback; deleting it in worktree must refuse.
             (project / ".agents/agents/git-runner.md").write_bytes(expected_pre_bytes[".agents/agents/git-runner.md"])
             _git("add", "-f", ".agents/agents/git-runner.md")
             _git("commit", "-m", "chore: track archive-only wrapper")
+            subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), env=partial_env, check=True)
             (project / ".agents/agents/git-runner.md").unlink()
+            stage_before_arc_del = _git("ls-files", "--stage").stdout
             arc_del_refusal = subprocess.run(
                 [sys.executable, "-c", restore_script],
                 cwd=str(subdir),
@@ -1383,11 +1385,34 @@ class OrchestratorContractTests(unittest.TestCase):
                 check=False,
             )
             self.assertNotEqual(arc_del_refusal.returncode, 0, "rollback must refuse undoing deletion of committed archive-only wrapper")
+            self.assertIn("pending deletion would be undone", arc_del_refusal.stderr)
             self.assertIn("git-runner.md", arc_del_refusal.stderr)
             self.assertFalse((project / ".agents/agents/git-runner.md").exists())
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_arc_del)
             _git("reset", "-q", "--hard", "HEAD~1")
-            # 2) Pending unstaged deletion of tracked .conclave/kits.json must stop rollback before recreating it.
+            # 2) Staged descendant beneath a retired wrapper path must refuse without mutating the index.
+            desc_dir = project / ".agents/agents/code-explorer.md"
+            desc_dir.mkdir(parents=True)
+            (desc_dir / "nested.txt").write_text("descendant\n", encoding="utf-8")
+            _git("add", ".agents/agents/code-explorer.md/nested.txt")
+            shutil.rmtree(desc_dir)
+            stage_before_desc = _git("ls-files", "--stage").stdout
+            desc_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(desc_refusal.returncode, 0, "rollback must refuse staged descendant")
+            self.assertIn("staged descendant blocks restore", desc_refusal.stderr)
+            self.assertIn("code-explorer.md/nested.txt", desc_refusal.stderr)
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_desc)
+            _git("rm", "-q", "--cached", ".agents/agents/code-explorer.md/nested.txt")
+            # 3) Tracked .conclave/kits.json unstaged deletion, staged deletion, and single stage-2 unmerged entry.
             kits_file.unlink()
+            stage_before_kits_del = _git("ls-files", "--stage").stdout
             kits_del_refusal = subprocess.run(
                 [sys.executable, "-c", restore_script],
                 cwd=str(subdir),
@@ -1396,10 +1421,47 @@ class OrchestratorContractTests(unittest.TestCase):
                 text=True,
                 check=False,
             )
-            self.assertNotEqual(kits_del_refusal.returncode, 0, "rollback must refuse resurrecting deleted kits.json")
+            self.assertNotEqual(kits_del_refusal.returncode, 0, "rollback must refuse resurrecting unstaged-deleted kits.json")
+            self.assertIn("pending deletion would be undone", kits_del_refusal.stderr)
             self.assertIn(".conclave/kits.json", kits_del_refusal.stderr)
             self.assertFalse(kits_file.exists())
-            _git("checkout", "--", ".conclave/kits.json")
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_kits_del)
+            _git("rm", "-q", "--cached", ".conclave/kits.json")
+            stage_before_kits_staged_del = _git("ls-files", "--stage").stdout
+            kits_staged_del = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(kits_staged_del.returncode, 0, "rollback must refuse resurrecting staged-deleted kits.json")
+            self.assertIn("pending deletion would be undone", kits_staged_del.stderr)
+            self.assertIn(".conclave/kits.json", kits_staged_del.stderr)
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_kits_staged_del)
+            _git("checkout", "HEAD", "--", ".conclave/kits.json")
+            kits_oid = _git("rev-parse", "HEAD:.conclave/kits.json").stdout.strip()
+            _git("rm", "-q", "--cached", ".conclave/kits.json")
+            subprocess.run(
+                ["git", "-C", str(project), "update-index", "--index-info"],
+                input=f"100644 {kits_oid} 2\t.conclave/kits.json\n".encode("utf-8"),
+                check=True,
+            )
+            stage_before_unmerged = _git("ls-files", "--stage").stdout
+            unmerged_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(unmerged_refusal.returncode, 0, "rollback must refuse single stage-2 unmerged kits.json")
+            self.assertIn("unmerged index entry", unmerged_refusal.stderr)
+            self.assertIn(".conclave/kits.json", unmerged_refusal.stderr)
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_unmerged)
+            _git("reset", "-q", "--hard", "HEAD")
 
             # Junction (Windows) / symlink (POSIX) parent-directory refusal before backup or rollback mutation.
             shared_dir = Path(tmp) / "shared-agents"

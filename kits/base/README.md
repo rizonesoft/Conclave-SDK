@@ -180,13 +180,17 @@ if missing:
     raise KeyError(f"archive missing paths: {missing}")
 # Unified pre-mutation guard over every path scheduled for publication (recovery-tracked wrappers,
 # archive-only wrappers, and .conclave/kits.json): check HEAD, index, and worktree together before mutating.
-head_tree = set()
+head_tree = {}
 staged = {}
 if to_publish:
-    for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", "HEAD", "--", *to_publish], text=True).splitlines():
-        head_tree.add(line)
+    for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "HEAD", "--", *to_publish], text=True).splitlines():
+        meta, rel = line.split("\t", 1)
+        mode, _kind, oid = meta.split()
+        head_tree[rel] = (mode, oid)
     for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *to_publish], text=True).splitlines():
         meta, rel = line.split("\t", 1)
+        if rel not in payload:
+            raise RuntimeError(f"staged descendant blocks restore: {rel}")
         mode, oid, stage = meta.split()
         staged.setdefault(rel, []).append((mode, oid, stage))
 for rel in to_publish:
@@ -194,11 +198,12 @@ for rel in to_publish:
     if rel in head_tree and (rel not in staged or not target.exists()):
         raise RuntimeError(f"pending deletion would be undone: {rel}")
     if rel == ".conclave/kits.json":
-        if rel in staged and len(staged[rel]) != 1:
+        if rel in staged and (len(staged[rel]) != 1 or staged[rel][0][2] != "0"):
             raise RuntimeError(f"unmerged index entry: {rel}")
         continue
     if rel in staged:
-        if rel not in ref_tree or len(staged[rel]) != 1 or staged[rel][0] != (*ref_tree[rel], "0"):
+        expected_entry = ref_tree[rel] if rel in ref_tree else head_tree.get(rel)
+        if expected_entry is None or len(staged[rel]) != 1 or staged[rel][0] != (*expected_entry, "0"):
             raise RuntimeError(f"staged entry differs from recovery state: {rel}")
     if target.exists():
         same_bytes = target.is_file() and target.read_bytes() == payload[rel]
