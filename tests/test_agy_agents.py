@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import signal
 import subprocess
@@ -1021,15 +1022,26 @@ class OrchestratorContractTests(unittest.TestCase):
             _git("commit", "-m", "chore: pre-migration baseline")
             _git("branch", "pre-orchestrator-migration")
 
-            archive_script = (
-                "import pathlib, zipfile; "
-                "z = zipfile.ZipFile('.git/pre-orchestrator-migration.zip', 'w'); "
-                "[z.write(f) for p in ('.agents/agents', 'scripts/agy-subagent.py', '.conclave/kits.json') "
-                "for f in ([pathlib.Path(p)] if pathlib.Path(p).is_file() else "
-                "sorted(x for x in pathlib.Path(p).rglob('*') if x.is_file()) if pathlib.Path(p).is_dir() else [])]; "
-                "z.close()"
+            readme_text = (KIT_BASE / "README.md").read_text(encoding="utf-8")
+            m_backup = re.search(r'`python -c "(import os, pathlib, subprocess, tempfile, zipfile; [^`]+?)"`', readme_text)
+            self.assertIsNotNone(m_backup, "documented backup command not found in kits/base/README.md")
+            archive_script = m_backup.group(1)
+            opt_env = os.environ.copy()
+            opt_env["PYTHONOPTIMIZE"] = "1"
+            subprocess.run([sys.executable, "-c", archive_script], cwd=str(project), env=opt_env, check=True)
+            archive_path = project / ".git" / "pre-orchestrator-migration.zip"
+            self.assertTrue(archive_path.is_file())
+            archive_bytes = archive_path.read_bytes()
+            # Overlapping / repeated backup invocation must refuse without overwriting the existing archive.
+            retry_proc = subprocess.run(
+                [sys.executable, "-c", archive_script],
+                cwd=str(project),
+                env=opt_env,
+                capture_output=True,
+                text=True,
             )
-            subprocess.run([sys.executable, "-c", archive_script], cwd=str(project), check=True)
+            self.assertNotEqual(retry_proc.returncode, 0)
+            self.assertEqual(archive_path.read_bytes(), archive_bytes)
 
             diff_proc = _run_forge(["diff", str(project), "base"], check=False)
             self.assertEqual(diff_proc.returncode, 0, diff_proc.stderr)
@@ -1134,7 +1146,8 @@ class OrchestratorContractTests(unittest.TestCase):
         self.assertIn("--model gemini-pro-orchestrator", readme)
         self.assertIn(".agents/agents/<custom>.md", readme)
         self.assertIn("pre-orchestrator-migration", readme)
-        self.assertIn(".git/pre-orchestrator-migration.zip", readme)
+        self.assertIn("pre-orchestrator-migration.zip", readme)
+        self.assertIn("git rev-parse --git-path", readme)
         self.assertIn("core.autocrlf=false", readme)
         self.assertIn("preserved-code-explorer.md", readme)
         for name in RETIRED_AGENT_FILES:
