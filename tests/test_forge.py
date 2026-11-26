@@ -5606,6 +5606,7 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
             "if present, repair `helio-ref:` and retain the claim; only if absent, run the same `helio show <id>` holder check",
             "if `taken by` another lane, never call `helio release <id>`",
             "on `/owner`, never issue an unverified override release and keep `release-pending` for `## Closeout`",
+            "first close any `Heliograph: <id>` declared as a standalone line in the just-shipped section body and any un-answered `done-pending` ID from the run file with `helio done <id>`",
             "helio done <id>",
             "if `helio-answered: <id>` is not yet in the run file send `helio answer <id> \"Shipped <ref>\"` once",
             "ignore and never read, log, or commit any legacy `build/heliograph-claims.json`",
@@ -5961,6 +5962,31 @@ sys.exit(2)
                 answered.add(m_ans.group(1))
         return done_pending, release_pending, answered
 
+    @staticmethod
+    def _extract_section_markers(todo_root: pathlib.Path, section_ref: str) -> list[str]:
+        """Read standalone ^Heliograph:[ \t]*<id>[ \t]*$ markers from the named DNN TNN §N section on disk."""
+        m_ref = re.match(r"^D(\d+)\s+T(\d+)\s+§(\d+)$", section_ref.strip())
+        if not m_ref:
+            return []
+        dom_num, todo_num, sec_num = m_ref.groups()
+        line_pat = re.compile(r"Heliograph:[ \t]*(\S+)[ \t]*")
+        found: list[str] = []
+        for tf in sorted(todo_root.rglob("TODO-*.md")):
+            dom_m = re.match(r"(\d+)-", tf.parent.name)
+            todo_m = re.match(r"TODO-(\d+)-", tf.name)
+            if (dom_m.group(1) if dom_m else "") != dom_num or (todo_m.group(1) if todo_m else "") != todo_num:
+                continue
+            current_sec = None
+            for line in tf.read_text(encoding="utf-8").splitlines():
+                sec_m = re.match(r"^## (\d+)\.", line)
+                if sec_m:
+                    current_sec = sec_m.group(1)
+                elif current_sec == sec_num:
+                    mm = line_pat.fullmatch(line)
+                    if mm:
+                        found.append(mm.group(1))
+        return found
+
     def _walk_boundary(
         self,
         contract: dict,
@@ -5968,7 +5994,6 @@ sys.exit(2)
         run_file: pathlib.Path,
         env: dict[str, str],
         shipped_ref: str | None,
-        shipped_helio_ids: list[str],
         handled_ids: set[str],
         logged_errors: set[str],
         filing_plan: dict[str, dict],
@@ -5991,10 +6016,11 @@ sys.exit(2)
 
         done_pending, release_pending, answered = self._read_pending_from_run_file(run_file)
 
-        # 1. Close just-shipped markers and persisted done-pending IDs
+        # 1. Discover just-shipped markers from todo/ on disk and close along with persisted done-pending IDs
         to_close: dict[str, str] = dict(done_pending)
-        for mid in shipped_helio_ids:
-            to_close[mid] = shipped_ref or "D01 T01 §1"
+        if shipped_ref:
+            for mid in self._extract_section_markers(todo_root, shipped_ref):
+                to_close[mid] = shipped_ref
         for mid, ref in list(to_close.items()):
             if mid in answered:
                 continue
@@ -6228,6 +6254,7 @@ sys.exit(2)
                 ("weakened Step 3 POSIX -f guard", tpl_text.replace('[ -f "$d/helio.conf" ]; }; then helio; fi', '[ -e "$d/helio.conf" ]; }; then helio; fi')),
                 ("removed exit-3 handling", tpl_text.replace("exit 2 (refused) or exit 3 (damaged store)", "exit 2 only")),
                 ("empty session flag", tpl_text + "\nhelio take m1 --session \"\"\n"),
+                ("pending-only close", tpl_text.replace("first close any `Heliograph: <id>` declared as a standalone line in the just-shipped section body and any un-answered `done-pending` ID", "first close only previously pending `done-pending` IDs")),
                 ("missing Step 4 final done", tpl_text.replace("make one final `helio done <id>` attempt", "only for IDs without a recorded answer make one final `helio done <id>` attempt")),
             ]
             for label, mutated in mutations:
@@ -6275,6 +6302,12 @@ sys.exit(2)
                 todo_file.write_bytes(
                     b"## 1. Existing Open\n\nCovers open work and mentions m_incidental in prose.\n\n"
                     b"## 2. Shipped [x]\n\nAlready shipped work.\n"
+                )
+                shipped_todo = repo / "todo" / "01-core" / "TODO-02-shipped.md"
+                shipped_todo.write_bytes(
+                    b"## 1. Shipped Other\n\nHeliograph: m_other_done\n\n"
+                    b"## 2. Shipped Mid\n\nHeliograph: m_mid_done_err\n\n"
+                    b"## 3. Shipped Final\n\nHeliograph: m_final_err\n"
                 )
                 run_file = repo / "docs" / "phase-runs" / "2026-11-26-phase-1.md"
                 run_file.write_text("# Run\n\n## Critical events\n", encoding="utf-8")
@@ -6396,8 +6429,8 @@ sys.exit(2)
                     "m_partial_dmg": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 6, "ref": "D01 T01 §6"},
                 }
 
-                # Boundary 1: ship m_other_done (ownership refusal -> 1 answer) and poll 6+ inbox -> --all
-                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §1", ["m_other_done"], handled, logged_errs, filing_plan)
+                # Boundary 1: ship D01 T02 §1 (discovers m_other_done on disk -> ownership refusal -> 1 answer) and poll 6+ inbox -> --all
+                self._walk_boundary(contract, repo, run_file, env, "D01 T02 §1", handled, logged_errs, filing_plan)
 
                 # Inject a new message arriving with two damaged-store inbox polls (exit 3)
                 st_mid = json.loads(state_file.read_text(encoding="utf-8"))
@@ -6410,13 +6443,13 @@ sys.exit(2)
                 ]
                 state_file.write_text(json.dumps(st_mid), encoding="utf-8")
 
-                # Boundary 2 (damaged poll #1 with partial m_partial_dmg, release-pending retry, and mid-phase done exit 3)
-                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §2", ["m_mid_done_err"], handled, logged_errs, filing_plan)
+                # Boundary 2: ship D01 T02 §2 (discovers m_mid_done_err on disk -> exit 3), damaged poll #1, release-pending retry
+                self._walk_boundary(contract, repo, run_file, env, "D01 T02 §2", handled, logged_errs, filing_plan)
                 post_b2 = {m["id"]: m for m in json.loads(state_file.read_text(encoding="utf-8"))["messages"]}
                 self.assertEqual(post_b2["m_mid_done_err"]["state"], "taken")
 
-                # Boundary 3 (retries m_mid_done_err -> done; ships m_final_err -> done exit 3; damaged poll #2 no duplicate)
-                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §3", ["m_final_err"], handled, logged_errs, filing_plan)
+                # Boundary 3: retries m_mid_done_err -> done; ships D01 T02 §3 (discovers m_final_err on disk -> exit 3); damaged poll #2 no duplicate
+                self._walk_boundary(contract, repo, run_file, env, "D01 T02 §3", handled, logged_errs, filing_plan)
 
                 # Verify m_mid_done_err closed at next boundary BEFORE closeout, while m_final_err waits for closeout
                 pre_close = {m["id"]: m for m in json.loads(state_file.read_text(encoding="utf-8"))["messages"]}
@@ -6452,7 +6485,7 @@ sys.exit(2)
                 # Ownership refusal sent exactly ONE answer (no duplicate on boundary 2)
                 other_answers = [a for a in final_state["answers"] if a["re"] == "m_other_done"]
                 self.assertEqual(len(other_answers), 1)
-                self.assertIn("Shipped D01 T01 §1", other_answers[0]["subject"])
+                self.assertIn("Shipped D01 T02 §1", other_answers[0]["subject"])
 
                 # Privacy + damaged-store once-only diagnostic + refused-take no-TODO + info & repaired-ref records
                 run_text = run_file.read_text(encoding="utf-8")
@@ -6463,7 +6496,7 @@ sys.exit(2)
                 self.assertEqual(self._find_marker_ref(repo / "todo", "m_open_cov"), "D01 T01 §1")
                 self.assertEqual(self._find_marker_ref(repo / "todo", "m_same_in"), "D01 T01 §9")
                 self.assertEqual(len(re.findall(r"(?m)^## \d+\.", todo_text)), 6)
-                self.assertIn("- done-pending: m_other_done (D01 T01 §1)", run_text)
+                self.assertIn("- done-pending: m_other_done (D01 T02 §1)", run_text)
                 self.assertIn("- helio m_shipped_cov: skipped", run_text)
                 self.assertEqual(_extract_shipped_bytes(todo_file.read_bytes()), shipped_bytes_before)
                 self.assertNotIn("Heliograph: m_shipped_cov", todo_text)
@@ -6523,7 +6556,7 @@ sys.exit(2)
                         "on_before_recovery": _inject_recovery_show_err,
                     },
                 }
-                self._walk_boundary(contract, repo, owner_run, owner_env, None, [], set(), set(), owner_plan)
+                self._walk_boundary(contract, repo, owner_run, owner_env, None, set(), set(), owner_plan)
                 self._walk_closeout(repo, owner_run, owner_env)
                 after_owner = json.loads(state_file.read_text(encoding="utf-8"))
                 after_by_id = {m["id"]: m for m in after_owner["messages"]}
@@ -6567,7 +6600,7 @@ sys.exit(2)
                     "m_only_all": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 12, "ref": "D01 T01 §12"},
                     "m_after_errs": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 13, "ref": "D01 T01 §13"},
                 }
-                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, edge_handled, edge_errs, edge_plan)
                 st_e1 = json.loads(state_file.read_text(encoding="utf-8"))
                 for mid in ("m_only_first", "m_shared", "m_only_all"):
                     self.assertEqual(st_e1["calls"].count(["show", mid]), 1)
@@ -6576,8 +6609,8 @@ sys.exit(2)
 
                 # Two consecutive empty-inbox polls (exit 1) -> zero error lines
                 state_file.write_text(json.dumps({"messages": [], "calls": [], "answers": [], "overrides": {}}), encoding="utf-8")
-                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
-                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, edge_handled, edge_errs, edge_plan)
 
                 # Two consecutive exit-2 inbox refusals -> once-only diagnostic, then subsequent job succeeds
                 st_e2 = {
@@ -6592,9 +6625,9 @@ sys.exit(2)
                     },
                 }
                 state_file.write_text(json.dumps(st_e2), encoding="utf-8")
-                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
-                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
-                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, edge_handled, edge_errs, edge_plan)
                 st_e3 = json.loads(state_file.read_text(encoding="utf-8"))
                 self.assertEqual({m["id"]: m for m in st_e3["messages"]}["m_after_errs"]["state"], "taken")
                 self.assertEqual(self._find_marker_ref(repo / "todo", "m_after_errs"), "D01 T01 §13")
