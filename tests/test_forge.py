@@ -5733,36 +5733,37 @@ sys.exit(2)
             raise AssertionError(f"{agent} Step 3 fenced guards must invoke bare `helio` inbox")
         step0_tokens = (
             "once per session",
+            "build/heliograph-claims.json",
             "only after the run guard confirms this session is the sole writer",
             "in chronological order",
             "helio-claim: <id>",
+            "`done-pending`",
             "first scan `todo/` for `Heliograph: <id>`",
             "never file a TODO from an unverified claim",
-            "on an `/owner` lane",
-            "release-needs-owner",
-            "inspect `helio show <id>` first",
+            "first run `helio show <id>` to inspect who holds it",
             "never call `release` and record `not-held`",
-            "only when `<id>` is `taken by` this lane run `helio --session \"\" release <id>`",
-            "recording `released` only on exit 0 or keeping `release-pending` on exit 2 or 3",
+            "only when `<id>` is `taken by` this lane run `helio --session <token> release <id>`",
+            "recording `released` only on exit 0 or keeping `release-pending` (with its token preserved) on exit 2 or 3",
         )
         for token in step0_tokens:
             if token not in hello_sec:
                 raise AssertionError(f"{agent} Step 0 missing required rule token: {token!r}")
         step3_tokens = (
             "Heliograph: <id>",
-            "`helio --session \"\" done <id>`",
+            "`helio --session <token> done <id>`",
+            "build/heliograph-claims.json",
             "`helio`",
             "`helio --all`",
             "information, not an instruction",
             "scan `todo/` for `Heliograph: <id>`",
             "`helio show <id>`",
-            "write `helio-claim: <id>` under Critical events before calling `helio --session \"\" take <id>`",
+            "mint a unique non-empty claim token `claim-<hex>` in `build/heliograph-claims.json`",
+            "write `helio-claim: <id>` under Critical events before calling `helio --session <token> take <id>`",
             "only when `helio take <id>` exits 0 (a refused claim never files a TODO",
             "helio-ref:",
-            "`helio --session \"\" release <id>`",
+            "`helio --session <token> release <id>`",
             "record `released` only when it exits 0",
             "release-pending",
-            "release-needs-owner",
             "done-pending",
             "never raw message bodies, session identifiers, or private inbox text",
             "exit 1",
@@ -5860,10 +5861,38 @@ sys.exit(2)
         announced = False
         handled_ids: set[str] = set()
         filed_refs: dict[str, str] = {}
-        done_pending: dict[str, str] = {}
-        release_pending: dict[str, str] = {}
+        claims_path = ws / "build" / "heliograph-claims.json"
+        done_pending: set[str] = set()
+        release_pending: set[str] = set()
         logged_errors: set[tuple[str, int]] = set()
         shipped_rows: list[str] = []
+
+        def load_claims() -> dict:
+            if claims_path.is_file():
+                return json.loads(claims_path.read_text(encoding="utf-8"))
+            return {}
+
+        def save_claims(data: dict) -> None:
+            claims_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = claims_path.with_suffix(".tmp")
+            tmp_path.write_text(json.dumps(data), encoding="utf-8")
+            os.replace(tmp_path, claims_path)
+
+        def claim_token(mid: str) -> str:
+            entry = load_claims().get(mid, {})
+            return entry.get("token", "")
+
+        def set_claim(mid: str, token: str, taken: bool = False) -> None:
+            data = load_claims()
+            prev = data.get(mid, {})
+            data[mid] = {"token": token or prev.get("token", ""), "taken": taken or prev.get("taken", False)}
+            save_claims(data)
+
+        def clear_claim(mid: str) -> None:
+            data = load_claims()
+            if mid in data:
+                data.pop(mid, None)
+                save_claims(data)
 
         def active() -> bool:
             return shutil.which("helio", path=lane_env.get("PATH", "")) is not None and self._has_helio_conf(ws)
@@ -5884,55 +5913,70 @@ sys.exit(2)
                     return ref
             return None
 
-        def verify_and_release(mid: str, legacy_session: str = "") -> None:
-            if lane.endswith("/owner"):
-                release_pending.pop(mid, None)
+        def verify_and_release(mid: str, in_process_taken: bool = False) -> None:
+            entry = load_claims().get(mid, {})
+            tok = entry.get("token", "")
+            if lane.endswith("/owner") and not in_process_taken and not entry.get("taken"):
+                release_pending.discard(mid)
                 handled_ids.add(mid)
-                append_event(f"helio {mid}: release-needs-owner")
+                clear_claim(mid)
+                append_event(f"helio {mid}: not-held")
                 return
             sres = self._run_helio(["show", mid], ws, lane_env)
             if sres.returncode != 0:
-                release_pending[mid] = legacy_session
+                release_pending.add(mid)
                 append_event(f"helio {mid}: release-pending")
                 record_sanitized_error("show", sres.returncode)
                 return
             m_holder = re.search(rf"(?m)^\|\s*{re.escape(mid)}\s+taken by\s+(\S+)\s*$", sres.stdout)
             if not m_holder or m_holder.group(1) != lane:
-                release_pending.pop(mid, None)
+                release_pending.discard(mid)
                 handled_ids.add(mid)
+                clear_claim(mid)
                 append_event(f"helio {mid}: not-held")
                 return
-            rres = self._run_helio(["--session", legacy_session, "release", mid], ws, lane_env)
+            rel_args = (["--session", tok] if tok else []) + ["release", mid]
+            rres = self._run_helio(rel_args, ws, lane_env)
             if rres.returncode == 0:
-                release_pending.pop(mid, None)
+                release_pending.discard(mid)
                 handled_ids.add(mid)
+                clear_claim(mid)
                 append_event(f"helio {mid}: released")
             else:
-                release_pending[mid] = legacy_session
+                release_pending.add(mid)
                 append_event(f"helio {mid}: release-pending")
                 record_sanitized_error("release", rres.returncode)
 
         for phase_rows in phases:
             if active():
-                # Reconcile chronologically: accept both session-free and legacy session=<prior> records.
+                # Reconcile chronologically: replay helio-claim, release-pending, and done-pending; preserve legacy tokens.
                 prior_text = run_file.read_text(encoding="utf-8") if run_file.exists() else ""
-                latest_state: dict[str, tuple[str, str]] = {}
+                latest_state: dict[str, str] = {}
                 for line in prior_text.splitlines():
                     m_claim = re.match(r"^- helio-claim: (\S+)(?:\s+session=(\S+))?$", line.strip())
                     if m_claim:
-                        latest_state[m_claim.group(1)] = ("claim", m_claim.group(2) or "")
+                        cid = m_claim.group(1)
+                        latest_state[cid] = "claim"
+                        if m_claim.group(2):
+                            set_claim(cid, m_claim.group(2))
                         continue
                     m_ref = re.match(r"^- helio-ref: (\S+) ->", line.strip())
                     if m_ref:
-                        latest_state[m_ref.group(1)] = ("filed", "")
+                        latest_state[m_ref.group(1)] = "filed"
                         continue
                     m_disp = re.match(
-                        r"^- helio (\S+): (released|not-held|release-pending|release-needs-owner|error \(exit \d+\)|done|skipped)(?:\s+session=(\S+))?$",
+                        r"^- helio (\S+): (released|not-held|release-pending|done-pending|error \(exit \d+\)|done|skipped)(?:\s+session=(\S+))?$",
                         line.strip(),
                     )
                     if m_disp:
-                        latest_state[m_disp.group(1)] = (m_disp.group(2), m_disp.group(3) or "")
-                for cid, (st, leg_sess) in latest_state.items():
+                        cid, disp = m_disp.group(1), m_disp.group(2)
+                        latest_state[cid] = disp
+                        if m_disp.group(3):
+                            set_claim(cid, m_disp.group(3))
+                for cid, st in latest_state.items():
+                    if st == "done-pending":
+                        done_pending.add(cid)
+                        continue
                     if st not in ("claim", "release-pending"):
                         continue
                     existing_ref = find_filed_section(cid)
@@ -5941,7 +5985,7 @@ sys.exit(2)
                         handled_ids.add(cid)
                         append_event(f"helio-ref: {cid} -> {existing_ref}")
                     else:
-                        verify_and_release(cid, leg_sess)
+                        verify_and_release(cid)
                 if not announced:
                     res = self._run_helio(contract["hello"], ws, lane_env)
                     announced = True
@@ -5951,21 +5995,27 @@ sys.exit(2)
                 shipped_rows.append(row)
                 if not active():
                     continue
-                # Close any Heliograph: <id> (with or without legacy session=<prior>) declared in the shipped section.
-                to_close = dict(done_pending)
+                # Close any Heliograph: <id> declared in the shipped section or done-pending from a prior boundary/restart.
+                to_close = list(done_pending)
                 body_text = section_bodies.get(row, "")
                 for mid, leg_sess in re.findall(r"(?m)^Heliograph:\s*(\S+)(?:\s+session=(\S+))?\s*$", body_text):
-                    to_close.setdefault(mid, leg_sess or "")
-                for mid, leg_sess in list(to_close.items()):
-                    dres = self._run_helio(["--session", leg_sess, "done", mid], ws, lane_env)
+                    if leg_sess:
+                        set_claim(mid, leg_sess, taken=True)
+                    if mid not in to_close:
+                        to_close.append(mid)
+                for mid in to_close:
+                    tok = claim_token(mid)
+                    done_args = (["--session", tok] if tok else []) + ["done", mid]
+                    dres = self._run_helio(done_args, ws, lane_env)
                     if dres.returncode == 0:
-                        done_pending.pop(mid, None)
+                        done_pending.discard(mid)
+                        clear_claim(mid)
                         append_event(f"helio {mid}: done")
                     elif dres.returncode in (2, 3):
-                        done_pending[mid] = leg_sess
+                        done_pending.add(mid)
                         append_event(f"helio {mid}: done-pending")
-                for mid, leg_sess in list(release_pending.items()):
-                    verify_and_release(mid, leg_sess)
+                for mid in list(release_pending):
+                    verify_and_release(mid)
                 # Between-sections inbox read.
                 ires = self._run_helio(contract["inbox"], ws, lane_env)
                 if ires.returncode == 1:
@@ -5997,19 +6047,23 @@ sys.exit(2)
                         handled_ids.add(mid)
                         append_event(f"helio {mid}: skipped")
                         continue
-                    # Write durable claim intent BEFORE calling lane-scoped take with explicit --session "".
+                    # Mint non-empty local claim token in gitignored build/heliograph-claims.json BEFORE calling take.
+                    tok = f"claim-{uuid.uuid4().hex[:12]}"
+                    set_claim(mid, tok, taken=False)
                     append_event(f"helio-claim: {mid}")
                     if mid in crash_before_take_ids:
                         return shipped_rows
-                    tres = self._run_helio(["--session", "", "take", mid], ws, lane_env)
+                    tres = self._run_helio(["--session", tok, "take", mid], ws, lane_env)
                     if tres.returncode != 0:
                         handled_ids.add(mid)
+                        clear_claim(mid)
                         append_event(f"helio {mid}: error (exit {tres.returncode})")
                         continue
+                    set_claim(mid, tok, taken=True)
                     if mid in crash_after_take_ids:
                         return shipped_rows
                     if mid in fail_filing_ids:
-                        verify_and_release(mid)
+                        verify_and_release(mid, in_process_taken=True)
                         continue
                     ref = f"D99 T01 §{len(section_bodies) + 1}"
                     section_bodies[ref] = f"Heliograph: {mid}\n"
@@ -6131,15 +6185,25 @@ sys.exit(2)
                         section_bodies=section_bodies,
                     )
                     self.assertEqual(shipped, ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"])
-                    # Cross-phase handoff: a fresh session in another phase ships D99 T01 §1 (which carries
-                    # Heliograph: m1 with no session suffix) and retries helio done m1 (exit 3 then exit 0).
+                    # Cross-phase handoff with restart across done-pending (#15):
+                    # Phase B ships D99 T01 §1 (done fails with exit 3 -> done-pending), restarts into a fresh session,
+                    # and the restarted session replays done-pending from the run file + build/heliograph-claims.json and closes m1.
                     phase_b_run = ws / "docs" / "phase-runs" / "2099-01-02-phase-9.md"
                     phase_b_run.write_text("# Phase B\n\n## Critical events\n", encoding="utf-8")
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True), phase_b_run,
-                        phases=[["D99 T01 §1", "B2"]], lane=lane,
+                        skill_text, agent_name, ws, make_env(with_bin=True, env_session="env-sess-B1"), phase_b_run,
+                        phases=[["D99 T01 §1"]], lane=lane,
                         section_bodies=section_bodies,
                     )
+                    self.assertIn("helio m1: done-pending", phase_b_run.read_text(encoding="utf-8"))
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True, env_session="env-sess-B2"), phase_b_run,
+                        phases=[["B2"]], lane=lane,
+                        section_bodies=section_bodies,
+                    )
+                    self.assertIn("helio m1: done", phase_b_run.read_text(encoding="utf-8"))
+                    self.assertNotIn("m1", json.loads(state_path.read_text(encoding="utf-8")).get("held", {}))
+
                     # Crash-after-take recovery across a fresh session WITH DIFFERENT inherited HELIO_SESSION env vars
                     # (env-sess-A -> env-sess-B) on a non-owner lane WITHOUT forced release_codes.
                     crash_clean_run = ws / "docs" / "phase-runs" / "2099-01-03a-phase-2.md"
@@ -6161,21 +6225,58 @@ sys.exit(2)
                     self.assertIn("helio m-fresh: released", crash_clean_run.read_text(encoding="utf-8"))
                     self.assertNotIn("m-fresh", json.loads(state_path.read_text(encoding="utf-8")).get("held", {}))
 
-                    # Upgrade compatibility from 3921a5e1: legacy helio-claim and Heliograph section markers carrying
-                    # session=<prior> are still reconciled and closed using --session <prior>.
+                    # Same-lane competing checkout (#14): checkout A writes intent and crashes before take; checkout B
+                    # on the SAME non-owner lane takes m-same with its own claim token; checkout A resumes and tries
+                    # release with its own token -> store.c:849 atomically refuses (exit 2), preserving checkout B's claim.
+                    same_lane_run = ws / "docs" / "phase-runs" / "2099-01-03c-phase-2.md"
+                    same_lane_run.write_text("# Same lane race\n\n## Critical events\n", encoding="utf-8")
+                    state_path.write_text(json.dumps({
+                        "polls": [{"code": 0, "stdout": "ID=m-same SUBJ=SameLane\n"}, {"code": 1, "stdout": ""}],
+                        "bodies": {"m-same": "SCOPE=in\n"},
+                    }), encoding="utf-8")
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), same_lane_run,
+                        phases=[["SL1"]], lane=lane, section_bodies=section_bodies, crash_before_take_ids={"m-same"},
+                    )
+                    st_sl = json.loads(state_path.read_text(encoding="utf-8"))
+                    st_sl.setdefault("held", {})["m-same"] = {"lane": lane, "session": "claim-other-checkout"}
+                    state_path.write_text(json.dumps(st_sl), encoding="utf-8")
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), same_lane_run,
+                        phases=[["SL2"]], lane=lane, section_bodies=section_bodies,
+                    )
+                    self.assertEqual(
+                        json.loads(state_path.read_text(encoding="utf-8")).get("held", {}).get("m-same", {}).get("session"),
+                        "claim-other-checkout",
+                        "same-lane recovery released another checkout's valid claim",
+                    )
+
+                    # Upgrade compatibility from 3921a5e1 WITH transient failure + restart (#11):
+                    # legacy helio-claim with session=old-s fails release once (exit 3 -> release-pending), restarts,
+                    # and still retains old-s in build/heliograph-claims.json to succeed on retry!
                     legacy_run = ws / "docs" / "phase-runs" / "2099-01-03b-phase-2.md"
                     legacy_run.write_text("# Legacy upgrade\n\n## Critical events\n- helio-claim: m-leg-claim session=old-s\n", encoding="utf-8")
                     section_bodies["LEG1"] = "Heliograph: m-leg-ship session=old-s\n"
                     state_path.write_text(json.dumps({
-                        "polls": [{"code": 1, "stdout": ""}],
+                        "polls": [{"code": 1, "stdout": ""}, {"code": 1, "stdout": ""}],
                         "held": {
                             "m-leg-claim": {"lane": lane, "session": "old-s"},
                             "m-leg-ship": {"lane": lane, "session": "old-s"},
                         },
+                        "release_codes": {"m-leg-claim": [3]},
                     }), encoding="utf-8")
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, env_session="env-sess-C"), legacy_run,
+                        skill_text, agent_name, ws, make_env(with_bin=True, env_session="env-sess-C1"), legacy_run,
                         phases=[["LEG1"]], lane=lane, section_bodies=section_bodies,
+                    )
+                    self.assertIn("helio m-leg-claim: release-pending", legacy_run.read_text(encoding="utf-8"))
+                    # Restart after release-pending: release_codes is now empty, so real session check runs with old-s!
+                    st_leg = json.loads(state_path.read_text(encoding="utf-8"))
+                    st_leg.pop("release_codes", None)
+                    state_path.write_text(json.dumps(st_leg), encoding="utf-8")
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True, env_session="env-sess-C2"), legacy_run,
+                        phases=[["LEG2"]], lane=lane, section_bodies=section_bodies,
                     )
                     leg_text = legacy_run.read_text(encoding="utf-8")
                     self.assertIn("helio m-leg-claim: released", leg_text)
@@ -6229,13 +6330,17 @@ sys.exit(2)
                         section_bodies=section_bodies,
                     )
                     self.assertEqual(len(section_bodies), before_filed_count + 1, "m-filed was filed twice after restart")
-                    # Owner-lane crash-before-take with competing taker: owner-lane NEVER issues automatic release
-                    # (preventing any TOCTOU override of a peer's claim across checkouts), records release-needs-owner, and files 0 TODOs.
+                    # Owner-lane crash-before-take with competing taker: taken: false in build/heliograph-claims.json,
+                    # so owner-lane NEVER calls release, records not-held, and preserves peer's claim.
+                    # Also test owner-lane in-process filing failure after take: DOES release its own claim!
                     before_take_run = ws / "docs" / "phase-runs" / "2099-01-05-phase-2.md"
                     before_take_run.write_text("# Before take crash\n\n## Critical events\n", encoding="utf-8")
                     state_path.write_text(json.dumps({
-                        "polls": [{"code": 0, "stdout": "ID=m-before SUBJ=BeforeTake\n"}, {"code": 1, "stdout": ""}],
-                        "bodies": {"m-before": "SCOPE=in\n"},
+                        "polls": [
+                            {"code": 0, "stdout": "ID=m-before SUBJ=BeforeTake\n"},
+                            {"code": 0, "stdout": "ID=m-own-abort SUBJ=OwnAbort\n"},
+                        ],
+                        "bodies": {"m-before": "SCOPE=in\n", "m-own-abort": "SCOPE=in\n"},
                     }), encoding="utf-8")
                     before_take_sections = len(section_bodies)
                     self._walk_session(
@@ -6244,17 +6349,21 @@ sys.exit(2)
                         section_bodies=section_bodies, crash_before_take_ids={"m-before"},
                     )
                     st_now = json.loads(state_path.read_text(encoding="utf-8"))
-                    st_now.setdefault("held", {})["m-before"] = {"lane": "demo/peer", "session": ""}
+                    st_now.setdefault("held", {})["m-before"] = {"lane": "demo/peer", "session": "peer-tok"}
                     state_path.write_text(json.dumps(st_now), encoding="utf-8")
                     self._walk_session(
                         skill_text, agent_name, ws, make_env(with_bin=True), before_take_run,
                         phases=[["BT2"]], lane="demo/owner",
+                        fail_filing_ids={"m-own-abort"},
                         section_bodies=section_bodies,
                     )
                     self.assertEqual(len(section_bodies), before_take_sections, "crash-before-take filed a TODO without ownership")
-                    self.assertIn("helio m-before: release-needs-owner", before_take_run.read_text(encoding="utf-8"))
+                    bt_text = before_take_run.read_text(encoding="utf-8")
+                    self.assertIn("helio m-before: not-held", bt_text)
+                    self.assertIn("helio m-own-abort: released", bt_text)
                     st_after = json.loads(state_path.read_text(encoding="utf-8"))
                     self.assertEqual(st_after.get("held", {}).get("m-before", {}).get("lane"), "demo/peer", "owner-lane released peer's claim")
+                    self.assertNotIn("m-own-abort", st_after.get("held", {}), "owner-lane failed filing left claim stranded")
 
                     # Same-day retry after earlier refusal: m-retry is refused once (error exit 2), then in a later session
                     # sharing the same run file take succeeds and crashes; resume must not let the older error suppress recovery.
@@ -6287,31 +6396,33 @@ sys.exit(2)
                     # (a) First session: one hello across two phases, inbox after each of the 8 shipped sections.
                     self.assertEqual(calls[0], ["hello", agent_name])
                     self.assertGreaterEqual(calls.count([]), 8)
-                    # (b) show called on both same-subject messages; only m1 taken with explicit --session "".
+                    # (b) show called on both same-subject messages; only m1 taken with non-empty claim token.
                     self.assertIn(["show", "m1"], calls)
                     self.assertIn(["show", "m2"], calls)
-                    self.assertEqual(calls.count(["--session", "", "take", "m1"]), 1)
-                    self.assertNotIn(["--session", "", "take", "m2"], calls)
-                    # (c) m-lost refused and not filed; m-abort released; m1 closed across phases;
+                    self.assertEqual(sum(1 for c in calls if len(c) == 4 and c[0] == "--session" and c[1].startswith("claim-") and c[2:] == ["take", "m1"]), 1)
+                    self.assertFalse(any(c[-2:] == ["take", "m2"] for c in calls))
+                    # (c) m-lost refused and not filed; m-abort released; m1 closed across phases + restart;
                     # m-fresh released across fresh session with different HELIO_SESSION; m-crash retried after exit 2;
-                    # m-filed never released; m-before never released on owner lane.
-                    self.assertIn(["--session", "", "take", "m-lost"], calls)
-                    self.assertIn(["--session", "", "release", "m-abort"], calls)
-                    self.assertEqual(calls.count(["--session", "", "done", "m1"]), 2)
-                    self.assertIn(["--session", "", "release", "m-fresh"], calls)
-                    self.assertEqual(calls.count(["--session", "", "release", "m-crash"]), 2)
+                    # m-filed never released; m-before never released on owner lane; m-own-abort released on owner lane.
+                    self.assertTrue(any(c[-2:] == ["take", "m-lost"] for c in calls))
+                    self.assertTrue(any(c[-2:] == ["release", "m-abort"] for c in calls))
+                    self.assertEqual(sum(1 for c in calls if c[-2:] == ["done", "m1"]), 2)
+                    self.assertTrue(any(c[-2:] == ["release", "m-fresh"] for c in calls))
+                    self.assertEqual(sum(1 for c in calls if c[-2:] == ["release", "m-crash"]), 2)
                     self.assertFalse(any(c[-2:] == ["release", "m-filed"] for c in calls))
                     self.assertFalse(any(c[-2:] == ["release", "m-before"] for c in calls))
-                    self.assertEqual(calls.count(["--session", "", "take", "m-filed"]), 1)
+                    self.assertTrue(any(c[-2:] == ["release", "m-own-abort"] for c in calls))
+                    self.assertEqual(sum(1 for c in calls if c[-2:] == ["take", "m-filed"]), 1)
                     # (d) --all invoked once and m6 taken; m1 not re-taken.
                     self.assertIn(["--all"], calls)
-                    self.assertIn(["--session", "", "take", "m6"], calls)
-                    # (e) exit 3 partial output inspected m7; private text and session IDs never leaked; once-only error diagnostics.
-                    self.assertIn(["--session", "", "take", "m7"], calls)
+                    self.assertTrue(any(c[-2:] == ["take", "m6"] for c in calls))
+                    # (e) exit 3 partial output inspected m7; private text and claim tokens never leaked; once-only error diagnostics.
+                    self.assertTrue(any(c[-2:] == ["take", "m7"] for c in calls))
                     rf_text = run_file.read_text(encoding="utf-8")
                     self.assertNotIn(private_body, rf_text)
                     self.assertNotIn(private_err, rf_text)
                     self.assertNotIn("session=", rf_text)
+                    self.assertNotIn("claim-", rf_text)
                     self.assertNotIn("m-lost ->", rf_text)
                     self.assertIn("helio-ref: m1 ->", rf_text)
                     self.assertIn("helio m-abort: released", rf_text)
