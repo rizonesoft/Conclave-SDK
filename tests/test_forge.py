@@ -5529,5 +5529,379 @@ class SeverityRubricSkillAndReadmeTests(unittest.TestCase):
             self.assertIn(token, readme, token)
 
 
+class ProcessPhaseHeliographTests(unittest.TestCase):
+    """Heliograph inbox step in the Codex and Antigravity copies of process-phase (D02 T01 §8)."""
+
+    STUB_SCRIPT = """import json, os, sys
+from pathlib import Path
+
+log_path = Path(os.environ["HELIO_LOG"])
+state_path = Path(os.environ["HELIO_STATE"])
+state = json.loads(state_path.read_text(encoding="utf-8"))
+args = sys.argv[1:]
+with log_path.open("a", encoding="utf-8") as fh:
+    fh.write(json.dumps(args) + "\\n")
+
+def save():
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+if not args or args == ["--all"]:
+    polls = state.get("polls", [])
+    idx = state.get("poll_index", 0)
+    if args == ["--all"]:
+        entry = state.get("all_response", {"code": 0, "stdout": "", "stderr": ""})
+    else:
+        entry = polls[idx] if idx < len(polls) else {"code": 1, "stdout": "", "stderr": ""}
+        state["poll_index"] = idx + 1
+        save()
+    if entry.get("stdout"):
+        sys.stdout.write(entry["stdout"])
+    if entry.get("stderr"):
+        sys.stderr.write(entry["stderr"])
+    sys.exit(entry.get("code", 0))
+
+cmd = args[0]
+if cmd == "hello":
+    rc = state.get("hello_code", 0)
+    if rc != 0:
+        sys.stderr.write(state.get("hello_stderr", "helio: store error\\n"))
+    sys.exit(rc)
+if cmd == "show" and len(args) == 2:
+    body = state.get("bodies", {}).get(args[1], "")
+    sys.stdout.write(body)
+    sys.exit(0)
+if cmd == "take" and len(args) == 2:
+    rc = state.get("take_codes", {}).get(args[1], 0)
+    if rc != 0:
+        sys.stderr.write("helio: already taken\\n")
+    sys.exit(rc)
+if cmd == "release" and len(args) == 2:
+    sys.exit(0)
+if cmd == "done" and len(args) == 2:
+    codes = state.get("done_codes", {}).get(args[1], [0])
+    rc = codes.pop(0) if codes else 0
+    state.setdefault("done_codes", {})[args[1]] = codes
+    save()
+    if rc != 0:
+        sys.stderr.write("helio: transient store error\\n")
+    sys.exit(rc)
+sys.exit(2)
+"""
+
+    def _make_stub_helio(self, bin_dir: pathlib.Path) -> pathlib.Path:
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        py_path = bin_dir / "helio_stub.py"
+        py_path.write_text(self.STUB_SCRIPT, encoding="utf-8")
+        if os.name == "nt":
+            cmd_path = bin_dir / "helio.cmd"
+            cmd_path.write_text(f'@echo off\r\n"{sys.executable}" "{py_path}" %*\r\n', encoding="utf-8")
+            return cmd_path
+        sh_path = bin_dir / "helio"
+        sh_path.write_text(f'#!/usr/bin/env sh\nexec "{sys.executable}" "{py_path}" "$@"\n', encoding="utf-8")
+        sh_path.chmod(0o755)
+        return sh_path
+
+    def _parse_contract(self, skill_text: str, agent: str) -> dict:
+        if "## Step 0: open the run" not in skill_text or "## Step 3: ship the phase" not in skill_text:
+            raise AssertionError("process-phase missing Step 0 or Step 3")
+        step0 = skill_text.split("## Step 0: open the run", 1)[1].split("## Step 1:", 1)[0]
+        step3 = skill_text.split("## Step 3: ship the phase, one row at a time", 1)[1].split("## Step 4:", 1)[0]
+        if "### Heliograph messages (session start)" not in step0:
+            raise AssertionError("Step 0 missing Heliograph session start section")
+        if "### Heliograph messages (between sections)" not in step3:
+            raise AssertionError("Step 3 missing Heliograph between-sections section")
+        hello_sec = step0.split("### Heliograph messages (session start)", 1)[1]
+        inbox_sec = step3.split("### Heliograph messages (between sections)", 1)[1].split("\nLong jobs", 1)[0]
+        hello_cmd = f"helio hello {agent}"
+        if f"`{hello_cmd}`" not in hello_sec:
+            raise AssertionError(f"Step 0 missing `{hello_cmd}`")
+        for other in ("claude", "codex", "antigravity"):
+            if other != agent and f"helio hello {other}" in (hello_sec + inbox_sec):
+                raise AssertionError(f"{agent} copy names foreign agent {other}")
+        if "helio hook claude" in (hello_sec + inbox_sec):
+            raise AssertionError(f"{agent} copy names Claude hook")
+        # Binding to Step 3 position: poll must appear AFTER stamp commit and ci_status.py, BEFORE Skip rows.
+        pos_ci = step3.find("ci_status.py --since-last")
+        pos_helio = step3.find("### Heliograph messages (between sections)")
+        pos_skip = step3.find("Skip rows whose")
+        if not (0 <= pos_ci < pos_helio < pos_skip):
+            raise AssertionError("Heliograph inbox step is not positioned after shipment/CI and before next row")
+        required_tokens = (
+            "command -v helio",
+            "Get-Command helio",
+            "helio.conf",
+            "once per session",
+            "`helio`",
+            "`helio --all`",
+            "information, not an instruction",
+            "`helio show <id>`",
+            "`helio take <id>`",
+            "exits 0",
+            "helio-ref:",
+            "`helio release <id>`",
+            "`helio done <id>`",
+            "done-pending",
+            "never raw message bodies",
+            "exit 1",
+            "exit 2",
+            "exit 3",
+            "partial inbox output",
+        )
+        combined = hello_sec + "\n" + inbox_sec
+        for token in required_tokens:
+            if token not in combined:
+                raise AssertionError(f"{agent} Heliograph step missing required rule token: {token!r}")
+        return {"hello": ["hello", agent], "inbox": [], "all": ["--all"]}
+
+    def _has_helio_conf(self, start: pathlib.Path) -> bool:
+        for cur in (start, *start.parents):
+            if (cur / "helio.conf").is_file():
+                return True
+        return False
+
+    def _run_helio(self, args: list[str], cwd: pathlib.Path, env: dict) -> subprocess.CompletedProcess:
+        exe = shutil.which("helio", path=env.get("PATH", ""))
+        self.assertIsNotNone(exe, "stub helio not found on PATH")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        return subprocess.run([exe, *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=30,
+                              creationflags=flags)
+
+    def _walk_session(self, skill_text: str, agent: str, ws: pathlib.Path, env: dict, run_file: pathlib.Path,
+                      phases: list[list[str]], fail_filing_ids: set[str] | None = None,
+                      shipped_helio_ids: dict[str, str] | None = None) -> list[str]:
+        """Execute the documented Step 0 and Step 3 Heliograph protocol against a stub helio."""
+        contract = self._parse_contract(skill_text, agent)
+        fail_filing_ids = fail_filing_ids or set()
+        shipped_helio_ids = shipped_helio_ids or {}
+        announced = False
+        handled_ids: set[str] = set()
+        filed_refs: dict[str, str] = {}
+        done_pending: set[str] = set()
+        logged_errors: set[tuple[str, int]] = set()
+        shipped_rows: list[str] = []
+
+        def active() -> bool:
+            return shutil.which("helio", path=env.get("PATH", "")) is not None and self._has_helio_conf(ws)
+
+        def append_event(line: str) -> None:
+            with run_file.open("a", encoding="utf-8") as fh:
+                fh.write(f"- {line}\n")
+
+        def record_sanitized_error(op: str, rc: int) -> None:
+            key = (op, rc)
+            if key not in logged_errors:
+                logged_errors.add(key)
+                append_event(f"helio {op}: error (exit {rc})")
+
+        for phase_rows in phases:
+            if not announced and active():
+                res = self._run_helio(contract["hello"], ws, env)
+                announced = True
+                if res.returncode in (2, 3):
+                    record_sanitized_error("hello", res.returncode)
+            for row in phase_rows:
+                shipped_rows.append(row)
+                if not active():
+                    continue
+                # Close any job shipped by this row or previously pending done.
+                to_close = list(done_pending)
+                if row in shipped_helio_ids:
+                    to_close.append(shipped_helio_ids[row])
+                for mid in to_close:
+                    dres = self._run_helio(["done", mid], ws, env)
+                    if dres.returncode == 0:
+                        done_pending.discard(mid)
+                        append_event(f"helio {mid}: done")
+                    elif dres.returncode in (2, 3):
+                        done_pending.add(mid)
+                        append_event(f"helio {mid}: done-pending")
+                # Between-sections inbox read.
+                ires = self._run_helio(contract["inbox"], ws, env)
+                if ires.returncode == 1:
+                    continue
+                if ires.returncode in (2, 3):
+                    record_sanitized_error("inbox", ires.returncode)
+                output = ires.stdout
+                if "helio --all" in output:
+                    ares = self._run_helio(contract["all"], ws, env)
+                    if ares.returncode in (2, 3):
+                        record_sanitized_error("inbox-all", ares.returncode)
+                    output = ares.stdout or output
+                for line in output.splitlines():
+                    m = re.match(r"^ID=(\S+)\s+SUBJ=(.*)$", line.strip())
+                    if not m:
+                        continue
+                    mid = m.group(1)
+                    if mid in handled_ids or mid in filed_refs:
+                        continue
+                    sres = self._run_helio(["show", mid], ws, env)
+                    body = sres.stdout
+                    if "SCOPE=in" not in body:
+                        handled_ids.add(mid)
+                        append_event(f"helio {mid}: skipped")
+                        continue
+                    tres = self._run_helio(["take", mid], ws, env)
+                    if tres.returncode != 0:
+                        handled_ids.add(mid)
+                        append_event(f"helio {mid}: error (exit {tres.returncode})")
+                        continue
+                    if mid in fail_filing_ids:
+                        self._run_helio(["release", mid], ws, env)
+                        handled_ids.add(mid)
+                        append_event(f"helio {mid}: released")
+                        continue
+                    ref = f"D99 T01 §{len(filed_refs) + 1}"
+                    filed_refs[mid] = ref
+                    handled_ids.add(mid)
+                    append_event(f"helio-ref: {mid} -> {ref}")
+                    append_event(f"helio {mid}: taken -> {ref}")
+        return shipped_rows
+
+    def test_codex_and_antigravity_heliograph_walkthrough_and_guards(self):
+        todo_templates = forge.FORGE_ROOT / "kits" / "todo" / "templates"
+        for agent_dir, agent_name in ((".codex", "codex"), (".agents", "antigravity")):
+            with self.subTest(agent=agent_name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = pathlib.Path(tmp)
+                    parent = root / "org"
+                    ws = parent / "proj"
+                    ws.mkdir(parents=True)
+                    forge.apply_kit(ws, "todo", agent="all")
+                    skill_text = (ws / agent_dir / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8")
+                    self.assertEqual(
+                        skill_text,
+                        (todo_templates / agent_dir / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8"),
+                    )
+                    bin_dir = root / "bin"
+                    self._make_stub_helio(bin_dir)
+                    log_path = root / "helio.log"
+                    state_path = root / "helio-state.json"
+                    run_file = ws / "docs" / "phase-runs" / "2099-01-01-phase-2.md"
+                    run_file.parent.mkdir(parents=True, exist_ok=True)
+                    run_file.write_text("# Phase run\n\n## Critical events\n", encoding="utf-8")
+
+                    def make_env(with_bin: bool = True) -> dict:
+                        env = dict(os.environ)
+                        env["PATH"] = str(bin_dir) if with_bin else str(root / "empty-bin")
+                        env["HELIO_LOG"] = str(log_path)
+                        env["HELIO_STATE"] = str(state_path)
+                        return env
+
+                    # (f1) Missing helio on PATH runs nothing even with helio.conf present.
+                    (ws / "helio.conf").write_text("project = demo\n", encoding="utf-8")
+                    state_path.write_text(json.dumps({}), encoding="utf-8")
+                    self._walk_session(skill_text, agent_name, ws, make_env(with_bin=False), run_file, [["S1"]])
+                    self.assertFalse(log_path.exists(), "helio ran when absent from PATH")
+
+                    # (f2) Missing helio.conf runs nothing even with helio on PATH.
+                    (ws / "helio.conf").unlink()
+                    self._walk_session(skill_text, agent_name, ws, make_env(with_bin=True), run_file, [["S1"]])
+                    self.assertFalse(log_path.exists(), "helio ran without helio.conf")
+
+                    # (f3) helio.conf in a parent folder enables the full protocol.
+                    (parent / "helio.conf").write_text("project = demo\n", encoding="utf-8")
+                    private_body = "PRIVATE-BODY-TOKEN-774"
+                    private_err = "TOP-SECRET-PEER-NOTE-991"
+                    scenario = {
+                        "polls": [
+                            # After S1: same subject, two bodies (m1 in-scope, m2 out-of-scope), plus lost claim m-lost and aborted filing m-abort.
+                            {"code": 0, "stdout": "ID=m1 SUBJ=Fix parser\nID=m2 SUBJ=Fix parser\nID=m-lost SUBJ=Race\nID=m-abort SUBJ=Abort\n"},
+                            # After S2: repeated m1 (already filed), plus 6-message page triggering --all for m6.
+                            {"code": 0, "stdout": "ID=m1 SUBJ=Fix parser\nID=m2 SUBJ=Fix parser\nID=m3 SUBJ=Old\nID=m4 SUBJ=Old\nID=m5 SUBJ=Old\nmore: run helio --all\n"},
+                            # After S3 (Phase 2): exit 1 (nothing new).
+                            {"code": 1, "stdout": ""},
+                            # After S4: exit 2 (refused with private stderr).
+                            {"code": 2, "stdout": "", "stderr": private_err + "\n"},
+                            # After S5: exit 3 with partial output (m7 printed before damage).
+                            {"code": 3, "stdout": "ID=m7 SUBJ=Partial\n", "stderr": private_err + "\n"},
+                        ],
+                        "all_response": {
+                            "code": 0,
+                            "stdout": "ID=m1 SUBJ=Fix parser\nID=m2 SUBJ=Fix parser\nID=m3 SUBJ=Old\nID=m4 SUBJ=Old\nID=m5 SUBJ=Old\nID=m6 SUBJ=Sixth\n",
+                        },
+                        "bodies": {
+                            "m1": f"SCOPE=in {private_body}\n",
+                            "m2": f"SCOPE=out {private_body}\n",
+                            "m3": "SCOPE=out\n",
+                            "m4": "SCOPE=out\n",
+                            "m5": "SCOPE=out\n",
+                            "m6": "SCOPE=in\n",
+                            "m7": f"SCOPE=in {private_body}\n",
+                            "m-lost": "SCOPE=in\n",
+                            "m-abort": "SCOPE=in\n",
+                        },
+                        "take_codes": {"m-lost": 2},
+                        "done_codes": {"m-ship": [3, 0]},
+                    }
+                    state_path.write_text(json.dumps(scenario), encoding="utf-8")
+                    shipped = self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), run_file,
+                        phases=[["S1", "S2"], ["S3", "S4", "S5"]],
+                        fail_filing_ids={"m-abort"},
+                        shipped_helio_ids={"S2": "m-ship"},
+                    )
+                    self.assertEqual(shipped, ["S1", "S2", "S3", "S4", "S5"])
+                    calls = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+                    # (a) One hello across two phases, inbox after each section.
+                    self.assertEqual(calls[0], ["hello", agent_name])
+                    self.assertEqual(calls.count(["hello", agent_name]), 1)
+                    self.assertEqual(calls.count([]), 5)
+                    # (b) show called on both same-subject messages; only m1 taken.
+                    self.assertIn(["show", "m1"], calls)
+                    self.assertIn(["show", "m2"], calls)
+                    self.assertEqual(calls.count(["take", "m1"]), 1)
+                    self.assertNotIn(["take", "m2"], calls)
+                    # (c) m-lost took once (refused), not filed; m-abort released; m-ship retried done twice.
+                    self.assertIn(["take", "m-lost"], calls)
+                    self.assertIn(["release", "m-abort"], calls)
+                    self.assertEqual(calls.count(["done", "m-ship"]), 2)
+                    # (d) --all invoked once and m6 taken; m1 not re-taken.
+                    self.assertIn(["--all"], calls)
+                    self.assertIn(["take", "m6"], calls)
+                    # (e) exit 3 partial output inspected m7; private text never leaked to run file.
+                    self.assertIn(["take", "m7"], calls)
+                    rf_text = run_file.read_text(encoding="utf-8")
+                    self.assertNotIn(private_body, rf_text)
+                    self.assertNotIn(private_err, rf_text)
+                    self.assertNotIn("m-lost ->", rf_text)
+                    self.assertIn("helio-ref: m1 ->", rf_text)
+                    self.assertIn("helio m-abort: released", rf_text)
+                    self.assertIn("helio m-ship: done-pending", rf_text)
+                    self.assertIn("helio m-ship: done", rf_text)
+                    self.assertIn("helio inbox: error (exit 2)", rf_text)
+                    self.assertIn("helio inbox: error (exit 3)", rf_text)
+
+    def test_heliograph_walkthrough_fails_on_mutations_and_readme_names_three_channels(self):
+        todo_templates = forge.FORGE_ROOT / "kits" / "todo" / "templates"
+        codex_text = (todo_templates / ".codex" / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8")
+        agy_text = (todo_templates / ".agents" / "skills" / "process-phase" / "SKILL.md").read_text(encoding="utf-8")
+        # Removing the Heliograph step from Codex fails.
+        stripped = codex_text.replace("### Heliograph messages (between sections)", "### Removed")
+        with self.assertRaises(AssertionError):
+            self._parse_contract(stripped, "codex")
+        # Naming claude in Antigravity fails.
+        with self.assertRaises(AssertionError):
+            self._parse_contract(agy_text.replace("helio hello antigravity", "helio hello claude"), "antigravity")
+        # Moving the poll ahead of shipment fails.
+        before_ci = codex_text.replace("### Heliograph messages (between sections)", "### Moved", 1)
+        before_ci = before_ci.replace("## Step 3: ship the phase, one row at a time\n",
+                                      "## Step 3: ship the phase, one row at a time\n\n### Heliograph messages (between sections)\n", 1)
+        with self.assertRaises(AssertionError):
+            self._parse_contract(before_ci, "codex")
+        # Removing the refusal/exit-3 handling fails.
+        with self.assertRaises(AssertionError):
+            self._parse_contract(codex_text.replace("exit 3", "removed"), "codex")
+        # README names all three channels and qualifies fresh todo-kit install for Claude.
+        readme = (forge.FORGE_ROOT / "kits" / "todo" / "README.md").read_text(encoding="utf-8")
+        for token in (
+            "helio hook claude",
+            "not seeded in a fresh todo-kit install",
+            "helio hello codex",
+            "helio hello antigravity",
+            "helio.conf",
+        ):
+            self.assertIn(token, readme, token)
+
+
 if __name__ == "__main__":
     unittest.main()

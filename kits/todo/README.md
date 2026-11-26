@@ -47,6 +47,8 @@ Antigravity runs `.agents/hooks.json`, checked against `agy` 1.5.5 and its own `
 
 Skills: `add-todo`, `create-todo`, `groom-plan`, `process-phase`, `process-plan`, `process-todo-file`, `process-todo-section`, `review-todo-section`.
 
+Heliograph messaging channels when a project uses Heliograph: Claude Code uses its hook (`helio hook claude` in `.claude/settings.json`, installed project-by-project by Heliograph and not seeded in a fresh todo-kit install), while the Codex (`helio hello codex`) and Antigravity (`helio hello antigravity`) copies of `process-phase` announce once per session and read `helio` between shipped sections when `helio` is on `PATH` and `helio.conf` exists in the repository or a folder above it.
+
 ## Install
 
 ```powershell
