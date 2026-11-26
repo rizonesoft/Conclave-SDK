@@ -32,10 +32,6 @@
     {
       "find": "started on its own ends its guard before the report: `python scripts/campaign_guard.py end --session $CLAUDE_CODE_SESSION_ID --reason closeout`, `CronDelete` the job it names, confirm with `CronList`, then `cancel-confirmed`. A phase ",
       "with": ""
-    },
-    {
-      "find": "## Step 3: ship the phase, one row at a time\n\nIn the generated plan's table order, for each open row:",
-      "with": "## Step 3: ship the phase, one row at a time\n\nUnder Orchestrator (Carbon), Carbon plans one ready section per `exit_plan_mode` handoff, and Hydrogen hands back to Carbon via `enter_plan_mode` after each row's `stamp`, push (when applicable), `merge_prs.py`, and `ci_status.py` check before resolving the next row (whether `Surface` is `yes` or `no`). Mid-section, Hydrogen hands back immediately to Carbon only when (a) a needed design token or shared `Chrome:` control does not exist, (b) the pinned reviewer returns `COMPLETION: gaps` or a `P1` or `P2` architectural or design-contract finding, or (c) Hydrogen fails twice on the same fix.\n\nIn the generated plan's table order, for each open row:"
     }
   ]
 }

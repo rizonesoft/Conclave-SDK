@@ -1077,7 +1077,8 @@ class ForgeProvisionTests(unittest.TestCase):
             for part in ("writes, moves or deletes files outside the repository", "the lock that keeps a second run out",
                          "the durable record of a change in progress", "the ownership check before a file is replaced",
                          "when that record may be removed",
-                         "how a failure and a stop are recovered from that record"):
+                         "how a failure and a stop are recovered from that record",
+                         "leave the final `Commit:` item `[ ]` until `todo-graph.py stamp` ticks it with the Implementation Order row"):
                 self.assertIn(part, pts_text, (agent_dir, part))
             rts_text = (self.target / agent_dir / "skills/review-todo-section/SKILL.md").read_text(encoding="utf-8")
             for part in ("**When a chain cannot settle.**",
@@ -1100,8 +1101,21 @@ class ForgeProvisionTests(unittest.TestCase):
         self.assertIn("scripts/design-lint.py", agy_rule)
         for skill in ("process-plan", "process-phase", "process-todo-section"):
             agy_skill = (self.target / ".agents/skills" / skill / "SKILL.md").read_text(encoding="utf-8")
-            self.assertIn("Orchestrator (Carbon)", agy_skill)
-            self.assertIn("exit_plan_mode", agy_skill)
+            for term in ("Carbon", "Hydrogen", "exit_plan_mode", "enter_plan_mode"):
+                self.assertNotIn(term, agy_skill, (skill, term))
+        agy_plan = (self.target / ".agents/skills/process-plan/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "Audit (below), start the run guard (below), then start `process-phase` on the first phase with a ready row, in this same turn.",
+            agy_plan,
+        )
+        agy_phase = (self.target / ".agents/skills/process-phase/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn(
+            "In the generated plan's table order, for each open row: `process-todo-section`, then `review-todo-section`",
+            agy_phase,
+        )
+        agy_pts = (self.target / ".agents/skills/process-todo-section/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("Processing a section is two jobs, in order. First establish that the plan is sound", agy_pts)
+        self.assertIn("--writer agy", agy_pts)
 
     def test_markdown_table_descriptions_within_88_chars_and_rows_do_not_wrap(self):
         for md in written_files():

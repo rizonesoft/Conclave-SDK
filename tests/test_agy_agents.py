@@ -1655,6 +1655,19 @@ class OrchestratorContractTests(unittest.TestCase):
         with self.assertRaisesRegex(pin.Refused, "manages its own effort and rejects --effort"):
             pin.check_agy_effort("carbon", "gemini-pro-orchestrator-argon", rotation_effort)
 
+    def test_todo_skill_patches_and_generated_agy_copies_have_no_carbon_handoffs(self) -> None:
+        todo_kit = ROOT / "kits" / "todo"
+        forbidden = ("Carbon", "Hydrogen", "exit_plan_mode", "enter_plan_mode")
+        for skill in ("process-plan", "process-phase", "process-todo-section"):
+            patch_path = todo_kit / "skill-patches" / "agents" / skill / "SKILL.md.json"
+            patch_text = patch_path.read_text(encoding="utf-8")
+            for term in forbidden:
+                self.assertNotIn(term, patch_text, f"{term!r} found in {patch_path}")
+            generated_path = todo_kit / "templates" / ".agents" / "skills" / skill / "SKILL.md"
+            generated_text = generated_path.read_text(encoding="utf-8")
+            for term in forbidden:
+                self.assertNotIn(term, generated_text, f"{term!r} found in {generated_path}")
+
 
 def _agy_init_line(model: str = "gemini-pro-orchestrator") -> str:
     """Return an agy 1.5.8 init NDJSON line."""
