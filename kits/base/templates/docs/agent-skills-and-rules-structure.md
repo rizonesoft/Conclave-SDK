@@ -82,5 +82,5 @@ Use the word "rules" carefully:
 ## Subagents and Orchestration
 
 - **Claude Code:** Uses five read-only subagent definitions under `.claude/agents/` (`code-explorer`, `debug-evidence`, `git-runner`, `mutation-tester`, `test-runner`), verified by `node scripts/verify-agent-tiers.mjs`.
-- **Google Antigravity:** Uses native `Orchestrator (Carbon)` (`gemini-pro-orchestrator`), which plans on Carbon (`<plan_execute_protocol>`), hands execution to Hydrogen via `exit_plan_mode`, manages its own effort internally, and delegates via built-in subagents (`self`, `research`, `image-generator`) without `.agents/agents/*.md` files or `scripts/agy-subagent.py`.
+- **Google Antigravity:** Runs Gemini 4 Neon (`gemini-4-neon-medium`) at an explicit `--effort` (for example `--effort=medium`), plans and builds each section in one session, and delegates via built-in subagents (`self`, `research`, `image-generator`) without `.agents/agents/*.md` files or `scripts/agy-subagent.py`.
 - **OpenAI Codex:** Has no project subagent definitions and runs mechanical subtasks in the main session.

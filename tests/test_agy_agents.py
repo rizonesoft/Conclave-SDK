@@ -1123,8 +1123,14 @@ class OrchestratorContractTests(unittest.TestCase):
 
     def test_docs_self_sync_and_review_pin_orchestrator_helpers(self) -> None:
         readme = (KIT_BASE / "README.md").read_text(encoding="utf-8")
-        self.assertIn("### Migrating existing installs to Orchestrator (Carbon)", readme)
-        self.assertIn("### Live verification", readme)
+        subagents_start = readme.index("## Subagents across the three writers")
+        migration_start = readme.index("### Moving Antigravity to Gemini 4 Neon")
+        active_section = readme[subagents_start:migration_start]
+        self.assertIn("agy --model gemini-4-neon-medium --effort=medium", active_section)
+        self.assertNotIn("Carbon", active_section)
+        self.assertNotIn("Hydrogen", active_section)
+        self.assertIn("### Moving Antigravity to Gemini 4 Neon", readme)
+        self.assertIn("### Historical live verification (Orchestrator", readme)
         self.assertIn("--model gemini-pro-orchestrator", readme)
         self.assertIn(".agents/agents/<custom>.md", readme)
         self.assertIn("pre-orchestrator-migration", readme)

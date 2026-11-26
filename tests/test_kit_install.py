@@ -272,6 +272,20 @@ class KitInstallTests(unittest.TestCase):
         self.assert_mode(project, "scripts/design-lint.py", 0o755)
         self.assert_runs(project, "scripts/design-lint.py", "--self-test")
 
+    def test_base_fresh_install_guidance_names_gemini_neon_and_effort(self):
+        project = self.project("fresh-neon")
+        forge.apply_kit(project, "base")
+        for rel in ("AGENTS.md", "GEMINI.md", "CODEX.md", "docs/agent-skills-and-rules-structure.md"):
+            text = (project / rel).read_text(encoding="utf-8")
+            self.assertIn("gemini-4-neon-medium", text, rel)
+            self.assertIn("--effort", text, rel)
+            for stale in ("Carbon", "Hydrogen", "exit_plan_mode"):
+                self.assertNotIn(stale, text, (rel, stale))
+        rule = (project / ".agents/rules/agy-output-and-safety.md").read_text(encoding="utf-8")
+        self.assertIn("Plan and build one TODO section at a time in one session", rule)
+        for stale in ("Carbon", "Hydrogen", "exit_plan_mode"):
+            self.assertNotIn(stale, rule, stale)
+
     # laravel
 
     def test_laravel_keeps_agents_md_and_installs_at_the_app_root(self):
