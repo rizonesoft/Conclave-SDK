@@ -137,7 +137,7 @@ finally:
 Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA) and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents, and refuses symlinks or Windows junctions on any parent or target component):
 
 ```python
-import json, os, pathlib, subprocess, zipfile
+import json, os, pathlib, subprocess, tempfile, zipfile
 
 ref = os.environ.get("RECOVERY_REF", "pre-orchestrator-migration")
 top = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
@@ -161,7 +161,7 @@ def check_no_links(rel: str) -> None:
             raise ValueError(f"link not allowed: {cur}")
 for r in allow:
     check_no_links(r)
-# Validate archive and preload all required bytes BEFORE mutating Git index or worktree.
+# Validate archive, preload all bytes, and prepare merged kits.json BEFORE mutating Git index or worktree.
 with zipfile.ZipFile(src) as z:
     bad = z.testzip()
     if bad is not None:
@@ -171,6 +171,20 @@ present_retired = subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r
 missing = [r for r in present_retired if r not in payload]
 if missing:
     raise KeyError(f"archive missing paths: {missing}")
+merged_kits_bytes = None
+kits_path = top / ".conclave/kits.json"
+if ".conclave/kits.json" in payload:
+    archived_kits = json.loads(payload[".conclave/kits.json"].decode("utf-8"))
+    if kits_path.is_file():
+        current_kits = json.loads(kits_path.read_text(encoding="utf-8"))
+        cur_files = current_kits.setdefault("files", {})
+        arc_files = archived_kits.get("files", {})
+        for r in retired:
+            if r in arc_files:
+                cur_files[r] = arc_files[r]
+        merged_kits_bytes = (json.dumps(current_kits, indent=2) + "\n").encode("utf-8")
+    else:
+        merged_kits_bytes = payload[".conclave/kits.json"]
 if present_retired:
     subprocess.run(["git", "-C", str(top), "-c", "core.autocrlf=false", "checkout", ref, "--", *present_retired], check=True)
 for m in present_retired:
@@ -178,21 +192,16 @@ for m in present_retired:
     target = top / m
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload[m])
-# Restore archived entries for the retired paths into .conclave/kits.json without discarding later kit registrations.
-if ".conclave/kits.json" in payload:
-    kits_path = top / ".conclave/kits.json"
-    archived_kits = json.loads(payload[".conclave/kits.json"].decode("utf-8"))
-    if kits_path.is_file():
-        current_kits = json.loads(kits_path.read_text(encoding="utf-8"))
-        cur_files = current_kits.setdefault("files", {})
-        arc_files = archived_kits.get("files", {})
-        for r in present_retired:
-            if r in arc_files:
-                cur_files[r] = arc_files[r]
-        kits_path.write_text(json.dumps(current_kits, indent=2) + "\n", encoding="utf-8")
-    else:
-        kits_path.parent.mkdir(parents=True, exist_ok=True)
-        kits_path.write_bytes(payload[".conclave/kits.json"])
+if merged_kits_bytes is not None:
+    kits_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_k = tempfile.mkstemp(dir=kits_path.parent, prefix=".kits.", suffix=".tmp")
+    os.close(fd)
+    tmp_p = pathlib.Path(tmp_k)
+    try:
+        tmp_p.write_bytes(merged_kits_bytes)
+        os.replace(tmp_p, kits_path)
+    finally:
+        tmp_p.unlink(missing_ok=True)
 ```
 3. Remove only the six retired SDK paths (and `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
 4. Switch interactive and CLI Antigravity launches to `agy --model gemini-4-neon-medium --effort=medium` (or keep `--model gemini-pro-orchestrator` without `--effort` if staying on Orchestrator compatibility).

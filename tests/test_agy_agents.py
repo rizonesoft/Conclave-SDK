@@ -1157,14 +1157,25 @@ class OrchestratorContractTests(unittest.TestCase):
                 expected_pre_bytes["scripts/agy-subagent.py"],
             )
 
-            # Edit retained custom agent AND register a later kit in .conclave/kits.json AFTER migration;
-            # rollback from subdir must preserve both the custom-agent edit and the later kit registration.
+            # Reset the earlier plain-checkout demo file so all 6 retired paths are absent before corrupt-manifest check.
+            _git("reset", "--hard", "HEAD")
+            # Edit retained custom agent AND register a valid later kit entry in .conclave/kits.json AFTER migration;
+            # first verify a truncated kits.json fails rollback BEFORE mutating Git index or worktree.
             post_migration_custom = custom_text + "# post-migration edit\n"
             custom_agent.write_text(post_migration_custom, encoding="utf-8")
+            later_doc = project / "docs" / "later-kit.md"
+            later_doc.parent.mkdir(parents=True, exist_ok=True)
+            later_doc.write_bytes(b"later\n")
+            later_sha = hashlib.sha256(b"later\n").hexdigest()
             later_kits = json.loads(kits_file.read_text(encoding="utf-8"))
-            later_kits.setdefault("files", {})["docs/later-kit.md"] = {"kit": "todo", "sha256": "deadbeef"}
-            kits_file.write_text(json.dumps(later_kits, indent=2) + "\n", encoding="utf-8")
+            later_kits.setdefault("files", {})["docs/later-kit.md"] = {"kit": "todo", "sha256": later_sha}
+            kits_file.write_text("{truncated", encoding="utf-8")
+            bad_rb = subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), capture_output=True, text=True)
+            self.assertNotEqual(bad_rb.returncode, 0)
+            for rel in retired_paths:
+                self.assertFalse((project / rel).exists(), f"corrupt manifest mutated worktree: {rel}")
 
+            kits_file.write_text(json.dumps(later_kits, indent=2) + "\n", encoding="utf-8")
             subprocess.run(
                 [sys.executable, "-c", restore_script],
                 cwd=str(subdir),
@@ -1174,12 +1185,16 @@ class OrchestratorContractTests(unittest.TestCase):
                 self.assertTrue((project / rel).is_file(), f"rollback did not restore {rel}")
                 self.assertEqual((project / rel).read_bytes(), raw_bytes, f"byte mismatch on {rel}")
             restored_kits = json.loads(kits_file.read_text(encoding="utf-8"))
-            self.assertEqual(restored_kits["files"]["docs/later-kit.md"], {"kit": "todo", "sha256": "deadbeef"})
+            self.assertEqual(restored_kits["files"]["docs/later-kit.md"], {"kit": "todo", "sha256": later_sha})
             for rel in retired_paths:
                 self.assertEqual(restored_kits["files"][rel], kits_data["files"][rel])
             self.assertEqual(custom_agent.read_text(encoding="utf-8"), post_migration_custom)
+            # Forge must accept the restored manifest cleanly.
+            post_rb_doctor = _run_forge(["doctor", str(project), "base"], check=False)
+            self.assertEqual(post_rb_doctor.returncode, 0, post_rb_doctor.stdout + post_rb_doctor.stderr)
 
-            # Partial-install rollback: remove one wrapper BEFORE backup, commit cleanup, then rollback from subdir.
+            # Partial-install rollback: remove one wrapper BEFORE backup (keeping its kits.json entry),
+            # remove all 6 retired registrations during cleanup, then rollback from subdir.
             (project / ".agents/agents/test-runner.md").unlink()
             _git("add", "-A")
             _git("commit", "-m", "chore: partial pre-migration baseline")
@@ -1189,6 +1204,10 @@ class OrchestratorContractTests(unittest.TestCase):
             for rel in retired_paths:
                 if (project / rel).exists():
                     (project / rel).unlink()
+            partial_kits = json.loads(kits_file.read_text(encoding="utf-8"))
+            for rel in retired_paths:
+                partial_kits["files"].pop(rel, None)
+            kits_file.write_text(json.dumps(partial_kits, indent=2) + "\n", encoding="utf-8")
             _git("add", "-A")
             _git("commit", "-m", "chore: partial cleanup")
             partial_env = os.environ.copy()
@@ -1199,10 +1218,49 @@ class OrchestratorContractTests(unittest.TestCase):
                 (project / ".agents/agents/code-explorer.md").read_bytes(),
                 expected_pre_bytes[".agents/agents/code-explorer.md"],
             )
+            restored_partial_kits = json.loads(kits_file.read_text(encoding="utf-8"))
+            self.assertIn(".agents/agents/test-runner.md", restored_partial_kits["files"])
             self.assertEqual(
                 preserved_agent.read_bytes(),
                 expected_pre_bytes[".agents/agents/code-explorer.md"],
             )
+
+            # Junction (Windows) / symlink (POSIX) parent-directory refusal before backup or rollback mutation.
+            shared_dir = Path(tmp) / "shared-agents"
+            shared_dir.mkdir()
+            sentinel = shared_dir / "code-explorer.md"
+            sentinel.write_bytes(b"shared-secret\n")
+            shutil.rmtree(project / ".agents/agents")
+            link_target = project / ".agents/agents"
+            if os.name == "nt":
+                subprocess.run(
+                    ["cmd", "/c", "mklink", "/J", str(link_target), str(shared_dir)],
+                    check=True,
+                    capture_output=True,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            else:
+                os.symlink(str(shared_dir), str(link_target), target_is_directory=True)
+            try:
+                archive_path.unlink()
+                j_bk = subprocess.run([sys.executable, "-c", archive_script], cwd=str(subdir), env=opt_env, capture_output=True, text=True)
+                self.assertNotEqual(j_bk.returncode, 0)
+                self.assertFalse(archive_path.exists())
+                # Create a dummy zip so rollback must refuse at check_no_links before touching shared_dir.
+                with zipfile.ZipFile(archive_path, "w") as zf:
+                    zf.writestr(".agents/agents/code-explorer.md", b"overwritten\n")
+                j_rb = subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), env=partial_env, capture_output=True, text=True)
+                self.assertNotEqual(j_rb.returncode, 0)
+                self.assertEqual(sentinel.read_bytes(), b"shared-secret\n")
+            finally:
+                if os.name == "nt":
+                    subprocess.run(
+                        ["cmd", "/c", "rmdir", str(link_target)],
+                        capture_output=True,
+                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    )
+                else:
+                    link_target.unlink(missing_ok=True)
 
     def test_docs_self_sync_and_review_pin_orchestrator_helpers(self) -> None:
         readme = (KIT_BASE / "README.md").read_text(encoding="utf-8")
