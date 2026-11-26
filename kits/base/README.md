@@ -134,7 +134,7 @@ finally:
     tmp.unlink(missing_ok=True)
 ```
 
-Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup runs with no other Forge or Git writer active in the checkout, sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA), and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents and later kit registrations, detects concurrent manifest edits before publishing, and refuses symlinks or Windows junctions on any parent or target component):
+Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup runs with no other Forge or Git writer active in the checkout, sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA), and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents and later kit registrations, includes a best-effort pre-publish manifest check alongside the single-writer requirement, and refuses symlinks or Windows junctions on any parent or target component):
 
 ```python
 import json, os, pathlib, subprocess, tempfile, zipfile
@@ -189,11 +189,12 @@ if ".conclave/kits.json" in payload:
         merged_kits_bytes = payload[".conclave/kits.json"]
 if present_retired:
     subprocess.run(["git", "-C", str(top), "-c", "core.autocrlf=false", "checkout", ref, "--", *present_retired], check=True)
-for m in present_retired:
-    check_no_links(m)
-    target = top / m
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(payload[m])
+for m in retired:
+    if m in payload:
+        check_no_links(m)
+        target = top / m
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload[m])
 if merged_kits_bytes is not None:
     if orig_kits_bytes is not None and (not kits_path.is_file() or kits_path.read_bytes() != orig_kits_bytes):
         raise RuntimeError(".conclave/kits.json changed concurrently during rollback; re-run with no other writer active")

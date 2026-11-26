@@ -1193,9 +1193,12 @@ class OrchestratorContractTests(unittest.TestCase):
             post_rb_diff = _run_forge(["diff", str(project), "base"], check=False)
             self.assertEqual(post_rb_diff.returncode, 0, post_rb_diff.stdout + post_rb_diff.stderr)
 
-            # Partial-install rollback: remove one wrapper BEFORE backup (keeping its kits.json entry),
-            # remove all 6 retired registrations during cleanup, then rollback from subdir.
+            # Partial + ignored-wrapper rollback: remove test-runner.md before backup, and make git-runner.md
+            # gitignored/untracked (present on disk and archived, absent from git ls-tree); remove all 6 registrations
+            # on cleanup, then rollback from subdir and verify git-runner.md returns byte-for-byte and stays untracked.
             (project / ".agents/agents/test-runner.md").unlink()
+            _git("rm", "--cached", ".agents/agents/git-runner.md")
+            (project / ".gitignore").write_text(".agents/agents/git-runner.md\n", encoding="utf-8")
             _git("add", "-A")
             _git("commit", "-m", "chore: partial pre-migration baseline")
             partial_sha = _git("rev-parse", "HEAD").stdout.strip()
@@ -1217,6 +1220,14 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertEqual(
                 (project / ".agents/agents/code-explorer.md").read_bytes(),
                 expected_pre_bytes[".agents/agents/code-explorer.md"],
+            )
+            self.assertEqual(
+                (project / ".agents/agents/git-runner.md").read_bytes(),
+                expected_pre_bytes[".agents/agents/git-runner.md"],
+            )
+            self.assertEqual(
+                _git("ls-files", ".agents/agents/git-runner.md").stdout.strip(),
+                "",
             )
             restored_partial_kits = json.loads(kits_file.read_text(encoding="utf-8"))
             self.assertIn(".agents/agents/test-runner.md", restored_partial_kits["files"])
