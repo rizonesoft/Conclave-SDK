@@ -1221,9 +1221,34 @@ class OrchestratorContractTests(unittest.TestCase):
             _git("commit", "-m", "chore: partial cleanup")
             partial_env = os.environ.copy()
             partial_env["RECOVERY_REF"] = partial_sha
-            # Hard-link git-runner.md to custom_agent before rollback: atomic os.replace must preserve custom_agent.
-            os.link(custom_agent, project / ".agents/agents/git-runner.md")
+            # Refusal on uncommitted edit: a differing existing gitignored wrapper must stop rollback before any
+            # Git checkout or wrapper replacement, leaving the edit and Git index untouched.
+            edited_bytes = b"# uncommitted local edit\n"
+            (project / ".agents/agents/git-runner.md").write_bytes(edited_bytes)
+            stage_before_edit_refusal = _git("ls-files", "--stage").stdout
+            edit_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(edit_refusal.returncode, 0, "rollback must refuse differing existing wrapper")
+            self.assertIn("git-runner.md", edit_refusal.stderr)
+            self.assertEqual((project / ".agents/agents/git-runner.md").read_bytes(), edited_bytes)
+            self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_edit_refusal)
+            (project / ".agents/agents/git-runner.md").unlink()
+            # Hard-link safety: when an existing matching wrapper shares an inode with another file, atomic
+            # os.replace must publish a fresh inode rather than writing through the hard link.
+            linked_copy = project / ".agents/agents/preserved-hardlink.md"
+            linked_copy.write_bytes(expected_pre_bytes[".agents/agents/git-runner.md"])
+            os.link(linked_copy, project / ".agents/agents/git-runner.md")
+            self.assertEqual(linked_copy.stat().st_ino, (project / ".agents/agents/git-runner.md").stat().st_ino)
             subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), env=partial_env, check=True)
+            self.assertNotEqual(linked_copy.stat().st_ino, (project / ".agents/agents/git-runner.md").stat().st_ino)
+            linked_copy.unlink()
             self.assertFalse((project / ".agents/agents/test-runner.md").exists())
             self.assertEqual(
                 (project / ".agents/agents/code-explorer.md").read_bytes(),

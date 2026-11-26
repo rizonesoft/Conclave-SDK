@@ -191,6 +191,15 @@ if ".conclave/kits.json" in payload:
     else:
         kits_mode = modes.get(".conclave/kits.json") or 0o644
         merged_kits_bytes = payload[".conclave/kits.json"]
+for m in retired:
+    if m in payload:
+        target = top / m
+        if target.exists():
+            same_bytes = target.is_file() and target.read_bytes() == payload[m]
+            same_mode = (os.name == "nt" or not modes.get(m)
+                         or (target.stat().st_mode & 0o777) == modes[m])
+            if not (same_bytes and same_mode):
+                raise RuntimeError(f"existing path differs from archive: {target}")
 if present_retired:
     subprocess.run(["git", "-C", str(top), "-c", "core.autocrlf=false", "checkout", ref, "--", *present_retired], check=True)
 for m in retired:
