@@ -1,0 +1,93 @@
+{
+  "ref": "D00 T04 \u00a71",
+  "title": "Base kit guidance names Gemini 4 Neon",
+  "implementation_sha": "1e9d7f161c88bf19d33cde39a299a06883997aa3",
+  "date": "2026-11-26",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T04-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "CI tests.yml at 1e9d7f161c88 green (7/7 jobs): https://github.com/rizonesoft/Conclave-SDK/actions/runs/45788094189",
+    "git grep -nE 'Carbon|Hydrogen|exit_plan_mode' -- kits/base/templates -> 0 matches",
+    "python -m unittest tests.test_agy_agents -> Ran 14 tests OK (skipped=3)",
+    "python -m unittest tests.test_forge -k markdown_table -> Ran 1 test OK"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T04-s1.md",
+    "verdict": "filed",
+    "candidate": "1e9d7f161c88bf19d33cde39a299a06883997aa3",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D06 T04 \u00a71"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T04-s1.md",
+    "candidate": "6a3d3fed9c58cbf8f5d9d2e035101bdbcac4384c",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "6a3d3fed9c58cbf8f5d9d2e035101bdbcac4384c",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 25,
+  "pass_cap": 33
+}

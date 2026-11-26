@@ -33,7 +33,7 @@ title: "TODO-04 -- Gemini 4 Neon replaces Orchestrator (Carbon)"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Base kit guidance names Gemini 4 Neon | -- | [ ] |
+| 1 | §1 | Base kit guidance names Gemini 4 Neon | -- | [x] |
 | 2 | §2 | Antigravity TODO skills without Carbon handoffs | §1 | [ ] |
 | 3 | §3 | Reviewer pin accepts Neon with an effort | -- | [ ] |
 | 4 | §4 | Unattended profile runs Neon with its effort | -- | [ ] |
@@ -61,9 +61,12 @@ The base kit tells every agent how Antigravity works. Today it describes Orchest
 - [x] Rewrite the Antigravity entry in `kits/base/templates/docs/agent-skills-and-rules-structure.md`. Done when: it names `gemini-4-neon-medium`, explicit `--effort`, and built-in subagents without Carbon/Hydrogen/`exit_plan_mode`.
 - [x] Update `kits/base/README.md`: (a) rewrite "Subagents across the three writers" (`:68-72`) so active Antigravity guidance uses `agy --model gemini-4-neon-medium --effort=medium` with built-in subagents (`self`, `research`, `image-generator`); (b) replace "Migrating existing installs to Orchestrator (Carbon)" (`:74-91`) with "Moving Antigravity to Gemini 4 Neon" covering launch flags, explicit effort, reversible cleanup of retired `.agents/agents/` wrappers, and compatibility note that `gemini-pro-orchestrator` still runs without `--effort`; (c) label the 2026-11-14 live verification block (`:93-99`) clearly as historical Orchestrator (`agy` 1.5.8) evidence. Done when: active launch guidance shows `agy --model gemini-4-neon-medium --effort=medium` in its own section and Orchestrator appears only in compatibility and historical-evidence notes. **Corrected 2026-11-26 (plan review):** added active launch paragraph and historical-evidence labeling; removed duplicate Claude-agent tier-check item.
 - [x] Run `python forge.py self-sync` and update the coupled tests: (a) extend a fresh-install test in `tests/test_kit_install.py` to read back `AGENTS.md`, `GEMINI.md`, `CODEX.md`, and `docs/agent-skills-and-rules-structure.md` and assert `gemini-4-neon-medium` and `--effort` (with no Carbon/Hydrogen/`exit_plan_mode`); (b) update `tests/test_agy_agents.py:1124-1150` to verify the active Neon launch command inside its own section and the new migration heading while keeping cleanup/wrapper/structure assertions; (c) update `tests/test_forge.py:1096` to assert the positive single-writer Neon workflow in `.agents/rules/agy-output-and-safety.md` (keeping lines 1100-1101 for TODO skills until §2). Done when: `python -m unittest tests.test_kit_install tests.test_agy_agents` and `python -m unittest tests.test_forge -k micro_todo_and_complete_plan -k the_sdk_uses_the_agent_setup -k markdown_table` pass. **Corrected 2026-11-26 (plan review):** exact `-k` selectors and positive Neon assertions.
-- [ ] Commit: `base: Antigravity guidance names Gemini 4 Neon at an explicit effort (D00 T04 §1)`
+- [x] Commit: `base: Antigravity guidance names Gemini 4 Neon at an explicit effort (D00 T04 §1)`
 
 **Test checkpoint:** `git grep -nE "Carbon|Hydrogen|exit_plan_mode" -- kits/base/templates` prints nothing, and `python -m unittest tests.test_kit_install` ends `OK`.
+
+> **Verified:** 2026-11-26 | §1 | 1e9d7f161c88bf19d33cde39a299a06883997aa3
+> **Review:** `docs/reviews/d00-t04-s1.json`
 
 ## 2. Antigravity TODO skills without Carbon handoffs
 
