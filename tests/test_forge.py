@@ -5606,7 +5606,7 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
             "if present, repair `helio-ref:` and retain the claim; only if absent, run the same `helio show <id>` holder check",
             "if `taken by` another lane, never call `helio release <id>`",
             "on `/owner`, never issue an unverified override release and keep `release-pending` for `## Closeout`",
-            "first close any `Heliograph: <id>` declared as a standalone line in the just-shipped section body and any un-answered `done-pending` ID from the run file with `helio done <id>`",
+            "if `command -v helio` (or `Get-Command helio -ErrorAction SilentlyContinue` in PowerShell) succeeds and a regular `helio.conf` file is found in the repository or a folder above it, first close any `Heliograph: <id>` declared as a standalone line in the just-shipped section body and any un-answered `done-pending` ID from the run file with `helio done <id>`",
             "helio done <id>",
             "if `helio-answered: <id>` is not yet in the run file send `helio answer <id> \"Shipped <ref>\"` once",
             "ignore and never read, log, or commit any legacy `build/heliograph-claims.json`",
@@ -5897,6 +5897,8 @@ sys.exit(2)
                 sec_m = re.match(r"^## (\d+)\.", line)
                 if sec_m:
                     current_sec = sec_m.group(1)
+                elif line.startswith("## "):
+                    current_sec = None
                 elif current_sec and line_pat.fullmatch(line):
                     return f"D{dom_num} T{todo_num} §{current_sec}"
         return None
@@ -5981,11 +5983,25 @@ sys.exit(2)
                 sec_m = re.match(r"^## (\d+)\.", line)
                 if sec_m:
                     current_sec = sec_m.group(1)
+                elif line.startswith("## "):
+                    current_sec = None
                 elif current_sec == sec_num:
                     mm = line_pat.fullmatch(line)
                     if mm:
                         found.append(mm.group(1))
         return found
+
+    @staticmethod
+    def _is_helio_active(repo: pathlib.Path, env: dict[str, str]) -> bool:
+        if shutil.which("helio", path=env.get("PATH", "")) is None:
+            return False
+        cur = repo.resolve()
+        while True:
+            if (cur / "helio.conf").is_file():
+                return True
+            if cur.parent == cur:
+                return False
+            cur = cur.parent
 
     def _walk_boundary(
         self,
@@ -5999,6 +6015,8 @@ sys.exit(2)
         filing_plan: dict[str, dict],
     ) -> None:
         """Drive one post-shipment Step 3 boundary using disk-persisted run_file and todo/ state."""
+        if not self._is_helio_active(repo, env):
+            return
         is_win = os.name == "nt"
         lane = env.get("HELIO_TEST_LANE", "proj/codex")
         is_owner_lane = lane.endswith("/owner")
@@ -6255,6 +6273,7 @@ sys.exit(2)
                 ("removed exit-3 handling", tpl_text.replace("exit 2 (refused) or exit 3 (damaged store)", "exit 2 only")),
                 ("empty session flag", tpl_text + "\nhelio take m1 --session \"\"\n"),
                 ("pending-only close", tpl_text.replace("first close any `Heliograph: <id>` declared as a standalone line in the just-shipped section body and any un-answered `done-pending` ID", "first close only previously pending `done-pending` IDs")),
+                ("inbox-only guard", tpl_text.replace("if `command -v helio` (or `Get-Command helio -ErrorAction SilentlyContinue` in PowerShell) succeeds and a regular `helio.conf` file is found in the repository or a folder above it, first close any `Heliograph: <id>`", "first close any `Heliograph: <id>`")),
                 ("missing Step 4 final done", tpl_text.replace("make one final `helio done <id>` attempt", "only for IDs without a recorded answer make one final `helio done <id>` attempt")),
             ]
             for label, mutated in mutations:
@@ -6274,11 +6293,13 @@ sys.exit(2)
             d2 = troot / "02-unattended"
             d2.mkdir(parents=True)
             (d2 / "TODO-03-demo.md").write_text(
-                "## 4. Wrapped\n\nHeliograph:\nm_wrap\n\n## 5. Real\n\nHeliograph: m_real\n",
+                "## 4. Wrapped\n\nHeliograph:\nm_wrap\n\n## 5. Real\n\nHeliograph: m_real\n\n## Verification\n\nHeliograph: m_in_verif\n",
                 encoding="utf-8",
             )
             self.assertIsNone(self._find_marker_ref(troot, "m_wrap"))
+            self.assertIsNone(self._find_marker_ref(troot, "m_in_verif"))
             self.assertEqual(self._find_marker_ref(troot, "m_real"), "D02 T03 §5")
+            self.assertEqual(self._extract_section_markers(troot, "D02 T03 §5"), ["m_real"])
 
     def test_disk_backed_walkthrough_and_platform_guards(self):
         """Exercise real fenced guards, disk-persisted pending recovery, privacy, and holder checks."""
@@ -6327,12 +6348,15 @@ sys.exit(2)
                 env["HELIO_TEST_LANE"] = f"proj/{agent}"
                 env["HELIO_SESSION"] = "SECRET-SESSION-ID-777"
 
-                # 1a. Missing helio.conf anywhere in ancestry: both Step 0 and Step 3 are no-op (exit 0)
+                # 1a. Missing helio.conf anywhere in ancestry: Step 0, Step 3 fence, and full boundary (with shipped marker + pending claim) are no-op
                 state_file.write_text(json.dumps({"messages": [], "calls": [], "overrides": {}}), encoding="utf-8")
                 step0_fence = contract["step0_ps"] if is_win else contract["step0_sh"]
                 step3_fence = contract["step3_ps"] if is_win else contract["step3_sh"]
                 self.assertEqual(self._run_guard_fence(step0_fence, repo, env, is_win).returncode, 0)
                 self.assertEqual(self._run_guard_fence(step3_fence, repo, env, is_win).returncode, 0)
+                noop_run = repo / "docs" / "phase-runs" / "noop-run.md"
+                noop_run.write_text("# Noop\n- helio m_pending_noop: release-pending\n", encoding="utf-8")
+                self._walk_boundary(contract, repo, noop_run, env, "D01 T02 §1", set(), set(), {})
                 self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
 
                 # 1b. Directory named helio.conf must NOT activate EITHER Step 0 or Step 3 guard
