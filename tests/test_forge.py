@@ -6055,7 +6055,11 @@ sys.exit(2)
             all_res = self._run_helio_cmd(["--all"], repo, env)
             if all_res.returncode in (2, 3):
                 log_err_once("inbox-all", all_res.returncode)
-            lines = self._parse_helio_lines(all_res.stdout)
+            seen_ids = {item["id"] for item in lines}
+            for extra in self._parse_helio_lines(all_res.stdout):
+                if extra["id"] not in seen_ids:
+                    seen_ids.add(extra["id"])
+                    lines.append(extra)
 
         for item in lines:
             mid = item["id"]
@@ -6324,7 +6328,8 @@ sys.exit(2)
                     "messages": [
                         {"id": "m_info", "kind": "headsup", "state": "open", "subject": "FYI", "body": "PRIVATE-BODY-1"},
                         {"id": "m_find", "kind": "finding", "state": "open", "subject": "Note", "body": "PRIVATE-BODY-2"},
-                        {"id": "m_badshow", "kind": "request", "state": "open", "subject": "Same", "body": "IN_SCOPE"},
+                        {"id": "m_badshow", "kind": "request", "state": "open", "subject": "BadShow", "body": "IN_SCOPE"},
+                        {"id": "m_same_in", "kind": "request", "state": "open", "subject": "Same", "body": "IN_SCOPE"},
                         {"id": "m_out", "kind": "request", "state": "open", "subject": "Same", "body": "OUT_OF_SCOPE PRIVATE-BODY-3"},
                         {"id": "m_open_cov", "kind": "request", "state": "open", "subject": "Open", "body": "IN_SCOPE"},
                         {"id": "m_shipped_cov", "kind": "request", "state": "open", "subject": "Shipped", "body": "IN_SCOPE"},
@@ -6371,6 +6376,7 @@ sys.exit(2)
                 with self.assertRaises(ValueError):
                     _extract_shipped_bytes(todo_file.read_bytes().replace(b"\n## 2. Shipped [x]", b"\n### 2. Shipped [x]"))
                 filing_plan = {
+                    "m_same_in": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 9, "ref": "D01 T01 §9"},
                     "m_open_cov": {"covered_open": True, "todo_rel": "todo/01-core/TODO-01-sample.md", "ref": "D01 T01 §1"},
                     "m_shipped_cov": {"covered_shipped": True},
                     "m_incidental": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 3, "ref": "D01 T01 §3"},
@@ -6420,6 +6426,7 @@ sys.exit(2)
                 self.assertEqual(by_id["m_info"]["state"], "open")
                 self.assertEqual(by_id["m_find"]["state"], "open")
                 self.assertEqual(by_id["m_badshow"]["state"], "open")
+                self.assertEqual(by_id["m_same_in"]["state"], "taken")
                 self.assertEqual(by_id["m_out"]["state"], "open")
                 self.assertEqual(by_id["m_open_cov"]["state"], "taken")
                 self.assertEqual(by_id["m_shipped_cov"]["state"], "open")
@@ -6442,6 +6449,9 @@ sys.exit(2)
                 self.assertIn("- helio m_info: info", run_text)
                 self.assertIn("- helio m_find: info", run_text)
                 self.assertIn("- helio-ref: m_after_mark -> D01 T01 §4", run_text)
+                self.assertEqual(self._find_marker_ref(repo / "todo", "m_open_cov"), "D01 T01 §1")
+                self.assertEqual(self._find_marker_ref(repo / "todo", "m_same_in"), "D01 T01 §9")
+                self.assertEqual(len(re.findall(r"(?m)^## \d+\.", todo_text)), 6)
                 self.assertIn("- done-pending: m_other_done (D01 T01 §1)", run_text)
                 self.assertIn("- helio m_shipped_cov: skipped", run_text)
                 self.assertEqual(_extract_shipped_bytes(todo_file.read_bytes()), shipped_bytes_before)
