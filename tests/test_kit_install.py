@@ -275,16 +275,21 @@ class KitInstallTests(unittest.TestCase):
     def test_base_fresh_install_guidance_names_gemini_neon_and_effort(self):
         project = self.project("fresh-neon")
         forge.apply_kit(project, "base")
-        for rel in ("AGENTS.md", "GEMINI.md", "CODEX.md", "docs/agent-skills-and-rules-structure.md"):
+        for rel in (
+            "AGENTS.md",
+            "GEMINI.md",
+            "CODEX.md",
+            "docs/agent-skills-and-rules-structure.md",
+            ".agents/rules/agy-output-and-safety.md",
+        ):
             text = (project / rel).read_text(encoding="utf-8")
             self.assertIn("gemini-4-neon-medium", text, rel)
             self.assertIn("--effort", text, rel)
             for stale in ("Carbon", "Hydrogen", "exit_plan_mode"):
                 self.assertNotIn(stale, text, (rel, stale))
         rule = (project / ".agents/rules/agy-output-and-safety.md").read_text(encoding="utf-8")
-        self.assertIn("Plan and build one TODO section at a time in one session", rule)
-        for stale in ("Carbon", "Hydrogen", "exit_plan_mode"):
-            self.assertNotIn(stale, rule, stale)
+        self.assertIn("plan and build one TODO section at a time in one session", rule)
+        self.assertIn("revisit the plan whenever", rule)
 
     # laravel
 
