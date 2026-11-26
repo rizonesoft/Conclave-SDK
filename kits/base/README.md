@@ -134,7 +134,7 @@ finally:
     tmp.unlink(missing_ok=True)
 ```
 
-Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA) and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents, and refuses symlinks or Windows junctions on any parent or target component):
+Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup runs with no other Forge or Git writer active in the checkout, sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA), and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents and later kit registrations, detects concurrent manifest edits before publishing, and refuses symlinks or Windows junctions on any parent or target component):
 
 ```python
 import json, os, pathlib, subprocess, tempfile, zipfile
@@ -172,11 +172,13 @@ missing = [r for r in present_retired if r not in payload]
 if missing:
     raise KeyError(f"archive missing paths: {missing}")
 merged_kits_bytes = None
+orig_kits_bytes = None
 kits_path = top / ".conclave/kits.json"
 if ".conclave/kits.json" in payload:
     archived_kits = json.loads(payload[".conclave/kits.json"].decode("utf-8"))
     if kits_path.is_file():
-        current_kits = json.loads(kits_path.read_text(encoding="utf-8"))
+        orig_kits_bytes = kits_path.read_bytes()
+        current_kits = json.loads(orig_kits_bytes.decode("utf-8"))
         cur_files = current_kits.setdefault("files", {})
         arc_files = archived_kits.get("files", {})
         for r in retired:
@@ -193,6 +195,8 @@ for m in present_retired:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(payload[m])
 if merged_kits_bytes is not None:
+    if orig_kits_bytes is not None and (not kits_path.is_file() or kits_path.read_bytes() != orig_kits_bytes):
+        raise RuntimeError(".conclave/kits.json changed concurrently during rollback; re-run with no other writer active")
     kits_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_k = tempfile.mkstemp(dir=kits_path.parent, prefix=".kits.", suffix=".tmp")
     os.close(fd)

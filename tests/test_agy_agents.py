@@ -1159,23 +1159,22 @@ class OrchestratorContractTests(unittest.TestCase):
 
             # Reset the earlier plain-checkout demo file so all 6 retired paths are absent before corrupt-manifest check.
             _git("reset", "--hard", "HEAD")
-            # Edit retained custom agent AND register a valid later kit entry in .conclave/kits.json AFTER migration;
+            # Edit retained custom agent AND install a real second kit (reviewer) through Forge AFTER migration;
             # first verify a truncated kits.json fails rollback BEFORE mutating Git index or worktree.
             post_migration_custom = custom_text + "# post-migration edit\n"
             custom_agent.write_text(post_migration_custom, encoding="utf-8")
-            later_doc = project / "docs" / "later-kit.md"
-            later_doc.parent.mkdir(parents=True, exist_ok=True)
-            later_doc.write_bytes(b"later\n")
-            later_sha = hashlib.sha256(b"later\n").hexdigest()
-            later_kits = json.loads(kits_file.read_text(encoding="utf-8"))
-            later_kits.setdefault("files", {})["docs/later-kit.md"] = {"kit": "todo", "sha256": later_sha}
+            later_install = _run_forge(["kit", str(project), "reviewer"], check=False)
+            self.assertEqual(later_install.returncode, 0, later_install.stdout + later_install.stderr)
+            valid_later_kits_bytes = kits_file.read_bytes()
+            stage_before_corrupt = _git("ls-files", "--stage").stdout
             kits_file.write_text("{truncated", encoding="utf-8")
             bad_rb = subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), capture_output=True, text=True)
             self.assertNotEqual(bad_rb.returncode, 0)
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_corrupt)
             for rel in retired_paths:
                 self.assertFalse((project / rel).exists(), f"corrupt manifest mutated worktree: {rel}")
 
-            kits_file.write_text(json.dumps(later_kits, indent=2) + "\n", encoding="utf-8")
+            kits_file.write_bytes(valid_later_kits_bytes)
             subprocess.run(
                 [sys.executable, "-c", restore_script],
                 cwd=str(subdir),
@@ -1185,13 +1184,14 @@ class OrchestratorContractTests(unittest.TestCase):
                 self.assertTrue((project / rel).is_file(), f"rollback did not restore {rel}")
                 self.assertEqual((project / rel).read_bytes(), raw_bytes, f"byte mismatch on {rel}")
             restored_kits = json.loads(kits_file.read_text(encoding="utf-8"))
-            self.assertEqual(restored_kits["files"]["docs/later-kit.md"], {"kit": "todo", "sha256": later_sha})
+            self.assertIn("reviewer", restored_kits["kits"])
+            self.assertIn(".conclave/reviewers.toml", restored_kits["files"])
             for rel in retired_paths:
                 self.assertEqual(restored_kits["files"][rel], kits_data["files"][rel])
             self.assertEqual(custom_agent.read_text(encoding="utf-8"), post_migration_custom)
-            # Forge must accept the restored manifest cleanly.
-            post_rb_doctor = _run_forge(["doctor", str(project), "base"], check=False)
-            self.assertEqual(post_rb_doctor.returncode, 0, post_rb_doctor.stdout + post_rb_doctor.stderr)
+            # Forge diff loads and validates .conclave/kits.json via _check_record.
+            post_rb_diff = _run_forge(["diff", str(project), "base"], check=False)
+            self.assertEqual(post_rb_diff.returncode, 0, post_rb_diff.stdout + post_rb_diff.stderr)
 
             # Partial-install rollback: remove one wrapper BEFORE backup (keeping its kits.json entry),
             # remove all 6 retired registrations during cleanup, then rollback from subdir.
@@ -1242,15 +1242,17 @@ class OrchestratorContractTests(unittest.TestCase):
             else:
                 os.symlink(str(shared_dir), str(link_target), target_is_directory=True)
             try:
+                valid_partial_archive = archive_path.read_bytes()
                 archive_path.unlink()
                 j_bk = subprocess.run([sys.executable, "-c", archive_script], cwd=str(subdir), env=opt_env, capture_output=True, text=True)
                 self.assertNotEqual(j_bk.returncode, 0)
+                self.assertIn("link not allowed", j_bk.stderr)
                 self.assertFalse(archive_path.exists())
-                # Create a dummy zip so rollback must refuse at check_no_links before touching shared_dir.
-                with zipfile.ZipFile(archive_path, "w") as zf:
-                    zf.writestr(".agents/agents/code-explorer.md", b"overwritten\n")
+                # Keep the valid partial-install archive so rollback must fail specifically at check_no_links.
+                archive_path.write_bytes(valid_partial_archive)
                 j_rb = subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), env=partial_env, capture_output=True, text=True)
                 self.assertNotEqual(j_rb.returncode, 0)
+                self.assertIn("link not allowed", j_rb.stderr)
                 self.assertEqual(sentinel.read_bytes(), b"shared-secret\n")
             finally:
                 if os.name == "nt":
