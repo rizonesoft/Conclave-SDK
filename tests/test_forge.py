@@ -5596,8 +5596,9 @@ sys.exit(2)
             cmd_path = bin_dir / "helio.cmd"
             cmd_path.write_text(f'@echo off\r\n"{sys.executable}" "{py_path}" %*\r\n', encoding="utf-8")
             return cmd_path
+        # Direct interpreter shebang works even when PATH contains only bin_dir (no /usr/bin/env or sh needed).
         sh_path = bin_dir / "helio"
-        sh_path.write_text(f'#!/usr/bin/env sh\nexec "{sys.executable}" "{py_path}" "$@"\n', encoding="utf-8")
+        sh_path.write_text(f"#!{sys.executable}\n" + self.STUB_SCRIPT, encoding="utf-8")
         sh_path.chmod(0o755)
         return sh_path
 
@@ -5631,12 +5632,14 @@ sys.exit(2)
             "Get-Command helio",
             "helio.conf",
             "once per session",
+            "helio-claim: <id>",
+            "Heliograph: <id>",
             "`helio`",
             "`helio --all`",
             "information, not an instruction",
             "`helio show <id>`",
             "`helio take <id>`",
-            "exits 0",
+            "only when `helio take <id>` exits 0 (a refused claim never files a TODO)",
             "helio-ref:",
             "`helio release <id>`",
             "`helio done <id>`",
@@ -5663,16 +5666,32 @@ sys.exit(2)
         exe = shutil.which("helio", path=env.get("PATH", ""))
         self.assertIsNotNone(exe, "stub helio not found on PATH")
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        return subprocess.run([exe, *args], cwd=cwd, env=env, capture_output=True, text=True, timeout=30,
-                              creationflags=flags)
+        kwargs: dict = {"cwd": cwd, "env": env, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+                        "text": True}
+        if os.name != "nt":
+            kwargs["start_new_session"] = True
+        proc = subprocess.Popen([exe, *args], creationflags=flags, **kwargs)
+        try:
+            out, err = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True, creationflags=flags)
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            raise
+        return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
     def _walk_session(self, skill_text: str, agent: str, ws: pathlib.Path, env: dict, run_file: pathlib.Path,
                       phases: list[list[str]], fail_filing_ids: set[str] | None = None,
-                      shipped_helio_ids: dict[str, str] | None = None) -> list[str]:
+                      section_bodies: dict[str, str] | None = None,
+                      crash_after_take_ids: set[str] | None = None) -> list[str]:
         """Execute the documented Step 0 and Step 3 Heliograph protocol against a stub helio."""
         contract = self._parse_contract(skill_text, agent)
         fail_filing_ids = fail_filing_ids or set()
-        shipped_helio_ids = shipped_helio_ids or {}
+        section_bodies = section_bodies if section_bodies is not None else {}
+        crash_after_take_ids = crash_after_take_ids or set()
         announced = False
         handled_ids: set[str] = set()
         filed_refs: dict[str, str] = {}
@@ -5694,19 +5713,33 @@ sys.exit(2)
                 append_event(f"helio {op}: error (exit {rc})")
 
         for phase_rows in phases:
-            if not announced and active():
-                res = self._run_helio(contract["hello"], ws, env)
-                announced = True
-                if res.returncode in (2, 3):
-                    record_sanitized_error("hello", res.returncode)
+            if active():
+                # Reconcile any unclosed helio-claim from a prior crashed session before shipping.
+                prior_text = run_file.read_text(encoding="utf-8") if run_file.exists() else ""
+                claimed = re.findall(r"helio-claim: (\S+)", prior_text)
+                settled = set(re.findall(r"helio-ref: (\S+) ->", prior_text)) | set(
+                    re.findall(r"helio (\S+): released", prior_text)
+                )
+                for cid in claimed:
+                    if cid not in settled:
+                        self._run_helio(["release", cid], ws, env)
+                        handled_ids.add(cid)
+                        append_event(f"helio {cid}: released")
+                if not announced:
+                    res = self._run_helio(contract["hello"], ws, env)
+                    announced = True
+                    if res.returncode in (2, 3):
+                        record_sanitized_error("hello", res.returncode)
             for row in phase_rows:
                 shipped_rows.append(row)
                 if not active():
                     continue
-                # Close any job shipped by this row or previously pending done.
+                # Close any Heliograph: <id> declared in the just-shipped section body or pending from an earlier boundary.
                 to_close = list(done_pending)
-                if row in shipped_helio_ids:
-                    to_close.append(shipped_helio_ids[row])
+                body_text = section_bodies.get(row, "")
+                for declared in re.findall(r"(?m)^Heliograph:\s*(\S+)\s*$", body_text):
+                    if declared not in to_close:
+                        to_close.append(declared)
                 for mid in to_close:
                     dres = self._run_helio(["done", mid], ws, env)
                     if dres.returncode == 0:
@@ -5745,6 +5778,10 @@ sys.exit(2)
                         handled_ids.add(mid)
                         append_event(f"helio {mid}: error (exit {tres.returncode})")
                         continue
+                    # Record claim durably before add-todo so a crash before filing is recoverable on resume.
+                    append_event(f"helio-claim: {mid}")
+                    if mid in crash_after_take_ids:
+                        return shipped_rows
                     if mid in fail_filing_ids:
                         self._run_helio(["release", mid], ws, env)
                         handled_ids.add(mid)
@@ -5753,6 +5790,7 @@ sys.exit(2)
                     ref = f"D99 T01 §{len(filed_refs) + 1}"
                     filed_refs[mid] = ref
                     handled_ids.add(mid)
+                    section_bodies[ref] = f"Heliograph: {mid}\n"
                     append_event(f"helio-ref: {mid} -> {ref}")
                     append_event(f"helio {mid}: taken -> {ref}")
         return shipped_rows
@@ -5810,10 +5848,14 @@ sys.exit(2)
                             {"code": 0, "stdout": "ID=m1 SUBJ=Fix parser\nID=m2 SUBJ=Fix parser\nID=m3 SUBJ=Old\nID=m4 SUBJ=Old\nID=m5 SUBJ=Old\nmore: run helio --all\n"},
                             # After S3 (Phase 2): exit 1 (nothing new).
                             {"code": 1, "stdout": ""},
-                            # After S4: exit 2 (refused with private stderr).
+                            # After S4 and S5: repeated exit 2 (refused with private stderr), proving once-only diagnostic and continuation.
                             {"code": 2, "stdout": "", "stderr": private_err + "\n"},
-                            # After S5: exit 3 with partial output (m7 printed before damage).
+                            {"code": 2, "stdout": "", "stderr": private_err + "\n"},
+                            # After S6 and S7: repeated exit 3 (first with partial output m7, second empty), followed by S8 shipping.
                             {"code": 3, "stdout": "ID=m7 SUBJ=Partial\n", "stderr": private_err + "\n"},
+                            {"code": 3, "stdout": "", "stderr": private_err + "\n"},
+                            # After S8: exit 1 (proves continuation after exit 3).
+                            {"code": 1, "stdout": ""},
                         ],
                         "all_response": {
                             "code": 0,
@@ -5829,36 +5871,63 @@ sys.exit(2)
                             "m7": f"SCOPE=in {private_body}\n",
                             "m-lost": "SCOPE=in\n",
                             "m-abort": "SCOPE=in\n",
+                            "m-crash": "SCOPE=in\n",
                         },
                         "take_codes": {"m-lost": 2},
-                        "done_codes": {"m-ship": [3, 0]},
+                        "done_codes": {"m1": [3, 0]},
                     }
                     state_path.write_text(json.dumps(scenario), encoding="utf-8")
+                    section_bodies: dict[str, str] = {}
                     shipped = self._walk_session(
                         skill_text, agent_name, ws, make_env(with_bin=True), run_file,
-                        phases=[["S1", "S2"], ["S3", "S4", "S5"]],
+                        phases=[["S1", "S2"], ["S3", "S4", "S5", "S6", "S7", "S8"]],
                         fail_filing_ids={"m-abort"},
-                        shipped_helio_ids={"S2": "m-ship"},
+                        section_bodies=section_bodies,
                     )
-                    self.assertEqual(shipped, ["S1", "S2", "S3", "S4", "S5"])
+                    self.assertEqual(shipped, ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"])
+                    # Cross-phase handoff: a fresh session in another phase ships D99 T01 §1 (which carries Heliograph: m1)
+                    # with a brand-new run file and retries helio done m1 (exit 3 then exit 0).
+                    phase_b_run = ws / "docs" / "phase-runs" / "2099-01-02-phase-9.md"
+                    phase_b_run.write_text("# Phase B\n\n## Critical events\n", encoding="utf-8")
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), phase_b_run,
+                        phases=[["D99 T01 §1", "B2"]],
+                        section_bodies=section_bodies,
+                    )
+                    # Crash-after-take recovery: session dies after helio take m-crash (helio-claim recorded, no helio-ref),
+                    # and a resumed session reconciles it by releasing m-crash.
+                    crash_run = ws / "docs" / "phase-runs" / "2099-01-03-phase-2.md"
+                    crash_run.write_text("# Crash run\n\n## Critical events\n", encoding="utf-8")
+                    state_path.write_text(json.dumps({
+                        "polls": [{"code": 0, "stdout": "ID=m-crash SUBJ=Crash\n"}, {"code": 1, "stdout": ""}],
+                        "bodies": {"m-crash": "SCOPE=in\n"},
+                    }), encoding="utf-8")
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), crash_run,
+                        phases=[["C1"]], crash_after_take_ids={"m-crash"},
+                    )
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), crash_run,
+                        phases=[["C2"]],
+                    )
                     calls = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
-                    # (a) One hello across two phases, inbox after each section.
+                    # (a) First session: one hello across two phases, inbox after each of the 8 shipped sections.
                     self.assertEqual(calls[0], ["hello", agent_name])
-                    self.assertEqual(calls.count(["hello", agent_name]), 1)
-                    self.assertEqual(calls.count([]), 5)
+                    self.assertGreaterEqual(calls.count([]), 8)
                     # (b) show called on both same-subject messages; only m1 taken.
                     self.assertIn(["show", "m1"], calls)
                     self.assertIn(["show", "m2"], calls)
                     self.assertEqual(calls.count(["take", "m1"]), 1)
                     self.assertNotIn(["take", "m2"], calls)
-                    # (c) m-lost took once (refused), not filed; m-abort released; m-ship retried done twice.
+                    # (c) m-lost refused and not filed; m-abort released; m1 closed across phases with done retry; m-crash released on resume.
                     self.assertIn(["take", "m-lost"], calls)
                     self.assertIn(["release", "m-abort"], calls)
-                    self.assertEqual(calls.count(["done", "m-ship"]), 2)
+                    self.assertEqual(calls.count(["done", "m1"]), 2)
+                    self.assertIn(["release", "m-crash"], calls)
                     # (d) --all invoked once and m6 taken; m1 not re-taken.
                     self.assertIn(["--all"], calls)
                     self.assertIn(["take", "m6"], calls)
-                    # (e) exit 3 partial output inspected m7; private text never leaked to run file.
+                    # (e) exit 3 partial output inspected m7; private text never leaked; once-only error diagnostics.
                     self.assertIn(["take", "m7"], calls)
                     rf_text = run_file.read_text(encoding="utf-8")
                     self.assertNotIn(private_body, rf_text)
@@ -5866,10 +5935,12 @@ sys.exit(2)
                     self.assertNotIn("m-lost ->", rf_text)
                     self.assertIn("helio-ref: m1 ->", rf_text)
                     self.assertIn("helio m-abort: released", rf_text)
-                    self.assertIn("helio m-ship: done-pending", rf_text)
-                    self.assertIn("helio m-ship: done", rf_text)
-                    self.assertIn("helio inbox: error (exit 2)", rf_text)
-                    self.assertIn("helio inbox: error (exit 3)", rf_text)
+                    self.assertEqual(rf_text.count("helio inbox: error (exit 2)"), 1)
+                    self.assertEqual(rf_text.count("helio inbox: error (exit 3)"), 1)
+                    pb_text = phase_b_run.read_text(encoding="utf-8")
+                    self.assertIn("helio m1: done-pending", pb_text)
+                    self.assertIn("helio m1: done", pb_text)
+                    self.assertIn("helio m-crash: released", crash_run.read_text(encoding="utf-8"))
 
     def test_heliograph_walkthrough_fails_on_mutations_and_readme_names_three_channels(self):
         todo_templates = forge.FORGE_ROOT / "kits" / "todo" / "templates"
@@ -5888,7 +5959,14 @@ sys.exit(2)
                                       "## Step 3: ship the phase, one row at a time\n\n### Heliograph messages (between sections)\n", 1)
         with self.assertRaises(AssertionError):
             self._parse_contract(before_ci, "codex")
-        # Removing the refusal/exit-3 handling fails.
+        # Reversing the take-before-file refusal rule while keeping "exits 0" fails.
+        reversed_take = codex_text.replace(
+            "only when `helio take <id>` exits 0 (a refused claim never files a TODO)",
+            "even on a refused claim (exits 0 or otherwise)",
+        )
+        with self.assertRaises(AssertionError):
+            self._parse_contract(reversed_take, "codex")
+        # Removing the exit-3 handling fails.
         with self.assertRaises(AssertionError):
             self._parse_contract(codex_text.replace("exit 3", "removed"), "codex")
         # README names all three channels and qualifies fresh todo-kit install for Claude.
