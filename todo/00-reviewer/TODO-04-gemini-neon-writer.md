@@ -41,7 +41,11 @@ title: "TODO-04 -- Gemini 4 Neon replaces Orchestrator (Carbon)"
 
 ## 1. Base kit guidance names Gemini 4 Neon
 
+> **Started:** 2026-11-26T06:22Z
+
 The base kit tells every agent how Antigravity works. Today it describes Orchestrator's Carbon planning and Hydrogen execution and forbids `--effort`; under Neon, Antigravity is one model at an explicit effort, so that text is wrong for every project that installs the kit.
+
+**Corrected 2026-11-26 (validation):** Verified all five `kits/base/templates/.claude/agents/*.md` files (`code-explorer.md`, `debug-evidence.md`, `git-runner.md`, `mutation-tester.md`, `test-runner.md`): none mentions Antigravity, Carbon, Hydrogen, or Gemini (each only says generic lowercase `so the orchestrator can request exactly that` for the parent Claude session), so item 4 confirms no Carbon/Antigravity drift and runs `node scripts/verify-agent-tiers.mjs`. Because `tests/test_forge.py` enforces `self-sync` parity between `kits/base/templates/` and the SDK's installed `.agents/` and `docs/agent-skills-and-rules-structure.md` (plus `tests/test_forge.py:1096` asserts `exit_plan_mode` in `.agents/rules/agy-output-and-safety.md` and `tests/test_agy_agents.py:1126` asserts the old README heading), §1 also runs `python forge.py self-sync` for the touched base-kit files and updates those two coupled assertions so `main` and CI stay green before §2-§5 land.
 
 **Phase:** 10
 **Needs:** none
@@ -49,14 +53,15 @@ The base kit tells every agent how Antigravity works. Today it describes Orchest
 
 **Build order:**
 
-1. Rewrite the Antigravity guidance in the base kit's templates. Done when: `git grep -nE "Carbon|Hydrogen|exit_plan_mode" -- kits/base/templates` prints nothing.
-2. Replace the README's migration section. Done when: `kits/base/README.md` documents moving to Neon and keeps one line on Orchestrator compatibility.
+1. Rewrite the Antigravity guidance in the base kit's templates (`AGENTS.md`, `GEMINI.md`, `CODEX.md`, `.agents/rules/agy-output-and-safety.md`, `docs/agent-skills-and-rules-structure.md`). Done when: `git grep -nE "Carbon|Hydrogen|exit_plan_mode" -- kits/base/templates` prints nothing.
+2. Replace the README's migration section in `kits/base/README.md`, run `python forge.py self-sync` for the touched base-kit files, and update the coupled assertions in `tests/test_agy_agents.py:1126` and `tests/test_forge.py:1096`. Done when: `kits/base/README.md` documents moving to Neon with Orchestrator compatibility, `node scripts/verify-agent-tiers.mjs` passes, and `tests.test_kit_install`, `tests.test_agy_agents`, and `tests.test_forge` (`self_sync` / `markdown_table` / `agy_rule`) pass.
 
 - [ ] Rewrite the Antigravity lines in `kits/base/templates/AGENTS.md`, `GEMINI.md` and `CODEX.md` to say Antigravity runs `gemini-4-neon-medium` at an explicit `--effort`, with built-in subagents as before. Done when: none names Carbon or Hydrogen. Cheaper substitute: appending a Neon note beside the Carbon text.
 - [ ] Rewrite `kits/base/templates/.agents/rules/agy-output-and-safety.md` so a section is planned and built in one session without `exit_plan_mode` handoffs. Done when: the rule names no handoff and keeps its safety lines unchanged.
 - [ ] Rewrite the Antigravity entry in `kits/base/templates/docs/agent-skills-and-rules-structure.md`. Done when: it names Neon and explicit effort.
-- [ ] Update the Antigravity mentions in the five `kits/base/templates/.claude/agents/*.md` files. Done when: `node scripts/verify-agent-tiers.mjs` passes and none names Carbon.
-- [ ] Replace "Migrating existing installs to Orchestrator (Carbon)" in `kits/base/README.md` with "Moving Antigravity to Gemini 4 Neon": the launch flags, the effort, and that an Orchestrator model still runs without `--effort`. Done when: the section reads so and its verification notes name a real Neon run.
+- [ ] Confirm the five `kits/base/templates/.claude/agents/*.md` files contain no Antigravity/Carbon mentions and run `node scripts/verify-agent-tiers.mjs`. Done when: `node scripts/verify-agent-tiers.mjs` passes and none names Carbon. **Corrected 2026-11-26 (validation):** verified all five files already have zero Antigravity/Carbon mentions.
+- [ ] Replace "Migrating existing installs to Orchestrator (Carbon)" in `kits/base/README.md` with "Moving Antigravity to Gemini 4 Neon": the launch flags, the effort, and that an Orchestrator model still runs without `--effort`, while keeping the reversible cleanup guidance for retired `.agents/agents/` wrappers. Done when: the section reads so and its verification notes name a real Neon run (or note the historical 2026-11-14 live proof clearly while describing Neon).
+- [ ] Run `python forge.py self-sync` for the touched base-kit files and update the two coupled assertions (`tests/test_agy_agents.py:1126` for the README heading and `tests/test_forge.py:1096` for `.agents/rules/agy-output-and-safety.md`) so CI remains green. Done when: `python -m unittest tests.test_kit_install tests.test_agy_agents` and `python -m unittest tests.test_forge -k self_sync -k markdown_table` pass. **Corrected 2026-11-26 (validation):** required to keep `self-sync` and CI green on §1.
 - [ ] Commit: `base: Antigravity guidance names Gemini 4 Neon at an explicit effort (D00 T04 §1)`
 
 **Test checkpoint:** `git grep -nE "Carbon|Hydrogen|exit_plan_mode" -- kits/base/templates` prints nothing, and `python -m unittest tests.test_kit_install` ends `OK`.
