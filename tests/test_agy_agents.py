@@ -1015,6 +1015,8 @@ class OrchestratorContractTests(unittest.TestCase):
                     check=check,
                 )
 
+            if os.name != "nt":
+                (project / "scripts/agy-subagent.py").chmod(0o755)
             _git("init")
             _git("config", "core.autocrlf", "true")
             _git("config", "user.email", "test@example.com")
@@ -1183,6 +1185,8 @@ class OrchestratorContractTests(unittest.TestCase):
             for rel, raw_bytes in expected_pre_bytes.items():
                 self.assertTrue((project / rel).is_file(), f"rollback did not restore {rel}")
                 self.assertEqual((project / rel).read_bytes(), raw_bytes, f"byte mismatch on {rel}")
+            if os.name != "nt":
+                self.assertTrue((project / "scripts/agy-subagent.py").stat().st_mode & 0o111)
             restored_kits = json.loads(kits_file.read_text(encoding="utf-8"))
             self.assertIn("reviewer", restored_kits["kits"])
             self.assertIn(".conclave/reviewers.toml", restored_kits["files"])

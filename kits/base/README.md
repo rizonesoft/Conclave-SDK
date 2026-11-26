@@ -167,6 +167,7 @@ with zipfile.ZipFile(src) as z:
     if bad is not None:
         raise zipfile.BadZipFile(bad)
     payload = {m: z.read(m) for m in z.namelist() if m in allow}
+    modes = {m: (z.getinfo(m).external_attr >> 16) & 0o777 for m in payload}
 present_retired = subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", ref, "--", *retired], text=True).splitlines()
 missing = [r for r in present_retired if r not in payload]
 if missing:
@@ -199,6 +200,8 @@ for m in retired:
         tmp_wp = pathlib.Path(tmp_w)
         try:
             tmp_wp.write_bytes(payload[m])
+            if os.name != "nt" and modes.get(m):
+                os.chmod(tmp_wp, modes[m])
             os.replace(tmp_wp, target)
         finally:
             tmp_wp.unlink(missing_ok=True)
@@ -215,7 +218,7 @@ if merged_kits_bytes is not None:
     finally:
         tmp_p.unlink(missing_ok=True)
 ```
-3. Remove only the six retired SDK paths (on a resumed cleanup reusing an existing archive, compare each surviving wrapper's bytes against its archived member in `pre-orchestrator-migration.zip` first, and stop naming the file if any surviving wrapper differs or has no archived member; remove `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
+3. Remove only the six retired SDK paths (recheck every parent directory and target path for symlinks or Windows junctions before the first deletion on both initial and resumed cleanup; on a resumed cleanup reusing an existing archive, also compare each surviving wrapper's bytes against its archived member in `pre-orchestrator-migration.zip` first, and stop naming the file if any surviving wrapper differs or has no archived member; remove `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
 4. Switch interactive and CLI Antigravity launches to `agy --model gemini-4-neon-medium --effort=medium` (or keep `--model gemini-pro-orchestrator` without `--effort` if staying on Orchestrator compatibility).
 5. Verify native operation: confirm none of the five SDK wrappers remain in `.agents/agents/`, confirm `agy --model gemini-4-neon-medium --effort=medium` lists built-in `self`, `research`, and `image-generator` in `<subagents>`, and confirm a single-session edit and test run finishes cleanly.
 
