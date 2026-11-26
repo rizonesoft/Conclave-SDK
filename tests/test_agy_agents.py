@@ -19,6 +19,7 @@ import tempfile
 import time
 import unittest
 import urllib.parse
+import zipfile
 import urllib.request
 
 
@@ -1026,22 +1027,37 @@ class OrchestratorContractTests(unittest.TestCase):
             m_backup = re.search(r'`python -c "(import os, pathlib, subprocess, tempfile, zipfile; [^`]+?)"`', readme_text)
             self.assertIsNotNone(m_backup, "documented backup command not found in kits/base/README.md")
             archive_script = m_backup.group(1)
+            m_restore = re.search(r'`python -c "(import pathlib, subprocess, zipfile; top = [^`]+?)"`', readme_text)
+            self.assertIsNotNone(m_restore, "documented restore command not found in kits/base/README.md")
+            restore_script = m_restore.group(1)
+
+            # Run two concurrent backup invocations from a subdirectory under PYTHONOPTIMIZE=1:
+            # one must win and one must fail without truncating the published archive.
+            subdir = project / "scripts"
             opt_env = os.environ.copy()
             opt_env["PYTHONOPTIMIZE"] = "1"
-            subprocess.run([sys.executable, "-c", archive_script], cwd=str(project), env=opt_env, check=True)
+            popen_kwargs: dict = {
+                "cwd": str(subdir),
+                "env": opt_env,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+            }
+            if os.name == "nt":
+                popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            p1 = subprocess.Popen([sys.executable, "-c", archive_script], **popen_kwargs)
+            p2 = subprocess.Popen([sys.executable, "-c", archive_script], **popen_kwargs)
+            p1.communicate(timeout=20)
+            p2.communicate(timeout=20)
+            self.assertEqual(sorted([p1.returncode == 0, p2.returncode == 0]), [False, True])
             archive_path = project / ".git" / "pre-orchestrator-migration.zip"
             self.assertTrue(archive_path.is_file())
-            archive_bytes = archive_path.read_bytes()
-            # Overlapping / repeated backup invocation must refuse without overwriting the existing archive.
-            retry_proc = subprocess.run(
-                [sys.executable, "-c", archive_script],
-                cwd=str(project),
-                env=opt_env,
-                capture_output=True,
-                text=True,
-            )
-            self.assertNotEqual(retry_proc.returncode, 0)
-            self.assertEqual(archive_path.read_bytes(), archive_bytes)
+            with zipfile.ZipFile(archive_path) as zf:
+                self.assertIsNone(zf.testzip())
+                self.assertEqual(
+                    set(zf.namelist()),
+                    set(retired_paths) | {".conclave/kits.json"},
+                )
 
             diff_proc = _run_forge(["diff", str(project), "base"], check=False)
             self.assertEqual(diff_proc.returncode, 0, diff_proc.stderr)
@@ -1108,26 +1124,29 @@ class OrchestratorContractTests(unittest.TestCase):
                 expected_pre_bytes["scripts/agy-subagent.py"],
             )
 
+            # Edit retained custom agent AFTER migration; rollback must preserve this post-migration edit.
+            post_migration_custom = custom_text + "# post-migration edit\n"
+            custom_agent.write_text(post_migration_custom, encoding="utf-8")
+
             _git(
                 "-c",
                 "core.autocrlf=false",
                 "checkout",
                 "pre-orchestrator-migration",
                 "--",
-                ".agents/agents",
-                "scripts/agy-subagent.py",
+                *retired_paths,
                 ".conclave/kits.json",
             )
             subprocess.run(
-                [sys.executable, "-m", "zipfile", "-e", ".git/pre-orchestrator-migration.zip", "."],
-                cwd=str(project),
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
                 check=True,
             )
             for rel, raw_bytes in expected_pre_bytes.items():
                 self.assertTrue((project / rel).is_file(), f"rollback did not restore {rel}")
                 self.assertEqual((project / rel).read_bytes(), raw_bytes, f"byte mismatch on {rel}")
             self.assertEqual(json.loads(kits_file.read_text(encoding="utf-8")), kits_data)
-            self.assertEqual(custom_agent.read_text(encoding="utf-8"), custom_text)
+            self.assertEqual(custom_agent.read_text(encoding="utf-8"), post_migration_custom)
             self.assertEqual(
                 preserved_agent.read_bytes(),
                 expected_pre_bytes[".agents/agents/code-explorer.md"],
@@ -1147,7 +1166,8 @@ class OrchestratorContractTests(unittest.TestCase):
         self.assertIn(".agents/agents/<custom>.md", readme)
         self.assertIn("pre-orchestrator-migration", readme)
         self.assertIn("pre-orchestrator-migration.zip", readme)
-        self.assertIn("git rev-parse --git-path", readme)
+        self.assertIn("--git-path", readme)
+        self.assertIn("--show-toplevel", readme)
         self.assertIn("core.autocrlf=false", readme)
         self.assertIn("preserved-code-explorer.md", readme)
         for name in RETIRED_AGENT_FILES:
