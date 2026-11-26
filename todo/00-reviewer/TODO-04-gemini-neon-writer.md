@@ -70,7 +70,11 @@ The base kit tells every agent how Antigravity works. Today it describes Orchest
 
 ## 2. Antigravity TODO skills without Carbon handoffs
 
+> **Started:** 2026-11-26T23:32Z
+
 The todo kit's Antigravity copies of `process-plan`, `process-phase` and `process-todo-section` tell the writer to plan on Carbon and hand to Hydrogen after each section. Under Neon the writer follows the same steps as the Claude source.
+
+**Corrected 2026-11-26 (validation):** `tests/test_agy_agents.py` has no existing TODO-skill handoff assertions, and the `tests/test_forge.py` TODO-skill assertions are at lines `1101-1104` (shifted from `1100-1101` in §1). Item 3 therefore adds a dedicated test in `tests/test_agy_agents.py` covering both `kits/todo/skill-patches/agents/process-*/SKILL.md.json` and the generated `kits/todo/templates/.agents/skills/process-*/SKILL.md` (so restoring a Carbon handoff line in `process-plan/SKILL.md.json` fails `tests.test_agy_agents`) and updates `tests/test_forge.py:1101-1104` to assert their absence. Because `tests/test_forge.py` enforces `self-sync` parity between `kits/todo/templates/` and the SDK's installed `.agents/`, `.claude/`, and `.codex/` skills, §2 also runs `python forge.py self-sync` after `python forge.py skill-copies` so `main` and CI stay green before §5 lands.
 
 **Phase:** 10
 **Needs:** none
@@ -78,12 +82,13 @@ The todo kit's Antigravity copies of `process-plan`, `process-phase` and `proces
 
 **Build order:**
 
-1. Remove the Carbon handoff text from the skill patches and regenerate the copies. Done when: `python forge.py skill-copies` reports no difference and the regenerated Antigravity skills name no handoff.
+1. Remove the Carbon handoff text from the skill patches, add the `Commit:` clarification in the Claude `process-todo-section` source, regenerate the copies with `python forge.py skill-copies`, and sync the SDK's installed copies with `python forge.py self-sync`. Done when: `python forge.py skill-copies --check` exits 0, the regenerated Antigravity skills name no handoff, and `tests/test_forge.py` self-sync parity holds.
+2. Add the TODO-skill handoff-absence test in `tests/test_agy_agents.py` and update `tests/test_forge.py:1101-1104`. Done when: `python -m unittest tests.test_agy_agents` and `python -m unittest tests.test_forge -k micro_todo_and_complete_plan -k the_sdk_uses_the_agent_setup -k markdown_table` pass.
 
 - [ ] Remove the Carbon and Hydrogen handoff instructions from `kits/todo/skill-patches/agents/process-plan/SKILL.md.json`, `process-phase/SKILL.md.json` and `process-todo-section/SKILL.md.json`, keeping every other declared difference. Done when: each patch still applies. Cheaper substitute: editing the generated copies by hand, which the generator test refuses.
-- [ ] Run `python forge.py skill-copies`. Done when: `kits/todo/templates/.agents/skills/process-*/SKILL.md` name no Carbon, Hydrogen or `exit_plan_mode`.
-- [ ] Update `tests/test_agy_agents.py` assertions that expect the handoff text and `tests/test_forge.py:1100-1101` (TODO skill Carbon/`exit_plan_mode` assertions) to assert their absence. Done when: `tests.test_agy_agents` and `tests.test_forge -k micro_todo_and_complete_plan` pass and fail if a handoff line is put back in a patch. **Corrected 2026-11-26 (plan review):** assigned `tests/test_forge.py:1100-1101` TODO-skill assertions to §2.
-- [ ] Clarify in `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md` (filed non-blocking P3 from `D00 T03 §2` Completion review) that a section's `Commit:` checklist item stays `[ ]` until `todo-graph.py stamp` ticks it with the Implementation Order row, then run `python forge.py skill-copies`. Done when: the clause appears in the Claude source and generated Antigravity/Codex copies and `python forge.py skill-copies --check` exits 0.
+- [ ] Run `python forge.py skill-copies`. Done when: `kits/todo/templates/.agents/skills/process-*/SKILL.md` name no Carbon, Hydrogen, `exit_plan_mode`, or `enter_plan_mode`.
+- [ ] Add a test in `tests/test_agy_agents.py` verifying that `kits/todo/skill-patches/agents/{process-plan,process-phase,process-todo-section}/SKILL.md.json` and `kits/todo/templates/.agents/skills/{process-plan,process-phase,process-todo-section}/SKILL.md` contain no `Carbon`, `Hydrogen`, `exit_plan_mode`, or `enter_plan_mode`, and update `tests/test_forge.py:1101-1104` to assert their absence. Done when: `tests.test_agy_agents` and `tests.test_forge -k micro_todo_and_complete_plan` pass and fail if a handoff line is put back in a patch. **Corrected 2026-11-26 (validation):** `tests/test_agy_agents.py` had no existing TODO-skill handoff assertions; `tests/test_forge.py` lines shifted to `1101-1104`.
+- [ ] Clarify in `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md` (filed non-blocking P3 from `D00 T03 §2` Completion review) that a section's `Commit:` checklist item stays `[ ]` until `todo-graph.py stamp` ticks it with the Implementation Order row, then run `python forge.py skill-copies` and `python forge.py self-sync`. Done when: the clause appears in the Claude source, generated Antigravity/Codex copies, and SDK installed copies, `python forge.py skill-copies --check` exits 0, and `python -m unittest tests.test_forge -k the_sdk_uses_the_agent_setup` passes. **Corrected 2026-11-26 (validation):** added `python forge.py self-sync` so `main` and CI stay green before §5 lands.
 - [ ] Commit: `todo: Antigravity skills follow the Claude steps under Gemini 4 Neon (D00 T04 §2)`
 
 **Test checkpoint:** `python -m unittest tests.test_agy_agents` ends `OK`, and fails when a Carbon handoff line is restored in `kits/todo/skill-patches/agents/process-plan/SKILL.md.json`.
