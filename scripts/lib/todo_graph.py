@@ -1019,9 +1019,11 @@ def three_pass_ok(root, data, ref, found):
         require(all(dispatch.review_pin.declared_recurring(e["review"]) is not None for e in passed),
                 f"a reconciliation under the pin's recurrence_cap lacks its single RECURRING line: {ref}")
     for i in range(len(passed)):
-        # A reconciliation before this one that ended complete on a changed promise settled nothing; it is held to
-        # neither the gaps rule nor the blocking levels, since it raised no finding to reconcile.
-        unsettled = i > 0 and not ended_gaps(tail[i]) and not reconciliation_settles(
+        # A reconciliation before this one that ended complete (or below the pin's blocking levels) on a changed
+        # promise settled nothing; it is held to neither the gaps rule nor the blocking levels, since it could not
+        # be stamped until the promised text was restored.
+        below_i = "blocking" in schedule and not dispatch.review_pin.blocks(schedule, worst[i])
+        unsettled = i > 0 and (not ended_gaps(tail[i]) or below_i) and not reconciliation_settles(
             root, ref, completion["candidate"], tail[i]["candidate"])
         require(ended_gaps(tail[i]) or unsettled,
                 f"a reconciliation follows a pass that returned gaps, not one that was complete: {ref}")

@@ -1430,17 +1430,19 @@ def check_three_pass_order(kind, record_path, candidate, schedule):
         if len(rounds) != 1 or len(completions) != 1 or not ended_gaps(completions[0]):
             raise Refused("a reconciliation follows one round and a completion review that returned gaps")
         chain = [completions[0], *reconciled]
-        # A reconciliation that ended complete on a candidate whose contract differs from the failed completion's
-        # cannot be stamped (`stamp` compares the two), so it settles nothing: the section takes another
-        # reconciliation, on a candidate that restores the contract. Without this a section would be stuck for good
-        # (D07 T02 §1, 2026-11-17).
-        unsettled = not ended_gaps(chain[-1]) and contract_changed(record_path, completions[0]["candidate"],
-                                                                    chain[-1]["candidate"])
+        worst = [declared_highest(e["review"]) for e in chain]
+        below = "blocking" in schedule and not review_pin.blocks(schedule, worst[-1])
+        # A reconciliation that ended complete (or below the pin's blocking levels, which would otherwise end
+        # with `filed`) on a candidate whose contract differs from the failed completion's cannot be stamped
+        # (`stamp` compares the two), so it settles nothing: the section takes another reconciliation, on a
+        # candidate that restores the contract. Without this a section would be stuck for good (D07 T02 §1,
+        # 2026-11-17; D00 T04 §1, 2026-11-26).
+        unsettled = len(chain) > 1 and (not ended_gaps(chain[-1]) or below) and contract_changed(
+            record_path, completions[0]["candidate"], chain[-1]["candidate"])
         if not ended_gaps(chain[-1]) and not unsettled:
             raise Refused("the section's reconciliation already returned complete; it needs no further pass")
-        worst = [declared_highest(e["review"]) for e in chain]
         # Only a pin that names its blocking levels ends the loop this way; without the key every gap is repaired.
-        if "blocking" in schedule and not unsettled and not review_pin.blocks(schedule, worst[-1]):
+        if below and not unsettled:
             raise Refused(f"the last pass's worst finding is {worst[-1]}, below the pin's blocking levels "
                           f"({', '.join(schedule['blocking'])}): file its findings and stamp; it takes no further pass")
         cap, ships = review_pin.section_cap(schedule, current_schedule(candidate))

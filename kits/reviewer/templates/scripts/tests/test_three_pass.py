@@ -326,6 +326,46 @@ class Chain(ThreePass):
         self.assertEqual((data["passes_spent"], data["completion"]["candidate"]), (5, restored))
         self.assertTrue(graph.graph(self.repo)["D00 T01 §1"].done)
 
+    def test_a_below_blocking_reconciliation_on_a_changed_contract_takes_another(self):
+        # D00 T04 §1, 2026-11-26: a reconciliation ended with P3 gaps (below blocking = ["P1", "P2"]) on a
+        # candidate whose section contract had changed since the failed completion; `stamp` refused `:filed` and
+        # the dispatcher refused another reconciliation. Restoring the contract must take another reconciliation
+        # and stamp cleanly.
+        library = SCRIPTS_DIR / "lib/todo_graph.py"
+        if not library.is_file():
+            library = SCRIPTS_DIR.parent.parent.parent / "todo/templates/scripts/lib/todo_graph.py"
+        if not library.is_file():
+            self.skipTest("the todo kit's scripts/lib/todo_graph.py is not beside this reviewer kit")
+        (self.repo / "scripts/lib").mkdir(exist_ok=True)
+        shutil.copy(library, self.repo / "scripts/lib/todo_graph.py")
+        todo = "todo/00-core/TODO-01-core.md"
+        section = TODO_FILE.replace("{how}", "{how}")
+        indexes = {"todo/00-core/INDEX.md": "# Index\n- TODO-01-core.md\n",
+                   "todo/TODO-00-INDEX.md": "# Index\n- 00-core/TODO-01-core.md\n"}
+        blocking = PIN.replace("pass_cap = 5", 'pass_cap = 5\nblocking = ["P1", "P2"]')
+        self.base = self.commit("section", {todo: section.format(how="a mutation fails it"),
+                                            ".conclave/reviewers.toml": blocking, **indexes})
+        self.to_completion()
+        changed = self.commit("reworded", {todo: section.format(how="another mutation fails it")})
+        self.resolve(changed)
+        self.ok("reconciliation", changed, top="P3", gaps=True)
+        restored = self.commit("restored", {todo: section.format(how="a mutation fails it")})
+        self.resolve(restored)
+        self.ok("reconciliation", restored)
+        self.refused("reconciliation", restored, "already returned complete")
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("todo_graph_under_test_p3", self.repo / "scripts/lib/todo_graph.py")
+        graph = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = graph
+        spec.loader.exec_module(graph)
+        record = RECORD
+        receipt = graph.stamp(self.repo, "D00 T01 §1", restored, [{"round": 1, "report": record, "verdict": "clean"}],
+                              ["true -> ok"], "2026-11-26", completion={"report": record, "verdict": "reconciled"},
+                              plan=record)
+        data = json.loads((self.repo / receipt).read_text(encoding="utf-8"))
+        self.assertEqual((data["passes_spent"], data["completion"]["candidate"]), (5, restored))
+        self.assertTrue(graph.graph(self.repo)["D00 T01 §1"].done)
+
     def test_an_older_todo_library_beside_the_dispatcher_never_crashes_it(self):
         # Round 1 of D01 T02 §11: the reviewer kit updates apart from the todo kit, so the library beside the
         # dispatcher may predate reconciliation_settles, or hold neither function.
