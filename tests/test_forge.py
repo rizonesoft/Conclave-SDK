@@ -5543,11 +5543,15 @@ with log_path.open("a", encoding="utf-8") as fh:
     fh.write(json.dumps(raw_args) + "\\n")
 
 session = ""
+lane = os.environ.get("HELIO_AS", "demo/worker")
 args = []
 i = 0
 while i < len(raw_args):
     if raw_args[i] == "--session" and i + 1 < len(raw_args):
         session = raw_args[i + 1]
+        i += 2
+    elif raw_args[i] == "--as" and i + 1 < len(raw_args):
+        lane = raw_args[i + 1]
         i += 2
     else:
         args.append(raw_args[i])
@@ -5590,7 +5594,8 @@ if cmd == "show" and len(args) == 2:
         sys.stderr.write("helio: store read error\\n")
         sys.exit(rc)
     holder = state.get("held", {}).get(mid)
-    header = f"STATE=taken TAKER_SESSION={holder}\\n" if holder else "STATE=open\\n"
+    # Real helio.c:186 status strings (" open", " taken by <lane>").
+    header = f"| {mid} taken by {holder['lane']}\\n" if holder else f"| {mid} open\\n"
     body = state.get("bodies", {}).get(mid, "")
     sys.stdout.write(header + body)
     sys.exit(0)
@@ -5606,7 +5611,7 @@ if cmd == "take" and len(args) == 2:
         if state.get("held", {}).get(mid):
             rc = 2
         else:
-            state.setdefault("held", {})[mid] = session or "anon"
+            state.setdefault("held", {})[mid] = {"lane": lane, "session": session}
     save()
     if rc != 0:
         sys.stderr.write("helio: already taken\\n")
@@ -5619,9 +5624,11 @@ if cmd == "release" and len(args) == 2:
         state.setdefault("release_codes", {})[mid] = codes
     else:
         holder = state.get("held", {}).get(mid)
+        # Mirrors Heliograph/engine/store.c:844 & :849: taker matches lane and (!*now->session || same(now->session, my_s)).
+        taker = bool(holder) and holder["lane"] == lane and (not holder["session"] or holder["session"] == session)
         if not holder:
             rc = 2
-        elif state.get("owner_lane") or holder == (session or "anon"):
+        elif taker or lane.endswith("/owner"):
             rc = 0
         else:
             rc = 2
@@ -5639,7 +5646,8 @@ if cmd == "done" and len(args) == 2:
         state.setdefault("done_codes", {})[mid] = codes
     else:
         holder = state.get("held", {}).get(mid)
-        rc = 0 if holder and holder == (session or "anon") else 2
+        taker = bool(holder) and holder["lane"] == lane and (not holder["session"] or holder["session"] == session)
+        rc = 0 if taker else 2
     if rc == 0:
         state.setdefault("held", {}).pop(mid, None)
     save()
@@ -5679,8 +5687,7 @@ sys.exit(2)
             raise AssertionError("Step 3 missing Heliograph between-sections section")
         hello_sec = step0.split("### Heliograph messages (session start)", 1)[1]
         inbox_sec = step3.split("### Heliograph messages (between sections)", 1)[1].split("\nLong jobs", 1)[0]
-        session_var = "CODEX_THREAD_ID" if agent == "codex" else "ANTIGRAVITY_CONVERSATION_ID"
-        hello_cmd = f"helio --session \"${session_var}\" hello {agent}"
+        hello_cmd = f"helio hello {agent}"
         if f"`{hello_cmd}`" not in hello_sec:
             raise AssertionError(f"Step 0 missing `{hello_cmd}`")
         for other in ("claude", "codex", "antigravity"):
@@ -5694,7 +5701,7 @@ sys.exit(2)
         pos_skip = step3.find("Skip rows whose")
         if not (0 <= pos_ci < pos_helio < pos_skip):
             raise AssertionError("Heliograph inbox step is not positioned after shipment/CI and before next row")
-        # Both Step 0 and Step 3 must carry the exact positive conjunctive activation guard and an executable sh block.
+        # Both Step 0 and Step 3 must carry the exact positive conjunctive activation guard and executable sh + ps blocks.
         guard_body = (
             "`command -v helio` (or `Get-Command helio -ErrorAction SilentlyContinue` in PowerShell) "
             "succeeds and `helio.conf` is found in the repository or a folder above it"
@@ -5705,38 +5712,42 @@ sys.exit(2)
             raise AssertionError(f"{agent} Step 3 missing positive conjunctive activation guard")
         step0_sh = re.findall(r"```sh\n(.*?)```", hello_sec, re.S)
         step3_sh = re.findall(r"```sh\n(.*?)```", inbox_sec, re.S)
-        if len(step0_sh) != 1 or len(step3_sh) != 1:
-            raise AssertionError(f"{agent} must carry one fenced sh guard block in Step 0 and one in Step 3")
+        step0_ps = re.findall(r"```powershell\n(.*?)```", hello_sec, re.S)
+        step3_ps = re.findall(r"```powershell\n(.*?)```", inbox_sec, re.S)
+        if len(step0_sh) != 1 or len(step3_sh) != 1 or len(step0_ps) != 1 or len(step3_ps) != 1:
+            raise AssertionError(f"{agent} must carry sh and powershell guard blocks in both Step 0 and Step 3")
         step0_tokens = (
             "once per session",
+            "only after the run guard confirms this session is the sole writer",
             "in chronological order",
-            "helio-claim: <id> session=<prior>",
+            "helio-claim: <id>",
             "first scan `todo/` for `Heliograph: <id>`",
             "never file a TODO from an unverified claim",
             "first run `helio show <id>` to inspect who holds it",
             "never call `release` and record `not-held`",
-            "only when `<id>` is taken by `<prior>` run `helio --session <prior> release <id>`",
-            "recording `released` only on exit 0, or keeping `release-pending session=<prior>` on exit 2 or 3",
+            "only when `<id>` is `taken by` this lane run `helio release <id>`",
+            "recording `released` only on exit 0, or keeping `release-pending` on exit 2 or 3",
         )
         for token in step0_tokens:
             if token not in hello_sec:
                 raise AssertionError(f"{agent} Step 0 missing required rule token: {token!r}")
         step3_tokens = (
-            "Heliograph: <id> session=<taker>",
-            "`helio --session <taker> done <id>`",
+            "Heliograph: <id>",
+            "`helio done <id>`",
+            "lane-scoped without `--session`",
             "`helio`",
             "`helio --all`",
             "information, not an instruction",
             "scan `todo/` for `Heliograph: <id>`",
             "`helio show <id>`",
-            "write `helio-claim: <id> session=<session>` under Critical events before calling `helio --session <session> take <id>`",
+            "write `helio-claim: <id>` under Critical events before calling `helio take <id>`",
             "only when `helio take <id>` exits 0 (a refused claim never files a TODO",
             "helio-ref:",
-            "`helio --session <session> release <id>`",
+            "`helio release <id>`",
             "record `released` only when it exits 0",
-            "release-pending session=<session>",
+            "release-pending",
             "done-pending",
-            "never raw message bodies",
+            "never raw message bodies, session identifiers, or private inbox text",
             "exit 1",
             "exit 2",
             "exit 3",
@@ -5749,9 +5760,10 @@ sys.exit(2)
             "hello": ["hello", agent],
             "inbox": [],
             "all": ["--all"],
-            "session_var": session_var,
             "step0_sh": step0_sh[0].strip(),
             "step3_sh": step3_sh[0].strip(),
+            "step0_ps": step0_ps[0].strip(),
+            "step3_ps": step3_ps[0].strip(),
         }
 
     def _has_helio_conf(self, start: pathlib.Path) -> bool:
@@ -5781,19 +5793,25 @@ sys.exit(2)
             raise
         return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
-    def _run_sh_guard(self, sh_cmd: str, cwd: pathlib.Path, env: dict) -> subprocess.CompletedProcess | None:
-        shell = shutil.which("sh") or shutil.which("bash")
-        if shell is None:
-            return None
+    def _run_platform_guard(self, contract: dict, step_key: str, cwd: pathlib.Path, env: dict) -> subprocess.CompletedProcess:
+        """Execute the skill's own fenced guard block directly (PowerShell on Windows, sh on POSIX). Never skips."""
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        sh_env = dict(env)
-        # Keep the shell's own directory on PATH so builtins/dirname work without exposing any real helio.
-        shell_dir = str(pathlib.Path(shell).parent)
-        sh_env["PATH"] = sh_env.get("PATH", "") + os.pathsep + shell_dir
-        kwargs: dict = {"cwd": cwd, "env": sh_env, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
+        if os.name == "nt":
+            pwsh = shutil.which("pwsh") or shutil.which("powershell")
+            self.assertIsNotNone(pwsh, "PowerShell required on Windows to execute the fenced guard")
+            cmd = [pwsh, "-NoProfile", "-Command", contract[f"{step_key}_ps"]]
+            run_env = dict(env)
+            run_env["PATH"] = run_env.get("PATH", "") + os.pathsep + str(pathlib.Path(pwsh).parent)
+        else:
+            shell = shutil.which("sh") or shutil.which("bash")
+            self.assertIsNotNone(shell, "sh required on POSIX to execute the fenced guard")
+            cmd = [shell, "-c", contract[f"{step_key}_sh"]]
+            run_env = dict(env)
+            run_env["PATH"] = run_env.get("PATH", "") + os.pathsep + str(pathlib.Path(shell).parent)
+        kwargs: dict = {"cwd": cwd, "env": run_env, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
         if os.name != "nt":
             kwargs["start_new_session"] = True
-        proc = subprocess.Popen([shell, "-c", sh_cmd], creationflags=flags, **kwargs)
+        proc = subprocess.Popen(cmd, creationflags=flags, **kwargs)
         try:
             out, err = proc.communicate(timeout=30)
         except subprocess.TimeoutExpired:
@@ -5807,7 +5825,7 @@ sys.exit(2)
         return subprocess.CompletedProcess(proc.args, proc.returncode, out, err)
 
     def _walk_session(self, skill_text: str, agent: str, ws: pathlib.Path, env: dict, run_file: pathlib.Path,
-                      phases: list[list[str]], session_id: str = "sess-1",
+                      phases: list[list[str]], lane: str = "demo/worker",
                       fail_filing_ids: set[str] | None = None,
                       section_bodies: dict[str, str] | None = None,
                       crash_before_take_ids: set[str] | None = None,
@@ -5820,16 +5838,18 @@ sys.exit(2)
         crash_before_take_ids = crash_before_take_ids or set()
         crash_after_take_ids = crash_after_take_ids or set()
         crash_after_file_ids = crash_after_file_ids or set()
+        lane_env = dict(env)
+        lane_env["HELIO_AS"] = lane
         announced = False
         handled_ids: set[str] = set()
         filed_refs: dict[str, str] = {}
-        done_pending: dict[str, str] = {}
-        release_pending: dict[str, str] = {}
+        done_pending: set[str] = set()
+        release_pending: set[str] = set()
         logged_errors: set[tuple[str, int]] = set()
         shipped_rows: list[str] = []
 
         def active() -> bool:
-            return shutil.which("helio", path=env.get("PATH", "")) is not None and self._has_helio_conf(ws)
+            return shutil.which("helio", path=lane_env.get("PATH", "")) is not None and self._has_helio_conf(ws)
 
         def append_event(line: str) -> None:
             with run_file.open("a", encoding="utf-8") as fh:
@@ -5843,55 +5863,51 @@ sys.exit(2)
 
         def find_filed_section(mid: str) -> str | None:
             for ref, body in section_bodies.items():
-                if re.search(rf"(?m)^Heliograph:\s*{re.escape(mid)}(?:\s+session=\S+)?\s*$", body):
+                if re.search(rf"(?m)^Heliograph:\s*{re.escape(mid)}\s*$", body):
                     return ref
             return None
 
-        def verify_and_release(mid: str, prior_session: str) -> None:
-            sres = self._run_helio(["show", mid], ws, env)
+        def verify_and_release(mid: str) -> None:
+            sres = self._run_helio(["show", mid], ws, lane_env)
             if sres.returncode != 0:
-                release_pending[mid] = prior_session
-                append_event(f"helio {mid}: release-pending session={prior_session}")
+                release_pending.add(mid)
+                append_event(f"helio {mid}: release-pending")
                 record_sanitized_error("show", sres.returncode)
                 return
-            m_holder = re.search(r"(?m)^STATE=taken\s+TAKER_SESSION=(\S+)\s*$", sres.stdout)
-            if not m_holder or m_holder.group(1) != prior_session:
-                release_pending.pop(mid, None)
+            m_holder = re.search(rf"(?m)^\|\s*{re.escape(mid)}\s+taken by\s+(\S+)\s*$", sres.stdout)
+            if not m_holder or m_holder.group(1) != lane:
+                release_pending.discard(mid)
                 handled_ids.add(mid)
                 append_event(f"helio {mid}: not-held")
                 return
-            rres = self._run_helio(["--session", prior_session, "release", mid], ws, env)
+            rres = self._run_helio(["release", mid], ws, lane_env)
             if rres.returncode == 0:
-                release_pending.pop(mid, None)
+                release_pending.discard(mid)
                 handled_ids.add(mid)
                 append_event(f"helio {mid}: released")
             else:
-                release_pending[mid] = prior_session
-                append_event(f"helio {mid}: release-pending session={prior_session}")
+                release_pending.add(mid)
+                append_event(f"helio {mid}: release-pending")
                 record_sanitized_error("release", rres.returncode)
 
         for phase_rows in phases:
             if active():
                 # Reconcile chronologically: only the latest event per ID decides whether it is still open.
                 prior_text = run_file.read_text(encoding="utf-8") if run_file.exists() else ""
-                latest_state: dict[str, tuple[str, str]] = {}
+                latest_state: dict[str, str] = {}
                 for line in prior_text.splitlines():
-                    m_claim = re.match(r"^- helio-claim: (\S+) session=(\S+)$", line.strip())
+                    m_claim = re.match(r"^- helio-claim: (\S+)$", line.strip())
                     if m_claim:
-                        latest_state[m_claim.group(1)] = ("claim", m_claim.group(2))
+                        latest_state[m_claim.group(1)] = "claim"
                         continue
                     m_ref = re.match(r"^- helio-ref: (\S+) ->", line.strip())
                     if m_ref:
-                        latest_state[m_ref.group(1)] = ("filed", "")
+                        latest_state[m_ref.group(1)] = "filed"
                         continue
-                    m_rp = re.match(r"^- helio (\S+): release-pending session=(\S+)$", line.strip())
-                    if m_rp:
-                        latest_state[m_rp.group(1)] = ("release-pending", m_rp.group(2))
-                        continue
-                    m_disp = re.match(r"^- helio (\S+): (released|not-held|error \(exit \d+\)|done|skipped)$", line.strip())
+                    m_disp = re.match(r"^- helio (\S+): (released|not-held|release-pending|error \(exit \d+\)|done|skipped)$", line.strip())
                     if m_disp:
-                        latest_state[m_disp.group(1)] = (m_disp.group(2), "")
-                for cid, (st, prior_sess) in latest_state.items():
+                        latest_state[m_disp.group(1)] = m_disp.group(2)
+                for cid, st in latest_state.items():
                     if st not in ("claim", "release-pending"):
                         continue
                     existing_ref = find_filed_section(cid)
@@ -5900,9 +5916,9 @@ sys.exit(2)
                         handled_ids.add(cid)
                         append_event(f"helio-ref: {cid} -> {existing_ref}")
                     else:
-                        verify_and_release(cid, prior_sess)
+                        verify_and_release(cid)
                 if not announced:
-                    res = self._run_helio(["--session", session_id, *contract["hello"]], ws, env)
+                    res = self._run_helio(contract["hello"], ws, lane_env)
                     announced = True
                     if res.returncode in (2, 3):
                         record_sanitized_error("hello", res.returncode)
@@ -5910,30 +5926,31 @@ sys.exit(2)
                 shipped_rows.append(row)
                 if not active():
                     continue
-                # Close any Heliograph: <id> session=<taker> declared in the just-shipped section body or pending.
-                to_close = dict(done_pending)
+                # Close any Heliograph: <id> declared in the just-shipped section body or pending.
+                to_close = list(done_pending)
                 body_text = section_bodies.get(row, "")
-                for mid, taker_sess in re.findall(r"(?m)^Heliograph:\s*(\S+)\s+session=(\S+)\s*$", body_text):
-                    to_close.setdefault(mid, taker_sess)
-                for mid, taker_sess in list(to_close.items()):
-                    dres = self._run_helio(["--session", taker_sess, "done", mid], ws, env)
+                for mid in re.findall(r"(?m)^Heliograph:\s*(\S+)\s*$", body_text):
+                    if mid not in to_close:
+                        to_close.append(mid)
+                for mid in to_close:
+                    dres = self._run_helio(["done", mid], ws, lane_env)
                     if dres.returncode == 0:
-                        done_pending.pop(mid, None)
+                        done_pending.discard(mid)
                         append_event(f"helio {mid}: done")
                     elif dres.returncode in (2, 3):
-                        done_pending[mid] = taker_sess
-                        append_event(f"helio {mid}: done-pending session={taker_sess}")
-                for mid, prior_sess in list(release_pending.items()):
-                    verify_and_release(mid, prior_sess)
+                        done_pending.add(mid)
+                        append_event(f"helio {mid}: done-pending")
+                for mid in list(release_pending):
+                    verify_and_release(mid)
                 # Between-sections inbox read.
-                ires = self._run_helio(["--session", session_id, *contract["inbox"]], ws, env)
+                ires = self._run_helio(contract["inbox"], ws, lane_env)
                 if ires.returncode == 1:
                     continue
                 if ires.returncode in (2, 3):
                     record_sanitized_error("inbox", ires.returncode)
                 output = ires.stdout
                 if "helio --all" in output:
-                    ares = self._run_helio(["--session", session_id, *contract["all"]], ws, env)
+                    ares = self._run_helio(contract["all"], ws, lane_env)
                     if ares.returncode in (2, 3):
                         record_sanitized_error("inbox-all", ares.returncode)
                     output = ares.stdout or output
@@ -5950,17 +5967,17 @@ sys.exit(2)
                         handled_ids.add(mid)
                         append_event(f"helio-ref: {mid} -> {existing_ref}")
                         continue
-                    sres = self._run_helio(["show", mid], ws, env)
+                    sres = self._run_helio(["show", mid], ws, lane_env)
                     body = sres.stdout
                     if "SCOPE=in" not in body:
                         handled_ids.add(mid)
                         append_event(f"helio {mid}: skipped")
                         continue
-                    # Write durable claim intent with session BEFORE calling take.
-                    append_event(f"helio-claim: {mid} session={session_id}")
+                    # Write durable claim intent BEFORE calling lane-scoped take.
+                    append_event(f"helio-claim: {mid}")
                     if mid in crash_before_take_ids:
                         return shipped_rows
-                    tres = self._run_helio(["--session", session_id, "take", mid], ws, env)
+                    tres = self._run_helio(["take", mid], ws, lane_env)
                     if tres.returncode != 0:
                         handled_ids.add(mid)
                         append_event(f"helio {mid}: error (exit {tres.returncode})")
@@ -5968,10 +5985,10 @@ sys.exit(2)
                     if mid in crash_after_take_ids:
                         return shipped_rows
                     if mid in fail_filing_ids:
-                        verify_and_release(mid, session_id)
+                        verify_and_release(mid)
                         continue
                     ref = f"D99 T01 §{len(section_bodies) + 1}"
-                    section_bodies[ref] = f"Heliograph: {mid} session={session_id}\n"
+                    section_bodies[ref] = f"Heliograph: {mid}\n"
                     if mid in crash_after_file_ids:
                         return shipped_rows
                     filed_refs[mid] = ref
@@ -6003,41 +6020,41 @@ sys.exit(2)
                     run_file.parent.mkdir(parents=True, exist_ok=True)
                     run_file.write_text("# Phase run\n\n## Critical events\n", encoding="utf-8")
 
-                    def make_env(with_bin: bool = True, sess: str = "sess-1") -> dict:
+                    def make_env(with_bin: bool = True) -> dict:
                         env = dict(os.environ)
                         env["PATH"] = str(bin_dir) if with_bin else str(root / "empty-bin")
                         env["HELIO_LOG"] = str(log_path)
                         env["HELIO_STATE"] = str(state_path)
-                        env["CODEX_THREAD_ID"] = sess
-                        env["ANTIGRAVITY_CONVERSATION_ID"] = sess
+                        env["HELIO_AS"] = f"demo/{agent_name}"
                         return env
 
                     contract = self._parse_contract(skill_text, agent_name)
-                    # Execute the skill's own fenced Step 0 and Step 3 sh guard blocks directly when sh/bash is available.
+                    # Execute the skill's own fenced Step 0 and Step 3 guard blocks directly (PowerShell on Windows, sh on POSIX).
                     # (f1) Missing helio on PATH runs nothing even with helio.conf present.
                     (ws / "helio.conf").write_text("project = demo\n", encoding="utf-8")
                     state_path.write_text(json.dumps({}), encoding="utf-8")
-                    self._run_sh_guard(contract["step0_sh"], ws, make_env(with_bin=False))
-                    self._run_sh_guard(contract["step3_sh"], ws, make_env(with_bin=False))
-                    self._walk_session(skill_text, agent_name, ws, make_env(with_bin=False), run_file, [["S1"]])
+                    self._run_platform_guard(contract, "step0", ws, make_env(with_bin=False))
+                    self._run_platform_guard(contract, "step3", ws, make_env(with_bin=False))
+                    self._walk_session(skill_text, agent_name, ws, make_env(with_bin=False), run_file, [["S1"]],
+                                       lane=f"demo/{agent_name}")
                     self.assertFalse(log_path.exists(), "helio ran when absent from PATH")
 
                     # (f2) Missing helio.conf runs nothing even with helio on PATH.
                     (ws / "helio.conf").unlink()
-                    self._run_sh_guard(contract["step0_sh"], ws, make_env(with_bin=True))
-                    self._run_sh_guard(contract["step3_sh"], ws, make_env(with_bin=True))
-                    self._walk_session(skill_text, agent_name, ws, make_env(with_bin=True), run_file, [["S1"]])
+                    self._run_platform_guard(contract, "step0", ws, make_env(with_bin=True))
+                    self._run_platform_guard(contract, "step3", ws, make_env(with_bin=True))
+                    self._walk_session(skill_text, agent_name, ws, make_env(with_bin=True), run_file, [["S1"]],
+                                       lane=f"demo/{agent_name}")
                     self.assertFalse(log_path.exists(), "helio ran without helio.conf")
 
-                    # (f3) helio.conf in a parent folder enables both fenced sh guard blocks and the full protocol.
+                    # (f3) helio.conf in a parent folder enables both fenced guard blocks and the full protocol.
                     (parent / "helio.conf").write_text("project = demo\n", encoding="utf-8")
-                    sh_res0 = self._run_sh_guard(contract["step0_sh"], ws, make_env(with_bin=True, sess="sess-sh"))
-                    sh_res3 = self._run_sh_guard(contract["step3_sh"], ws, make_env(with_bin=True, sess="sess-sh"))
-                    if sh_res0 is not None and sh_res3 is not None:
-                        sh_calls = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
-                        self.assertIn(["--session", "sess-sh", "hello", agent_name], sh_calls)
-                        self.assertIn(["--session", "sess-sh"], sh_calls)
-                        log_path.unlink()
+                    self._run_platform_guard(contract, "step0", ws, make_env(with_bin=True))
+                    self._run_platform_guard(contract, "step3", ws, make_env(with_bin=True))
+                    guard_calls = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+                    self.assertIn(["hello", agent_name], guard_calls)
+                    self.assertIn([], guard_calls)
+                    log_path.unlink()
                     private_body = "PRIVATE-BODY-TOKEN-774"
                     private_err = "TOP-SECRET-PEER-NOTE-991"
                     scenario = {
@@ -6078,25 +6095,46 @@ sys.exit(2)
                     }
                     state_path.write_text(json.dumps(scenario), encoding="utf-8")
                     section_bodies: dict[str, str] = {}
+                    lane = f"demo/{agent_name}"
                     shipped = self._walk_session(
                         skill_text, agent_name, ws, make_env(with_bin=True), run_file,
                         phases=[["S1", "S2"], ["S3", "S4", "S5", "S6", "S7", "S8"]],
+                        lane=lane,
                         fail_filing_ids={"m-abort"},
                         section_bodies=section_bodies,
                     )
                     self.assertEqual(shipped, ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"])
-                    # Cross-phase handoff: a fresh session (sess-2) in another phase ships D99 T01 §1 (which carries
-                    # Heliograph: m1 session=sess-1) with a brand-new run file and retries helio --session sess-1 done m1.
+                    # Cross-phase handoff: a fresh session in another phase ships D99 T01 §1 (which carries
+                    # Heliograph: m1 with no session suffix) and retries helio done m1 (exit 3 then exit 0).
                     phase_b_run = ws / "docs" / "phase-runs" / "2099-01-02-phase-9.md"
                     phase_b_run.write_text("# Phase B\n\n## Critical events\n", encoding="utf-8")
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-2"), phase_b_run,
-                        phases=[["D99 T01 §1", "B2"]], session_id="sess-2",
+                        skill_text, agent_name, ws, make_env(with_bin=True), phase_b_run,
+                        phases=[["D99 T01 §1", "B2"]], lane=lane,
                         section_bodies=section_bodies,
                     )
-                    # Crash-after-take recovery across a FRESH session (sess-crash-1 -> sess-crash-2):
-                    # sess-crash-1 takes m-crash and dies; sess-crash-2 resumes, verifies via show that sess-crash-1 holds it,
-                    # calls release with --session sess-crash-1 (stub checks session match; exit 2/3 retries until exit 0).
+                    # Crash-after-take recovery across a fresh session on the same non-owner lane WITHOUT forced
+                    # release_codes (proving store.c:844 lane-scoped ownership succeeds end to end).
+                    crash_clean_run = ws / "docs" / "phase-runs" / "2099-01-03a-phase-2.md"
+                    crash_clean_run.write_text("# Crash clean\n\n## Critical events\n", encoding="utf-8")
+                    state_path.write_text(json.dumps({
+                        "polls": [{"code": 0, "stdout": "ID=m-fresh SUBJ=Fresh\n"}, {"code": 1, "stdout": ""}],
+                        "bodies": {"m-fresh": "SCOPE=in\n"},
+                    }), encoding="utf-8")
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), crash_clean_run,
+                        phases=[["FC1"]], lane=lane,
+                        section_bodies=section_bodies, crash_after_take_ids={"m-fresh"},
+                    )
+                    self._walk_session(
+                        skill_text, agent_name, ws, make_env(with_bin=True), crash_clean_run,
+                        phases=[["FC2"]], lane=lane,
+                        section_bodies=section_bodies,
+                    )
+                    self.assertIn("helio m-fresh: released", crash_clean_run.read_text(encoding="utf-8"))
+                    self.assertNotIn("m-fresh", json.loads(state_path.read_text(encoding="utf-8")).get("held", {}))
+
+                    # Crash-after-take recovery with transient release failure (exit 2 then exit 0 -> release-pending then released).
                     crash_run = ws / "docs" / "phase-runs" / "2099-01-03-phase-2.md"
                     crash_run.write_text("# Crash run\n\n## Critical events\n", encoding="utf-8")
                     state_path.write_text(json.dumps({
@@ -6109,13 +6147,13 @@ sys.exit(2)
                         "release_codes": {"m-crash": [2, 0]},
                     }), encoding="utf-8")
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-crash-1"), crash_run,
-                        phases=[["C1"]], session_id="sess-crash-1",
+                        skill_text, agent_name, ws, make_env(with_bin=True), crash_run,
+                        phases=[["C1"]], lane=lane,
                         section_bodies=section_bodies, crash_after_take_ids={"m-crash"},
                     )
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-crash-2"), crash_run,
-                        phases=[["C2", "C3"]], session_id="sess-crash-2",
+                        skill_text, agent_name, ws, make_env(with_bin=True), crash_run,
+                        phases=[["C2", "C3"]], lane=lane,
                         section_bodies=section_bodies,
                     )
                     # Crash-after-filing recovery: add-todo wrote Heliograph: m-filed into section_bodies, then session died
@@ -6132,46 +6170,44 @@ sys.exit(2)
                     }), encoding="utf-8")
                     before_filed_count = len(section_bodies)
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-f1"), filed_crash_run,
-                        phases=[["F1"]], session_id="sess-f1",
+                        skill_text, agent_name, ws, make_env(with_bin=True), filed_crash_run,
+                        phases=[["F1"]], lane=lane,
                         section_bodies=section_bodies, crash_after_file_ids={"m-filed"},
                     )
                     self.assertEqual(len(section_bodies), before_filed_count + 1)
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-f2"), filed_crash_run,
-                        phases=[["F2"]], session_id="sess-f2",
+                        skill_text, agent_name, ws, make_env(with_bin=True), filed_crash_run,
+                        phases=[["F2"]], lane=lane,
                         section_bodies=section_bodies,
                     )
                     self.assertEqual(len(section_bodies), before_filed_count + 1, "m-filed was filed twice after restart")
                     # Owner-lane crash-before-take with competing taker: owner-lane records intent and dies before take;
-                    # another session (sess-peer) takes m-before. Owner-lane resumes, checks show, sees sess-peer holds it,
+                    # another lane (demo/peer) takes m-before. Owner-lane resumes, checks show ("taken by demo/peer"),
                     # NEVER calls release, records not-held, and files 0 TODOs.
                     before_take_run = ws / "docs" / "phase-runs" / "2099-01-05-phase-2.md"
                     before_take_run.write_text("# Before take crash\n\n## Critical events\n", encoding="utf-8")
                     state_path.write_text(json.dumps({
-                        "owner_lane": True,
                         "polls": [{"code": 0, "stdout": "ID=m-before SUBJ=BeforeTake\n"}, {"code": 1, "stdout": ""}],
                         "bodies": {"m-before": "SCOPE=in\n"},
                     }), encoding="utf-8")
                     before_take_sections = len(section_bodies)
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-owner-1"), before_take_run,
-                        phases=[["BT1"]], session_id="sess-owner-1",
+                        skill_text, agent_name, ws, make_env(with_bin=True), before_take_run,
+                        phases=[["BT1"]], lane="demo/owner",
                         section_bodies=section_bodies, crash_before_take_ids={"m-before"},
                     )
-                    # Competing session takes m-before while owner-lane is down.
                     st_now = json.loads(state_path.read_text(encoding="utf-8"))
-                    st_now.setdefault("held", {})["m-before"] = "sess-peer"
+                    st_now.setdefault("held", {})["m-before"] = {"lane": "demo/peer", "session": ""}
                     state_path.write_text(json.dumps(st_now), encoding="utf-8")
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-owner-2"), before_take_run,
-                        phases=[["BT2"]], session_id="sess-owner-2",
+                        skill_text, agent_name, ws, make_env(with_bin=True), before_take_run,
+                        phases=[["BT2"]], lane="demo/owner",
                         section_bodies=section_bodies,
                     )
                     self.assertEqual(len(section_bodies), before_take_sections, "crash-before-take filed a TODO without ownership")
                     self.assertIn("helio m-before: not-held", before_take_run.read_text(encoding="utf-8"))
                     st_after = json.loads(state_path.read_text(encoding="utf-8"))
-                    self.assertEqual(st_after.get("held", {}).get("m-before"), "sess-peer", "owner-lane released peer's claim")
+                    self.assertEqual(st_after.get("held", {}).get("m-before", {}).get("lane"), "demo/peer", "owner-lane released peer's claim")
 
                     # Same-day retry after earlier refusal: m-retry is refused once (error exit 2), then in a later session
                     # sharing the same run file take succeeds and crashes; resume must not let the older error suppress recovery.
@@ -6187,57 +6223,61 @@ sys.exit(2)
                         "take_codes": {"m-retry": [2, 0]},
                     }), encoding="utf-8")
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-r1"), retry_run,
-                        phases=[["R1"]], session_id="sess-r1", section_bodies=section_bodies,
+                        skill_text, agent_name, ws, make_env(with_bin=True), retry_run,
+                        phases=[["R1"]], lane=lane, section_bodies=section_bodies,
                     )
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-r2"), retry_run,
-                        phases=[["R2"]], session_id="sess-r2", section_bodies=section_bodies, crash_after_take_ids={"m-retry"},
+                        skill_text, agent_name, ws, make_env(with_bin=True), retry_run,
+                        phases=[["R2"]], lane=lane, section_bodies=section_bodies, crash_after_take_ids={"m-retry"},
                     )
                     self._walk_session(
-                        skill_text, agent_name, ws, make_env(with_bin=True, sess="sess-r3"), retry_run,
-                        phases=[["R3"]], session_id="sess-r3", section_bodies=section_bodies,
+                        skill_text, agent_name, ws, make_env(with_bin=True), retry_run,
+                        phases=[["R3"]], lane=lane, section_bodies=section_bodies,
                     )
                     self.assertIn("helio m-retry: released", retry_run.read_text(encoding="utf-8"))
 
                     calls = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
                     # (a) First session: one hello across two phases, inbox after each of the 8 shipped sections.
-                    self.assertEqual(calls[0], ["--session", "sess-1", "hello", agent_name])
-                    self.assertGreaterEqual(calls.count(["--session", "sess-1"]), 8)
+                    self.assertEqual(calls[0], ["hello", agent_name])
+                    self.assertGreaterEqual(calls.count([]), 8)
                     # (b) show called on both same-subject messages; only m1 taken.
                     self.assertIn(["show", "m1"], calls)
                     self.assertIn(["show", "m2"], calls)
-                    self.assertEqual(calls.count(["--session", "sess-1", "take", "m1"]), 1)
-                    self.assertNotIn(["--session", "sess-1", "take", "m2"], calls)
-                    # (c) m-lost refused and not filed; m-abort released; m1 closed across phases with taker session;
-                    # m-crash released across fresh session with --session sess-crash-1 (retried after exit 2);
-                    # m-filed never released; m-before never released while held by sess-peer.
-                    self.assertIn(["--session", "sess-1", "take", "m-lost"], calls)
-                    self.assertIn(["--session", "sess-1", "release", "m-abort"], calls)
-                    self.assertEqual(calls.count(["--session", "sess-1", "done", "m1"]), 2)
-                    self.assertEqual(calls.count(["--session", "sess-crash-1", "release", "m-crash"]), 2)
-                    self.assertFalse(any(c[-2:] == ["release", "m-filed"] for c in calls))
-                    self.assertFalse(any(c[-2:] == ["release", "m-before"] for c in calls))
-                    self.assertEqual(calls.count(["--session", "sess-f1", "take", "m-filed"]), 1)
+                    self.assertEqual(calls.count(["take", "m1"]), 1)
+                    self.assertNotIn(["take", "m2"], calls)
+                    # (c) m-lost refused and not filed; m-abort released; m1 closed across phases;
+                    # m-fresh released across fresh session without forced release_codes; m-crash retried after exit 2;
+                    # m-filed never released; m-before never released while held by demo/peer.
+                    self.assertIn(["take", "m-lost"], calls)
+                    self.assertIn(["release", "m-abort"], calls)
+                    self.assertEqual(calls.count(["done", "m1"]), 2)
+                    self.assertIn(["release", "m-fresh"], calls)
+                    self.assertEqual(calls.count(["release", "m-crash"]), 2)
+                    self.assertNotIn(["release", "m-filed"], calls)
+                    self.assertNotIn(["release", "m-before"], calls)
+                    self.assertEqual(calls.count(["take", "m-filed"]), 1)
                     # (d) --all invoked once and m6 taken; m1 not re-taken.
-                    self.assertIn(["--session", "sess-1", "--all"], calls)
-                    self.assertIn(["--session", "sess-1", "take", "m6"], calls)
-                    # (e) exit 3 partial output inspected m7; private text never leaked; once-only error diagnostics.
-                    self.assertIn(["--session", "sess-1", "take", "m7"], calls)
+                    self.assertIn(["--all"], calls)
+                    self.assertIn(["take", "m6"], calls)
+                    # (e) exit 3 partial output inspected m7; private text and session IDs never leaked; once-only error diagnostics.
+                    self.assertIn(["take", "m7"], calls)
                     rf_text = run_file.read_text(encoding="utf-8")
                     self.assertNotIn(private_body, rf_text)
                     self.assertNotIn(private_err, rf_text)
+                    self.assertNotIn("session=", rf_text)
                     self.assertNotIn("m-lost ->", rf_text)
                     self.assertIn("helio-ref: m1 ->", rf_text)
                     self.assertIn("helio m-abort: released", rf_text)
                     self.assertEqual(rf_text.count("helio inbox: error (exit 2)"), 1)
                     self.assertEqual(rf_text.count("helio inbox: error (exit 3)"), 1)
                     pb_text = phase_b_run.read_text(encoding="utf-8")
-                    self.assertIn("helio m1: done-pending session=sess-1", pb_text)
+                    self.assertIn("helio m1: done-pending", pb_text)
                     self.assertIn("helio m1: done", pb_text)
+                    self.assertNotIn("session=", pb_text)
                     cr_text = crash_run.read_text(encoding="utf-8")
-                    self.assertIn("helio m-crash: release-pending session=sess-crash-1", cr_text)
+                    self.assertIn("helio m-crash: release-pending", cr_text)
                     self.assertIn("helio m-crash: released", cr_text)
+                    self.assertNotIn("session=", cr_text)
                     self.assertIn("helio-ref: m-filed ->", filed_crash_run.read_text(encoding="utf-8"))
 
     def test_heliograph_walkthrough_fails_on_mutations_and_readme_names_three_channels(self):
