@@ -5603,7 +5603,7 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
             "helio take <id>",
             "require exit 0 before editing `todo/` or filing",
             "a refused claim never edits `todo/`",
-            "if present, repair `helio-ref:` and retain the claim; only if absent, call `helio release <id>`",
+            "if present, repair `helio-ref:` and retain the claim; only if absent, run the same `helio show <id>` holder check",
             "if `taken by` another lane, never call `helio release <id>`",
             "on `/owner`, never issue an unverified override release and keep `release-pending` for `## Closeout`",
             "helio done <id>",
@@ -5921,7 +5921,7 @@ sys.exit(2)
         return parsed
 
     def _run_helio_cmd(self, args: list[str], cwd: pathlib.Path, env: dict[str, str]) -> subprocess.CompletedProcess:
-        exe = "helio.cmd" if os.name == "nt" else "helio"
+        exe = env["HELIO_STUB_EXE"]
         kwargs: dict = {
             "cwd": str(cwd),
             "env": env,
@@ -6130,10 +6130,23 @@ sys.exit(2)
                 continue
 
             if fail_mode == "before_marker":
+                if plan.get("on_before_recovery"):
+                    plan["on_before_recovery"]()
                 found_after = self._find_marker_ref(todo_root, mid)
                 if found_after:
                     append_event(f"- helio-ref: {mid} -> {found_after}")
                 else:
+                    sr_rel = self._run_helio_cmd(["show", mid], repo, env)
+                    hdrs_rel = self._parse_helio_lines(sr_rel.stdout) if sr_rel.returncode == 0 else []
+                    status_rel = hdrs_rel[0]["status"] if hdrs_rel else ""
+                    if status_rel.startswith("taken by "):
+                        holder_rel = status_rel[len("taken by "):].strip()
+                        if holder_rel != lane:
+                            append_event(f"- helio {mid}: release-skipped-holder")
+                            continue
+                        if is_owner_lane:
+                            append_event(f"- helio {mid}: release-pending")
+                            continue
                     rr = self._run_helio_cmd(["release", mid], repo, env)
                     if rr.returncode == 0:
                         append_event(f"- helio {mid}: released")
@@ -6183,7 +6196,7 @@ sys.exit(2)
                 ("missing Step 3 block", tpl_text.replace("### Heliograph messages (between sections)", "### Removed")),
                 ("wrong agent in Step 0", tpl_text.replace(f"helio hello {agent}", "helio hello claude")),
                 ("second-phase re-announce", tpl_text.replace("skip on subsequent phases of the same session", "run again on subsequent phases of the same session")),
-                ("inverted marker recovery", tpl_text.replace("if present, repair `helio-ref:` and retain the claim; only if absent, call `helio release <id>`", "if absent, repair `helio-ref:` and retain the claim; only if present, call `helio release <id>`")),
+                ("inverted marker recovery", tpl_text.replace("if present, repair `helio-ref:` and retain the claim; only if absent, run the same `helio show <id>` holder check", "if absent, repair `helio-ref:` and retain the claim; only if present, run the same `helio show <id>` holder check")),
                 ("weakened Windows guard", tpl_text.replace("-LiteralPath (Join-Path $d 'helio.conf') -PathType Leaf", "(Join-Path $d 'helio.conf')")),
                 ("weakened Step 3 POSIX -f guard", tpl_text.replace('[ -f "$d/helio.conf" ]; }; then helio; fi', '[ -e "$d/helio.conf" ]; }; then helio; fi')),
                 ("removed exit-3 handling", tpl_text.replace("exit 2 (refused) or exit 3 (damaged store)", "exit 2 only")),
@@ -6249,6 +6262,7 @@ sys.exit(2)
 
                 env = os.environ.copy()
                 env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+                env["HELIO_STUB_EXE"] = str(bin_dir / ("helio.cmd" if is_win else "helio"))
                 env["HELIO_STUB_STATE"] = str(state_file)
                 env["HELIO_TEST_LANE"] = f"proj/{agent}"
                 env["HELIO_SESSION"] = "SECRET-SESSION-ID-777"
@@ -6268,12 +6282,18 @@ sys.exit(2)
                 self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
                 (repo / "helio.conf").rmdir()
 
-                # 1c. Regular helio.conf present, but helio absent from PATH: both Step 0 and Step 3 are no-op (exit 0)
+                # 1c. Regular helio.conf present, but helio absent from controlled PATH: both Step 0 and Step 3 are no-op (exit 0)
                 (repo / "helio.conf").write_text("store=local\n", encoding="utf-8")
                 env_no_helio = env.copy()
-                env_no_helio["PATH"] = os.pathsep.join(
-                    p for p in env["PATH"].split(os.pathsep) if pathlib.Path(p) != bin_dir and not (pathlib.Path(p) / ("helio.cmd" if is_win else "helio")).exists()
-                )
+                if is_win:
+                    sysroot = os.environ.get("SystemRoot", r"C:\Windows")
+                    env_no_helio["PATH"] = os.pathsep.join([
+                        os.path.join(sysroot, "System32"),
+                        os.path.join(sysroot, "System32", "WindowsPowerShell", "v1.0"),
+                    ])
+                else:
+                    env_no_helio["PATH"] = "/usr/bin:/bin"
+                self.assertIsNone(shutil.which("helio", path=env_no_helio["PATH"]))
                 self.assertEqual(self._run_guard_fence(step0_fence, repo, env_no_helio, is_win).returncode, 0)
                 self.assertEqual(self._run_guard_fence(step3_fence, repo, env_no_helio, is_win).returncode, 0)
                 self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
@@ -6359,13 +6379,15 @@ sys.exit(2)
                 ]
                 state_file.write_text(json.dumps(st_mid), encoding="utf-8")
 
-                # Boundary 2 (damaged poll #1 with partial m_partial_dmg, plus release-pending retry & done exit 3)
-                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §2", ["m_final_err"], handled, logged_errs, filing_plan)
+                # Boundary 2 (damaged poll #1 with partial m_partial_dmg, plus release-pending retry)
+                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §2", [], handled, logged_errs, filing_plan)
 
-                # Boundary 3 (damaged poll #2: must NOT duplicate inbox exit-3 diagnostic)
-                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §3", [], handled, logged_errs, filing_plan)
+                # Boundary 3 (final row ships m_final_err -> done exit 3 -> done-pending; damaged poll #2 must NOT duplicate exit-3)
+                self._walk_boundary(contract, repo, run_file, env, "D01 T01 §3", ["m_final_err"], handled, logged_errs, filing_plan)
 
-                # Step 4 closeout: final done attempt on m_final_err succeeds (exit 0), m_other_done listed in Closeout
+                # Verify m_final_err is still taken before Step 4 closeout, then done immediately after
+                pre_close = {m["id"]: m for m in json.loads(state_file.read_text(encoding="utf-8"))["messages"]}
+                self.assertEqual(pre_close["m_final_err"]["state"], "taken")
                 self._walk_closeout(repo, run_file, env)
 
                 final_state = json.loads(state_file.read_text(encoding="utf-8"))
@@ -6397,9 +6419,12 @@ sys.exit(2)
                 self.assertEqual(len(other_answers), 1)
                 self.assertIn("Shipped D01 T01 §1", other_answers[0]["subject"])
 
-                # Privacy + damaged-store once-only diagnostic + refused-take no-TODO check
+                # Privacy + damaged-store once-only diagnostic + refused-take no-TODO + info & repaired-ref records
                 run_text = run_file.read_text(encoding="utf-8")
                 todo_text = todo_file.read_text(encoding="utf-8")
+                self.assertIn("- helio m_info: info", run_text)
+                self.assertIn("- helio m_find: info", run_text)
+                self.assertIn("- helio-ref: m_after_mark -> D01 T01 §4", run_text)
                 self.assertIn("- helio m_shipped_cov: skipped", run_text)
                 self.assertEqual(_extract_shipped_bytes(todo_file.read_bytes()), shipped_bytes_before)
                 self.assertNotIn("Heliograph: m_shipped_cov", todo_text)
@@ -6410,9 +6435,25 @@ sys.exit(2)
                 for secret in ("PRIVATE-BODY-1", "PRIVATE-BODY-2", "PRIVATE-BODY-3", "PRIVATE-STDERR-DAMAGE", "PRIVATE-DAMAGE-1", "PRIVATE-DAMAGE-2", "SECRET-SESSION-ID-777", legacy_secret):
                     self.assertNotIn(secret, combined)
 
-                # Owner-lane release-pending safety:
+                # Owner-lane release-pending & immediate pre-marker recovery safety:
                 # - different holder (m_other_done) -> release-skipped-holder, cleared
                 # - same-lane /owner holder (m_owner_self) -> NOT released, retained in Closeout
+                # - immediate pre-marker failure where another writer takes claim mid-interval -> NOT released
+                st_owner = json.loads(state_file.read_text(encoding="utf-8"))
+                st_owner["messages"].append(
+                    {"id": "m_owner_race", "kind": "request", "state": "open", "subject": "OwnerRace", "body": "IN_SCOPE"}
+                )
+                state_file.write_text(json.dumps(st_owner), encoding="utf-8")
+
+                def _reassign_to_other() -> None:
+                    s_cur = json.loads(state_file.read_text(encoding="utf-8"))
+                    for msg in s_cur["messages"]:
+                        if msg["id"] == "m_owner_race":
+                            msg["state"] = "taken"
+                            msg["by"] = "proj/other"
+                            msg["session"] = "other-race-s"
+                    state_file.write_text(json.dumps(s_cur), encoding="utf-8")
+
                 owner_env = env.copy()
                 owner_env["HELIO_TEST_LANE"] = "proj/owner"
                 owner_run = repo / "docs" / "phase-runs" / "owner-run.md"
@@ -6420,12 +6461,25 @@ sys.exit(2)
                     "# Owner Run\n- helio m_other_done: release-pending\n- helio m_owner_self: release-pending\n",
                     encoding="utf-8",
                 )
-                self._walk_boundary(contract, repo, owner_run, owner_env, None, [], set(), set(), {})
+                owner_plan = {
+                    "m_owner_race": {
+                        "todo_rel": "todo/01-core/TODO-01-sample.md",
+                        "sec_num": 7,
+                        "ref": "D01 T01 §7",
+                        "fail_mode": "before_marker",
+                        "on_before_recovery": _reassign_to_other,
+                    }
+                }
+                self._walk_boundary(contract, repo, owner_run, owner_env, None, [], set(), set(), owner_plan)
                 self._walk_closeout(repo, owner_run, owner_env)
                 after_owner = json.loads(state_file.read_text(encoding="utf-8"))
                 after_by_id = {m["id"]: m for m in after_owner["messages"]}
                 self.assertEqual(after_by_id["m_other_done"]["state"], "taken")
                 self.assertEqual(after_by_id["m_owner_self"]["state"], "taken")
+                self.assertEqual(after_by_id["m_owner_race"]["state"], "taken")
+                self.assertEqual(after_by_id["m_owner_race"]["by"], "proj/other")
+                self.assertNotIn(["release", "m_owner_race"], after_owner["calls"])
                 owner_text = owner_run.read_text(encoding="utf-8")
                 self.assertIn("release-skipped-holder", owner_text)
+                self.assertIn("- helio m_owner_race: release-skipped-holder", owner_text)
                 self.assertIn("- release-pending: m_owner_self", owner_text)
