@@ -134,7 +134,7 @@ finally:
     tmp.unlink(missing_ok=True)
 ```
 
-Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup runs with no other Forge or Git writer active in the checkout, sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA), and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents and later kit registrations, includes a best-effort pre-publish manifest check alongside the single-writer requirement, and refuses symlinks or Windows junctions on any parent or target component):
+Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup runs with no other Forge or Git writer active in the checkout, sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA), and restores tracked Git index entries from that recovery ref and allowlisted working-tree wrapper bytes from the recovery archive relative to the repository root (works from any subdirectory, preserves retained custom agents and later kit registrations, includes a best-effort pre-publish manifest check alongside the single-writer requirement, publishes each file atomically with `os.replace` so hard links never overwrite retained targets, and refuses symlinks or Windows junctions on any parent or target component):
 
 ```python
 import json, os, pathlib, subprocess, tempfile, zipfile
@@ -194,7 +194,14 @@ for m in retired:
         check_no_links(m)
         target = top / m
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(payload[m])
+        fd, tmp_w = tempfile.mkstemp(dir=target.parent, prefix=".restore.", suffix=".tmp")
+        os.close(fd)
+        tmp_wp = pathlib.Path(tmp_w)
+        try:
+            tmp_wp.write_bytes(payload[m])
+            os.replace(tmp_wp, target)
+        finally:
+            tmp_wp.unlink(missing_ok=True)
 if merged_kits_bytes is not None:
     if orig_kits_bytes is not None and (not kits_path.is_file() or kits_path.read_bytes() != orig_kits_bytes):
         raise RuntimeError(".conclave/kits.json changed concurrently during rollback; re-run with no other writer active")
@@ -208,7 +215,7 @@ if merged_kits_bytes is not None:
     finally:
         tmp_p.unlink(missing_ok=True)
 ```
-3. Remove only the six retired SDK paths (and `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
+3. Remove only the six retired SDK paths (on a resumed cleanup reusing an existing archive, compare each surviving wrapper's bytes against its archived member in `pre-orchestrator-migration.zip` first, and stop naming the file if any surviving wrapper differs or has no archived member; remove `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
 4. Switch interactive and CLI Antigravity launches to `agy --model gemini-4-neon-medium --effort=medium` (or keep `--model gemini-pro-orchestrator` without `--effort` if staying on Orchestrator compatibility).
 5. Verify native operation: confirm none of the five SDK wrappers remain in `.agents/agents/`, confirm `agy --model gemini-4-neon-medium --effort=medium` lists built-in `self`, `research`, and `image-generator` in `<subagents>`, and confirm a single-session edit and test run finishes cleanly.
 

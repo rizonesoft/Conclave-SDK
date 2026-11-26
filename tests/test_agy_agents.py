@@ -1215,6 +1215,8 @@ class OrchestratorContractTests(unittest.TestCase):
             _git("commit", "-m", "chore: partial cleanup")
             partial_env = os.environ.copy()
             partial_env["RECOVERY_REF"] = partial_sha
+            # Hard-link git-runner.md to custom_agent before rollback: atomic os.replace must preserve custom_agent.
+            os.link(custom_agent, project / ".agents/agents/git-runner.md")
             subprocess.run([sys.executable, "-c", restore_script], cwd=str(subdir), env=partial_env, check=True)
             self.assertFalse((project / ".agents/agents/test-runner.md").exists())
             self.assertEqual(
@@ -1225,6 +1227,7 @@ class OrchestratorContractTests(unittest.TestCase):
                 (project / ".agents/agents/git-runner.md").read_bytes(),
                 expected_pre_bytes[".agents/agents/git-runner.md"],
             )
+            self.assertEqual(custom_agent.read_text(encoding="utf-8"), post_migration_custom)
             self.assertEqual(
                 _git("ls-files", ".agents/agents/git-runner.md").stdout.strip(),
                 "",
