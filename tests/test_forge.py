@@ -6051,7 +6051,7 @@ sys.exit(2)
         if inbox_res.returncode in (2, 3):
             log_err_once("inbox", inbox_res.returncode)
         lines = self._parse_helio_lines(inbox_res.stdout)
-        if "helio --all" in inbox_res.stdout:
+        if re.search(r"(?m)^and \d+ more: helio --all$", inbox_res.stdout):
             all_res = self._run_helio_cmd(["--all"], repo, env)
             if all_res.returncode in (2, 3):
                 log_err_once("inbox-all", all_res.returncode)
@@ -6528,3 +6528,68 @@ sys.exit(2)
                 self.assertIn("- helio m_owner_race: release-skipped-holder", owner_text)
                 self.assertIn("- release-pending: m_owner_self", owner_text)
                 self.assertIn("- release-pending: m_owner_show_err", owner_text)
+
+                # Partial inbox_all (exit 3) merge regression + repeated exit 1 / exit 2 + subsequent job
+                edge_run = repo / "docs" / "phase-runs" / "edge-run.md"
+                edge_run.write_text("# Edge Run\n## Critical events\n", encoding="utf-8")
+                edge_state = {
+                    "messages": [
+                        {"id": "m_only_first", "kind": "request", "state": "open", "subject": "Question about helio --all", "body": "IN_SCOPE"},
+                        {"id": "m_shared", "kind": "request", "state": "open", "subject": "Shared", "body": "IN_SCOPE"},
+                        {"id": "m_pad1", "kind": "headsup", "state": "open", "subject": "P1", "body": "x"},
+                        {"id": "m_pad2", "kind": "headsup", "state": "open", "subject": "P2", "body": "x"},
+                        {"id": "m_pad3", "kind": "headsup", "state": "open", "subject": "P3", "body": "x"},
+                        {"id": "m_only_all", "kind": "request", "state": "open", "subject": "OnlyAll", "body": "IN_SCOPE"},
+                    ],
+                    "calls": [],
+                    "answers": [],
+                    "overrides": {
+                        "inbox_all": [{"rc": 3, "partial_ids": ["m_shared", "m_only_all"], "stderr": "PRIVATE-ALL-ERR"}],
+                    },
+                }
+                state_file.write_text(json.dumps(edge_state), encoding="utf-8")
+                edge_handled: set[str] = set()
+                edge_errs: set[str] = set()
+                edge_plan = {
+                    "m_only_first": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 10, "ref": "D01 T01 §10"},
+                    "m_shared": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 11, "ref": "D01 T01 §11"},
+                    "m_only_all": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 12, "ref": "D01 T01 §12"},
+                    "m_after_errs": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 13, "ref": "D01 T01 §13"},
+                }
+                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                st_e1 = json.loads(state_file.read_text(encoding="utf-8"))
+                for mid in ("m_only_first", "m_shared", "m_only_all"):
+                    self.assertEqual(st_e1["calls"].count(["show", mid]), 1)
+                    self.assertEqual({m["id"]: m for m in st_e1["messages"]}[mid]["state"], "taken")
+
+                # Two consecutive empty-inbox polls (exit 1) -> zero error lines
+                state_file.write_text(json.dumps({"messages": [], "calls": [], "answers": [], "overrides": {}}), encoding="utf-8")
+                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+
+                # Two consecutive exit-2 inbox refusals -> once-only diagnostic, then subsequent job succeeds
+                st_e2 = {
+                    "messages": [{"id": "m_after_errs", "kind": "request", "state": "open", "subject": "Question about helio --all", "body": "IN_SCOPE"}],
+                    "calls": [],
+                    "answers": [],
+                    "overrides": {
+                        "inbox": [
+                            {"rc": 2, "stderr": "PRIVATE-REFUSED-1"},
+                            {"rc": 2, "stderr": "PRIVATE-REFUSED-2"},
+                        ]
+                    },
+                }
+                state_file.write_text(json.dumps(st_e2), encoding="utf-8")
+                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
+                st_e3 = json.loads(state_file.read_text(encoding="utf-8"))
+                self.assertEqual({m["id"]: m for m in st_e3["messages"]}["m_after_errs"]["state"], "taken")
+                # Subject mentioning "helio --all" with 1 message must NOT trigger --all
+                self.assertNotIn(["--all"], st_e3["calls"])
+                edge_text = edge_run.read_text(encoding="utf-8")
+                self.assertNotIn("error (exit 1)", edge_text)
+                self.assertEqual(edge_text.count("- helio inbox: error (exit 2)"), 1)
+                self.assertEqual(edge_text.count("- helio inbox-all: error (exit 3)"), 1)
+                for sec in ("PRIVATE-ALL-ERR", "PRIVATE-REFUSED-1", "PRIVATE-REFUSED-2"):
+                    self.assertNotIn(sec, edge_text)
