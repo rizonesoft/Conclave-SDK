@@ -1367,6 +1367,39 @@ class OrchestratorContractTests(unittest.TestCase):
                 json.loads(kits_file.read_text(encoding="utf-8"))["files"][".agents/agents/code-explorer.md"],
                 conflict_entry,
             )
+            _git("checkout", "--", ".conclave/kits.json")
+            # Unified deletion guard on archive-only wrapper (git-runner.md) and tracked manifest (.conclave/kits.json):
+            # 1) Archive-only wrapper later committed then deleted in worktree must stop rollback.
+            (project / ".agents/agents/git-runner.md").write_bytes(expected_pre_bytes[".agents/agents/git-runner.md"])
+            _git("add", "-f", ".agents/agents/git-runner.md")
+            _git("commit", "-m", "chore: track archive-only wrapper")
+            (project / ".agents/agents/git-runner.md").unlink()
+            arc_del_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(arc_del_refusal.returncode, 0, "rollback must refuse undoing deletion of committed archive-only wrapper")
+            self.assertIn("git-runner.md", arc_del_refusal.stderr)
+            self.assertFalse((project / ".agents/agents/git-runner.md").exists())
+            _git("reset", "-q", "--hard", "HEAD~1")
+            # 2) Pending unstaged deletion of tracked .conclave/kits.json must stop rollback before recreating it.
+            kits_file.unlink()
+            kits_del_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(kits_del_refusal.returncode, 0, "rollback must refuse resurrecting deleted kits.json")
+            self.assertIn(".conclave/kits.json", kits_del_refusal.stderr)
+            self.assertFalse(kits_file.exists())
+            _git("checkout", "--", ".conclave/kits.json")
 
             # Junction (Windows) / symlink (POSIX) parent-directory refusal before backup or rollback mutation.
             shared_dir = Path(tmp) / "shared-agents"

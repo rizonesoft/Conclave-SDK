@@ -168,6 +168,7 @@ with zipfile.ZipFile(src) as z:
         raise zipfile.BadZipFile(bad)
     payload = {m: z.read(m) for m in z.namelist() if m in allow}
     modes = {m: (z.getinfo(m).external_attr >> 16) & 0o777 for m in payload if (z.getinfo(m).external_attr >> 16) != 0}
+to_publish = sorted(payload)
 ref_tree = {}
 for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", ref, "--", *retired], text=True).splitlines():
     meta, rel = line.split("\t", 1)
@@ -177,23 +178,34 @@ present_retired = sorted(ref_tree)
 missing = [r for r in present_retired if r not in payload]
 if missing:
     raise KeyError(f"archive missing paths: {missing}")
-staged = {}
+# Unified pre-mutation guard over every path scheduled for publication (recovery-tracked wrappers,
+# archive-only wrappers, and .conclave/kits.json): check HEAD, index, and worktree together before mutating.
 head_tree = set()
-if present_retired:
-    for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", "HEAD", "--", *present_retired], text=True).splitlines():
+staged = {}
+if to_publish:
+    for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", "HEAD", "--", *to_publish], text=True).splitlines():
         head_tree.add(line)
-    for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *present_retired], text=True).splitlines():
+    for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *to_publish], text=True).splitlines():
         meta, rel = line.split("\t", 1)
         mode, oid, stage = meta.split()
         staged.setdefault(rel, []).append((mode, oid, stage))
-for rel in present_retired:
-    if rel not in staged and rel in head_tree:
-        raise RuntimeError(f"staged deletion would be undone: {rel}")
-    if rel in head_tree and not (top / rel).exists():
-        raise RuntimeError(f"unstaged deletion would be undone: {rel}")
-for rel, entries in staged.items():
-    if len(entries) != 1 or entries[0] != (*ref_tree[rel], "0"):
-        raise RuntimeError(f"staged entry differs from recovery ref: {rel}")
+for rel in to_publish:
+    target = top / rel
+    if rel in head_tree and (rel not in staged or not target.exists()):
+        raise RuntimeError(f"pending deletion would be undone: {rel}")
+    if rel == ".conclave/kits.json":
+        if rel in staged and len(staged[rel]) != 1:
+            raise RuntimeError(f"unmerged index entry: {rel}")
+        continue
+    if rel in staged:
+        if rel not in ref_tree or len(staged[rel]) != 1 or staged[rel][0] != (*ref_tree[rel], "0"):
+            raise RuntimeError(f"staged entry differs from recovery state: {rel}")
+    if target.exists():
+        same_bytes = target.is_file() and target.read_bytes() == payload[rel]
+        same_mode = (os.name == "nt" or rel not in modes
+                     or (target.stat().st_mode & 0o777) == modes[rel])
+        if not (same_bytes and same_mode):
+            raise RuntimeError(f"existing path differs from archive: {target}")
 merged_kits_bytes = None
 orig_kits_bytes = None
 kits_mode = None
@@ -215,15 +227,6 @@ if ".conclave/kits.json" in payload:
     else:
         kits_mode = modes[".conclave/kits.json"] if ".conclave/kits.json" in modes else 0o644
         merged_kits_bytes = payload[".conclave/kits.json"]
-for m in retired:
-    if m in payload:
-        target = top / m
-        if target.exists():
-            same_bytes = target.is_file() and target.read_bytes() == payload[m]
-            same_mode = (os.name == "nt" or m not in modes
-                         or (target.stat().st_mode & 0o777) == modes[m])
-            if not (same_bytes and same_mode):
-                raise RuntimeError(f"existing path differs from archive: {target}")
 if present_retired:
     subprocess.run(["git", "-C", str(top), "restore", "--source", ref, "--staged", "--", *present_retired], check=True)
 for m in retired:
