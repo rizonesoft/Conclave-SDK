@@ -6176,6 +6176,7 @@ sys.exit(2)
             mutations = [
                 ("missing Step 3 block", tpl_text.replace("### Heliograph messages (between sections)", "### Removed")),
                 ("wrong agent in Step 0", tpl_text.replace(f"helio hello {agent}", "helio hello claude")),
+                ("second-phase re-announce", tpl_text.replace("skip on subsequent phases of the same session", "run again on subsequent phases of the same session")),
                 ("inverted marker recovery", tpl_text.replace("if present, repair `helio-ref:` and retain the claim; only if absent, call `helio release <id>`", "if absent, repair `helio-ref:` and retain the claim; only if present, call `helio release <id>`")),
                 ("weakened Windows guard", tpl_text.replace("-LiteralPath (Join-Path $d 'helio.conf') -PathType Leaf", "(Join-Path $d 'helio.conf')")),
                 ("weakened Step 3 POSIX -f guard", tpl_text.replace('[ -f "$d/helio.conf" ]; }; then helio; fi', '[ -e "$d/helio.conf" ]; }; then helio; fi')),
@@ -6275,6 +6276,7 @@ sys.exit(2)
                         {"id": "m_badshow", "kind": "request", "state": "open", "subject": "Same", "body": "IN_SCOPE"},
                         {"id": "m_out", "kind": "request", "state": "open", "subject": "Same", "body": "OUT_OF_SCOPE PRIVATE-BODY-3"},
                         {"id": "m_open_cov", "kind": "request", "state": "open", "subject": "Open", "body": "IN_SCOPE"},
+                        {"id": "m_shipped_cov", "kind": "request", "state": "open", "subject": "Shipped", "body": "IN_SCOPE"},
                         {"id": "m_incidental", "kind": "handoff", "state": "open", "subject": "Incidental", "body": "IN_SCOPE"},
                         {"id": "m_after_mark", "kind": "request", "state": "open", "subject": "AfterMark", "body": "IN_SCOPE"},
                         {"id": "m_pre_mark", "kind": "request", "state": "open", "subject": "PreMark", "body": "IN_SCOPE"},
@@ -6303,8 +6305,11 @@ sys.exit(2)
 
                 handled: set[str] = set()
                 logged_errs: set[str] = set()
+                shipped_marker_before = "## 2. Shipped [x]\n\nAlready shipped work.\n"
+                self.assertIn(shipped_marker_before, todo_file.read_text(encoding="utf-8"))
                 filing_plan = {
                     "m_open_cov": {"covered_open": True, "todo_rel": "todo/01-core/TODO-01-sample.md", "ref": "D01 T01 §1"},
+                    "m_shipped_cov": {"covered_shipped": True},
                     "m_incidental": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 3, "ref": "D01 T01 §3"},
                     "m_after_mark": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 4, "ref": "D01 T01 §4", "fail_mode": "after_marker"},
                     "m_pre_mark": {"todo_rel": "todo/01-core/TODO-01-sample.md", "sec_num": 5, "ref": "D01 T01 §5", "fail_mode": "before_marker"},
@@ -6337,6 +6342,7 @@ sys.exit(2)
                 self.assertEqual(by_id["m_badshow"]["state"], "open")
                 self.assertEqual(by_id["m_out"]["state"], "open")
                 self.assertEqual(by_id["m_open_cov"]["state"], "taken")
+                self.assertEqual(by_id["m_shipped_cov"]["state"], "open")
                 self.assertEqual(by_id["m_incidental"]["state"], "taken")
                 self.assertEqual(by_id["m_after_mark"]["state"], "taken")
                 self.assertEqual(by_id["m_pre_mark"]["state"], "open")
@@ -6350,6 +6356,9 @@ sys.exit(2)
                 # Privacy: no secret body, stderr, session ID, or legacy token leaked into committed files or calls
                 run_text = run_file.read_text(encoding="utf-8")
                 todo_text = todo_file.read_text(encoding="utf-8")
+                self.assertIn("- helio m_shipped_cov: skipped", run_text)
+                self.assertIn(shipped_marker_before, todo_text)
+                self.assertNotIn("Heliograph: m_shipped_cov", todo_text)
                 combined = run_text + "\n" + todo_text + "\n" + json.dumps(calls)
                 for secret in ("PRIVATE-BODY-1", "PRIVATE-BODY-2", "PRIVATE-BODY-3", "PRIVATE-STDERR-DAMAGE", "SECRET-SESSION-ID-777", legacy_secret):
                     self.assertNotIn(secret, combined)
