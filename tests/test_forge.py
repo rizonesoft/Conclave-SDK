@@ -1077,9 +1077,17 @@ class ForgeProvisionTests(unittest.TestCase):
             for part in ("writes, moves or deletes files outside the repository", "the lock that keeps a second run out",
                          "the durable record of a change in progress", "the ownership check before a file is replaced",
                          "when that record may be removed",
-                         "how a failure and a stop are recovered from that record",
-                         "leave the final `Commit:` item `[ ]` until `todo-graph.py stamp` ticks it with the Implementation Order row"):
+                         "how a failure and a stop are recovered from that record"):
                 self.assertIn(part, pts_text, (agent_dir, part))
+            step4_heading = "### 4. Build the corrected contract\n\n"
+            self.assertIn(step4_heading, pts_text, (agent_dir, "step 4 heading"))
+            step4_para = pts_text.split(step4_heading, 1)[1].split("\n\n", 1)[0]
+            self.assertIn("Tick each micro-step item as its `Done when:` becomes true", step4_para, agent_dir)
+            self.assertIn(
+                "leave the final `Commit:` item `[ ]` until `todo-graph.py stamp` ticks it with the Implementation Order row",
+                step4_para,
+                agent_dir,
+            )
             rts_text = (self.target / agent_dir / "skills/review-todo-section/SKILL.md").read_text(encoding="utf-8")
             for part in ("**When a chain cannot settle.**",
                          "When two passes in a row raise opposite demands on one checked item",
@@ -1113,8 +1121,14 @@ class ForgeProvisionTests(unittest.TestCase):
             "In the generated plan's table order, for each open row: `process-todo-section`, then `review-todo-section`",
             agy_phase,
         )
+        self.assertIn("After the stamp commit is pushed, run `python scripts/merge_prs.py` before claiming the next row:", agy_phase)
+        self.assertIn("Then check CI, red first: run `python scripts/ci_status.py --since-last`", agy_phase)
+        self.assertIn("before claiming the next row.", agy_phase.split("Then check CI, red first:", 1)[1].split("\n\n", 1)[0])
         agy_pts = (self.target / ".agents/skills/process-todo-section/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("Processing a section is two jobs, in order. First establish that the plan is sound", agy_pts)
+        self.assertIn(
+            "Processing a section is two jobs, in order. First establish that the plan is sound: internally consistent, still true of the code and of its governing documents, buildable as written, and verifiable when built. Then implement it. Do not improvise around the plan, and do not implement a plan you have found to be wrong. Correct it in the file, visibly, then build the corrected version.",
+            agy_pts,
+        )
         self.assertIn("--writer agy", agy_pts)
 
     def test_markdown_table_descriptions_within_88_chars_and_rows_do_not_wrap(self):
