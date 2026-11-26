@@ -1316,10 +1316,22 @@ class OrchestratorContractTests(unittest.TestCase):
                 preserved_agent.read_bytes(),
                 expected_pre_bytes[".agents/agents/code-explorer.md"],
             )
-            # Staged-deletion refusal: after committing the restored wrapper, staging `git rm` must stop
-            # rollback and leave the staged deletion intact.
+            # Staged-deletion and unstaged-deletion refusals: after committing the restored wrapper, either an
+            # unstaged filesystem deletion or a staged `git rm` must stop rollback before mutation.
             _git("add", ".agents/agents/code-explorer.md")
             _git("commit", "-m", "chore: commit restored wrapper")
+            (project / ".agents/agents/code-explorer.md").unlink()
+            unstaged_del_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(unstaged_del_refusal.returncode, 0, "rollback must refuse undoing unstaged deletion")
+            self.assertIn("code-explorer.md", unstaged_del_refusal.stderr)
+            self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
             _git("rm", "-q", ".agents/agents/code-explorer.md")
             stage_before_del_refusal = _git("ls-files", "--stage").stdout
             del_refusal = subprocess.run(
@@ -1335,6 +1347,26 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_del_refusal)
             _git("reset", "-q", "--hard", "HEAD~1")
+            # Conflicting manifest-ownership refusal: if another kit owns a retired path in .conclave/kits.json,
+            # rollback must stop before mutating the manifest or worktree and preserve that owner.
+            conflict_kits = json.loads(kits_file.read_text(encoding="utf-8"))
+            conflict_entry = {"kit": "reviewer", "sha256": kits_data["files"][".agents/agents/code-explorer.md"]["sha256"]}
+            conflict_kits["files"][".agents/agents/code-explorer.md"] = conflict_entry
+            kits_file.write_text(json.dumps(conflict_kits, indent=2) + "\n", encoding="utf-8")
+            owner_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(owner_refusal.returncode, 0, "rollback must refuse conflicting manifest ownership")
+            self.assertIn("code-explorer.md", owner_refusal.stderr)
+            self.assertEqual(
+                json.loads(kits_file.read_text(encoding="utf-8"))["files"][".agents/agents/code-explorer.md"],
+                conflict_entry,
+            )
 
             # Junction (Windows) / symlink (POSIX) parent-directory refusal before backup or rollback mutation.
             shared_dir = Path(tmp) / "shared-agents"

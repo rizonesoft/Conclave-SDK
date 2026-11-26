@@ -189,6 +189,8 @@ if present_retired:
 for rel in present_retired:
     if rel not in staged and rel in head_tree:
         raise RuntimeError(f"staged deletion would be undone: {rel}")
+    if rel in head_tree and not (top / rel).exists():
+        raise RuntimeError(f"unstaged deletion would be undone: {rel}")
 for rel, entries in staged.items():
     if len(entries) != 1 or entries[0] != (*ref_tree[rel], "0"):
         raise RuntimeError(f"staged entry differs from recovery ref: {rel}")
@@ -206,6 +208,8 @@ if ".conclave/kits.json" in payload:
         arc_files = archived_kits.get("files", {})
         for r in retired:
             if r in arc_files:
+                if r in cur_files and cur_files[r] != arc_files[r]:
+                    raise RuntimeError(f"conflicting .conclave/kits.json entry: {r}")
                 cur_files[r] = arc_files[r]
         merged_kits_bytes = (json.dumps(current_kits, indent=2) + "\n").encode("utf-8")
     else:
