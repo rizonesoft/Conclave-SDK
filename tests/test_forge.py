@@ -5565,6 +5565,9 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
             raise AssertionError(f"{agent}: Step 0 names another agent")
         if "then helio; fi" not in step3_sh[0] or "{ helio }" not in step3_ps[0]:
             raise AssertionError(f"{agent}: Step 3 guard must run bare helio")
+        for fence_name, sh_fence in (("Step 0", step0_sh[0]), ("Step 3", step3_sh[0])):
+            if '[ -f "$d/helio.conf" ]' not in sh_fence or '[ -e ' in sh_fence:
+                raise AssertionError(f"{agent}: {fence_name} POSIX guard must test regular file with -f")
         for fence_name, ps_fence in (("Step 0", step0_ps[0]), ("Step 3", step3_ps[0])):
             if "-LiteralPath" not in ps_fence or "-PathType Leaf" not in ps_fence:
                 raise AssertionError(f"{agent}: {fence_name} PowerShell guard must use -LiteralPath and -PathType Leaf")
@@ -5602,7 +5605,7 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
             "a refused claim never edits `todo/`",
             "if present, repair `helio-ref:` and retain the claim; only if absent, call `helio release <id>`",
             "if `taken by` another lane, never call `helio release <id>`",
-            "never issuing an unverified `/owner` override release",
+            "on `/owner`, never issue an unverified override release and keep `release-pending` for `## Closeout`",
             "helio done <id>",
             "if `helio-answered: <id>` is not yet in the run file send `helio answer <id> \"Shipped <ref>\"` once",
             "ignore and never read, log, or commit any legacy `build/heliograph-claims.json`",
@@ -5629,7 +5632,7 @@ class ProcessPhaseHeliographTests(unittest.TestCase):
 
         # Step 4 closeout final done attempt + pending listing
         for phrase in (
-            "make one final `helio done <id>` attempt",
+            "any `done-pending` ID remains at closeout, make one final `helio done <id>` attempt",
             "helio answer <id> \"Shipped <ref>\"",
             "`done-pending` IDs with their shipped refs",
             "`release-pending` IDs",
@@ -6029,8 +6032,11 @@ sys.exit(2)
                 continue
             if status.startswith("taken by "):
                 holder = status[len("taken by "):].strip()
-                if holder != lane or is_owner_lane:
+                if holder != lane:
                     append_event(f"- helio {mid}: release-skipped-holder")
+                    continue
+                if is_owner_lane:
+                    # Same-lane /owner: never issue an unverified override release; retain for Closeout
                     continue
                 rr = self._run_helio_cmd(["release", mid], repo, env)
                 if rr.returncode == 0:
@@ -6136,16 +6142,14 @@ sys.exit(2)
             append_event(f"- helio {mid}: taken -> {ref}")
 
     def _walk_closeout(self, repo: pathlib.Path, run_file: pathlib.Path, env: dict[str, str]) -> None:
-        """Step 4 closeout: final done attempt on remaining done-pending + Closeout listing."""
+        """Step 4 closeout: final done attempt on every remaining done-pending + Closeout listing."""
         done_pending, release_pending, answered = self._read_pending_from_run_file(run_file)
         with run_file.open("a", encoding="utf-8") as fh:
             for mid, ref in sorted(done_pending.items()):
-                if mid in answered:
-                    continue
                 r = self._run_helio_cmd(["done", mid], repo, env)
                 if r.returncode == 0:
                     fh.write(f"- helio {mid}: done\n")
-                elif r.returncode == 2:
+                elif r.returncode == 2 and mid not in answered:
                     ans = self._run_helio_cmd(["answer", mid, f"Shipped {ref}"], repo, env)
                     if ans.returncode == 0:
                         fh.write(f"- helio-answered: {mid}\n")
@@ -6174,9 +6178,10 @@ sys.exit(2)
                 ("wrong agent in Step 0", tpl_text.replace(f"helio hello {agent}", "helio hello claude")),
                 ("inverted marker recovery", tpl_text.replace("if present, repair `helio-ref:` and retain the claim; only if absent, call `helio release <id>`", "if absent, repair `helio-ref:` and retain the claim; only if present, call `helio release <id>`")),
                 ("weakened Windows guard", tpl_text.replace("-LiteralPath (Join-Path $d 'helio.conf') -PathType Leaf", "(Join-Path $d 'helio.conf')")),
+                ("weakened Step 3 POSIX -f guard", tpl_text.replace('[ -f "$d/helio.conf" ]; }; then helio; fi', '[ -e "$d/helio.conf" ]; }; then helio; fi')),
                 ("removed exit-3 handling", tpl_text.replace("exit 2 (refused) or exit 3 (damaged store)", "exit 2 only")),
                 ("empty session flag", tpl_text + "\nhelio take m1 --session \"\"\n"),
-                ("missing Step 4 final done", tpl_text.replace("make one final `helio done <id>` attempt", "skip final done")),
+                ("missing Step 4 final done", tpl_text.replace("make one final `helio done <id>` attempt", "only for IDs without a recorded answer make one final `helio done <id>` attempt")),
             ]
             for label, mutated in mutations:
                 with self.subTest(agent=agent, mutation=label):
@@ -6242,15 +6247,24 @@ sys.exit(2)
                 env["HELIO_TEST_LANE"] = f"proj/{agent}"
                 env["HELIO_SESSION"] = "SECRET-SESSION-ID-777"
 
-                # 1. Directory named helio.conf must NOT activate the guard
+                # 1. Directory named helio.conf must NOT activate EITHER Step 0 or Step 3 guard
                 (repo / "helio.conf").mkdir()
                 state_file.write_text(json.dumps({"messages": [], "calls": [], "overrides": {}}), encoding="utf-8")
                 step0_fence = contract["step0_ps"] if is_win else contract["step0_sh"]
+                step3_fence = contract["step3_ps"] if is_win else contract["step3_sh"]
                 self._run_guard_fence(step0_fence, repo, env, is_win)
+                self._run_guard_fence(step3_fence, repo, env, is_win)
                 self.assertEqual(json.loads(state_file.read_text(encoding="utf-8"))["calls"], [])
                 (repo / "helio.conf").rmdir()
 
-                # 2. Place regular helio.conf in parent folder to prove upward walk + bracket path
+                # 2a. Place regular helio.conf INSIDE repo[1] so -LiteralPath evaluates literal brackets directly
+                (repo / "helio.conf").write_text("store=local\n", encoding="utf-8")
+                r_br = self._run_guard_fence(step3_fence, repo, env, is_win)
+                self.assertIn(r_br.returncode, (0, 1))
+                self.assertEqual(len(json.loads(state_file.read_text(encoding="utf-8"))["calls"]), 1)
+                (repo / "helio.conf").unlink()
+
+                # 2b. Place regular helio.conf in parent folder to prove upward walk
                 (base / "helio.conf").write_text("store=local\n", encoding="utf-8")
 
                 # Seed realistic helio.c messages (6+ to trigger --all, mixed kinds, holder checks, errors)
@@ -6266,6 +6280,7 @@ sys.exit(2)
                         {"id": "m_pre_mark", "kind": "request", "state": "open", "subject": "PreMark", "body": "IN_SCOPE"},
                         {"id": "m_refused_take", "kind": "request", "state": "taken", "by": "proj/other", "session": "other-s", "subject": "Taken", "body": "IN_SCOPE"},
                         {"id": "m_other_done", "kind": "request", "state": "taken", "by": "proj/other", "session": "other-s", "subject": "OtherDone", "body": "IN_SCOPE"},
+                        {"id": "m_owner_self", "kind": "request", "state": "taken", "by": "proj/owner", "session": "owner-other-s", "subject": "OwnerSelf", "body": "IN_SCOPE"},
                         {"id": "m_final_err", "kind": "request", "state": "taken", "by": f"proj/{agent}", "session": "SECRET-SESSION-ID-777", "subject": "FinalRow", "body": "IN_SCOPE"},
                     ],
                     "calls": [],
@@ -6278,9 +6293,13 @@ sys.exit(2)
                 }
                 state_file.write_text(json.dumps(state), encoding="utf-8")
 
-                # Step 0 fence executes helio hello <agent>
-                r0 = self._run_guard_fence(step0_fence, repo, env, is_win)
-                self.assertEqual(r0.returncode, 0)
+                # Step 0 fence executes helio hello <agent> once across two phases in one session
+                session_announced = False
+                for _phase_entry in (1, 2):
+                    if not session_announced:
+                        r0 = self._run_guard_fence(step0_fence, repo, env, is_win)
+                        self.assertEqual(r0.returncode, 0)
+                        session_announced = True
 
                 handled: set[str] = set()
                 logged_errs: set[str] = set()
@@ -6307,9 +6326,12 @@ sys.exit(2)
                 by_id = {m["id"]: m for m in final_state["messages"]}
                 calls = final_state["calls"]
 
-                # Verify exact hello + --all + lifecycle states
+                # Verify exact single hello + --all + lifecycle states
                 self.assertEqual(calls[0], ["hello", agent])
+                self.assertEqual(calls.count(["hello", agent]), 1)
                 self.assertIn(["--all"], calls)
+                # Closeout attempted final done on m_other_done (2nd done call) without duplicating answer
+                self.assertGreaterEqual(calls.count(["done", "m_other_done"]), 2)
                 self.assertEqual(by_id["m_info"]["state"], "open")
                 self.assertEqual(by_id["m_find"]["state"], "open")
                 self.assertEqual(by_id["m_badshow"]["state"], "open")
@@ -6332,12 +6354,22 @@ sys.exit(2)
                 for secret in ("PRIVATE-BODY-1", "PRIVATE-BODY-2", "PRIVATE-BODY-3", "PRIVATE-STDERR-DAMAGE", "SECRET-SESSION-ID-777", legacy_secret):
                     self.assertNotIn(secret, combined)
 
-                # Owner-lane release-pending safety: /owner MUST NOT release another writer's active claim
+                # Owner-lane release-pending safety:
+                # - different holder (m_other_done) -> release-skipped-holder, cleared
+                # - same-lane /owner holder (m_owner_self) -> NOT released, retained in Closeout
                 owner_env = env.copy()
                 owner_env["HELIO_TEST_LANE"] = "proj/owner"
                 owner_run = repo / "docs" / "phase-runs" / "owner-run.md"
-                owner_run.write_text("# Owner Run\n- helio m_other_done: release-pending\n", encoding="utf-8")
+                owner_run.write_text(
+                    "# Owner Run\n- helio m_other_done: release-pending\n- helio m_owner_self: release-pending\n",
+                    encoding="utf-8",
+                )
                 self._walk_boundary(contract, repo, owner_run, owner_env, None, [], set(), set(), {})
+                self._walk_closeout(repo, owner_run, owner_env)
                 after_owner = json.loads(state_file.read_text(encoding="utf-8"))
-                self.assertEqual({m["id"]: m for m in after_owner["messages"]}["m_other_done"]["state"], "taken")
-                self.assertIn("release-skipped-holder", owner_run.read_text(encoding="utf-8"))
+                after_by_id = {m["id"]: m for m in after_owner["messages"]}
+                self.assertEqual(after_by_id["m_other_done"]["state"], "taken")
+                self.assertEqual(after_by_id["m_owner_self"]["state"], "taken")
+                owner_text = owner_run.read_text(encoding="utf-8")
+                self.assertIn("release-skipped-holder", owner_text)
+                self.assertIn("- release-pending: m_owner_self", owner_text)
