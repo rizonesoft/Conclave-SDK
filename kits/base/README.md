@@ -92,8 +92,11 @@ Follow this reversible cleanup after `python forge.py update <project> base`:
 ```python
 import os, pathlib, subprocess, tempfile, zipfile
 
-top = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
-dst = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--git-path", "pre-orchestrator-migration.zip"], text=True).strip())
+def git_path(*args: str) -> pathlib.Path:
+    raw = subprocess.check_output(["git", *args]).rstrip(b"\r\n")
+    return pathlib.Path(raw.decode("utf-8") if os.name == "nt" else os.fsdecode(raw))
+top = git_path("rev-parse", "--show-toplevel")
+dst = git_path("rev-parse", "--git-path", "pre-orchestrator-migration.zip")
 if dst.exists():
     raise FileExistsError(dst)
 allow = (
@@ -140,8 +143,11 @@ Because a committed deletion removes those paths from later `HEAD` commits and W
 import json, os, pathlib, subprocess, tempfile, zipfile
 
 ref = os.environ.get("RECOVERY_REF", "pre-orchestrator-migration")
-top = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
-src = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--git-path", "pre-orchestrator-migration.zip"], text=True).strip())
+def git_path(*args: str) -> pathlib.Path:
+    raw = subprocess.check_output(["git", *args]).rstrip(b"\r\n")
+    return pathlib.Path(raw.decode("utf-8") if os.name == "nt" else os.fsdecode(raw))
+top = git_path("rev-parse", "--show-toplevel")
+src = git_path("rev-parse", "--git-path", "pre-orchestrator-migration.zip")
 retired = (
     ".agents/agents/code-explorer.md",
     ".agents/agents/debug-evidence.md",

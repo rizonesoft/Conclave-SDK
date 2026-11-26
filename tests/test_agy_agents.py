@@ -1521,6 +1521,37 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertIn("indexed file blocks parent directory", indexed_parent_refusal.stderr)
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_indexed_parent)
             _git("reset", "-q", "--hard", "HEAD")
+            # 6) Non-ASCII checkout path under `python -X utf8=0` (Windows locale encoding): backup and rollback
+            # must decode Git's UTF-8 root and archive paths without mojibake.
+            cafe_project = Path(tmp) / "caf\u00e9-project"
+            cafe_project.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(cafe_project), check=True)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=str(cafe_project), check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=str(cafe_project), check=True)
+            cafe_wrapper = cafe_project / ".agents/agents/code-explorer.md"
+            cafe_wrapper.parent.mkdir(parents=True)
+            cafe_bytes = b"# caf\xc3\xa9 wrapper\r\n"
+            cafe_wrapper.write_bytes(cafe_bytes)
+            subprocess.run(["git", "add", "-A"], cwd=str(cafe_project), check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "chore: pre-cleanup"], cwd=str(cafe_project), check=True)
+            subprocess.run(["git", "branch", "pre-orchestrator-migration"], cwd=str(cafe_project), check=True)
+            no_utf8_env = {k: v for k, v in os.environ.items() if k.upper() != "PYTHONUTF8"}
+            subprocess.run(
+                [sys.executable, "-X", "utf8=0", "-c", archive_script],
+                cwd=str(cafe_project),
+                env=no_utf8_env,
+                check=True,
+            )
+            cafe_wrapper.unlink()
+            subprocess.run(["git", "add", "-A"], cwd=str(cafe_project), check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "chore: cleanup"], cwd=str(cafe_project), check=True)
+            subprocess.run(
+                [sys.executable, "-X", "utf8=0", "-c", restore_script],
+                cwd=str(cafe_project),
+                env=no_utf8_env,
+                check=True,
+            )
+            self.assertEqual(cafe_wrapper.read_bytes(), cafe_bytes)
 
             # Junction (Windows) / symlink (POSIX) parent-directory refusal before backup or rollback mutation.
             shared_dir = Path(tmp) / "shared-agents"
