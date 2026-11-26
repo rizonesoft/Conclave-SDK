@@ -1042,6 +1042,8 @@ class OrchestratorContractTests(unittest.TestCase):
                 "    deadline = time.monotonic() + 10.0\n"
                 "    while len(list(b.glob('ready-*'))) < 2 and time.monotonic() < deadline:\n"
                 "        time.sleep(0.02)\n"
+                "    if len(list(b.glob('ready-*'))) < 2:\n"
+                "        raise TimeoutError('overlap barrier expired before second process arrived')\n"
             )
             instrumented_archive = archive_script.replace("    os.link(tmp, dst)", sync_code + "    os.link(tmp, dst)", 1)
             self.assertIn("ready-", instrumented_archive)
@@ -1054,6 +1056,8 @@ class OrchestratorContractTests(unittest.TestCase):
             }
             if os.name == "nt":
                 popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            else:
+                popen_kwargs["start_new_session"] = True
             procs: list[subprocess.Popen] = []
             try:
                 for _ in range(2):
@@ -1069,8 +1073,10 @@ class OrchestratorContractTests(unittest.TestCase):
                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                             )
                         else:
-                            p.kill()
+                            with contextlib.suppress(ProcessLookupError):
+                                os.killpg(p.pid, signal.SIGKILL)
                         p.wait(timeout=5)
+            self.assertEqual(len(list(barrier_dir.glob("ready-*"))), 2)
             rcs = [p.returncode for p in procs]
             self.assertEqual(sorted([rc == 0 for rc in rcs]), [False, True], outputs)
             loser_stderr = outputs[0][1] if rcs[0] != 0 else outputs[1][1]
@@ -1151,9 +1157,13 @@ class OrchestratorContractTests(unittest.TestCase):
                 expected_pre_bytes["scripts/agy-subagent.py"],
             )
 
-            # Edit retained custom agent AFTER migration; rollback from subdir must preserve this post-migration edit.
+            # Edit retained custom agent AND register a later kit in .conclave/kits.json AFTER migration;
+            # rollback from subdir must preserve both the custom-agent edit and the later kit registration.
             post_migration_custom = custom_text + "# post-migration edit\n"
             custom_agent.write_text(post_migration_custom, encoding="utf-8")
+            later_kits = json.loads(kits_file.read_text(encoding="utf-8"))
+            later_kits.setdefault("files", {})["docs/later-kit.md"] = {"kit": "todo", "sha256": "deadbeef"}
+            kits_file.write_text(json.dumps(later_kits, indent=2) + "\n", encoding="utf-8")
 
             subprocess.run(
                 [sys.executable, "-c", restore_script],
@@ -1163,7 +1173,10 @@ class OrchestratorContractTests(unittest.TestCase):
             for rel, raw_bytes in expected_pre_bytes.items():
                 self.assertTrue((project / rel).is_file(), f"rollback did not restore {rel}")
                 self.assertEqual((project / rel).read_bytes(), raw_bytes, f"byte mismatch on {rel}")
-            self.assertEqual(json.loads(kits_file.read_text(encoding="utf-8")), kits_data)
+            restored_kits = json.loads(kits_file.read_text(encoding="utf-8"))
+            self.assertEqual(restored_kits["files"]["docs/later-kit.md"], {"kit": "todo", "sha256": "deadbeef"})
+            for rel in retired_paths:
+                self.assertEqual(restored_kits["files"][rel], kits_data["files"][rel])
             self.assertEqual(custom_agent.read_text(encoding="utf-8"), post_migration_custom)
 
             # Partial-install rollback: remove one wrapper BEFORE backup, commit cleanup, then rollback from subdir.

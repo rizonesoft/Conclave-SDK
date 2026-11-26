@@ -109,7 +109,9 @@ def check_no_links(rel: str) -> None:
     cur = top
     for part in pathlib.Path(rel).parts:
         cur = cur / part
-        if cur.is_symlink() or (hasattr(cur, "is_junction") and cur.is_junction()) or (hasattr(os.path, "isjunction") and os.path.isjunction(cur)):
+        if cur.is_symlink() or (hasattr(cur, "is_junction") and cur.is_junction()):
+            raise ValueError(f"link not allowed: {cur}")
+        if cur.exists() and getattr(cur.lstat(), "st_reparse_tag", 0) in (0xA0000003, 0xA000000C):
             raise ValueError(f"link not allowed: {cur}")
 for r in allow:
     check_no_links(r)
@@ -135,38 +137,62 @@ finally:
 Because a committed deletion removes those paths from later `HEAD` commits and Windows Git `core.autocrlf=true` alters LF or CRLF bytes during `git add` and `git checkout`, rollback after committed cleanup sets `RECOVERY_REF` (`pre-orchestrator-migration` or the recorded `git rev-parse HEAD` SHA) and restores only the allowlisted paths present in that recovery ref from the repository root (works from any subdirectory, preserves retained custom agents, and refuses symlinks or Windows junctions on any parent or target component):
 
 ```python
-import os, pathlib, subprocess, zipfile
+import json, os, pathlib, subprocess, zipfile
 
 ref = os.environ.get("RECOVERY_REF", "pre-orchestrator-migration")
 top = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip())
 src = pathlib.Path(subprocess.check_output(["git", "rev-parse", "--git-path", "pre-orchestrator-migration.zip"], text=True).strip())
-allow = (
+retired = (
     ".agents/agents/code-explorer.md",
     ".agents/agents/debug-evidence.md",
     ".agents/agents/git-runner.md",
     ".agents/agents/mutation-tester.md",
     ".agents/agents/test-runner.md",
     "scripts/agy-subagent.py",
-    ".conclave/kits.json",
 )
+allow = (*retired, ".conclave/kits.json")
 def check_no_links(rel: str) -> None:
     cur = top
     for part in pathlib.Path(rel).parts:
         cur = cur / part
-        if cur.is_symlink() or (hasattr(cur, "is_junction") and cur.is_junction()) or (hasattr(os.path, "isjunction") and os.path.isjunction(cur)):
+        if cur.is_symlink() or (hasattr(cur, "is_junction") and cur.is_junction()):
+            raise ValueError(f"link not allowed: {cur}")
+        if cur.exists() and getattr(cur.lstat(), "st_reparse_tag", 0) in (0xA0000003, 0xA000000C):
             raise ValueError(f"link not allowed: {cur}")
 for r in allow:
     check_no_links(r)
-present = subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", ref, "--", *allow], text=True).splitlines()
-if present:
-    subprocess.run(["git", "-C", str(top), "-c", "core.autocrlf=false", "checkout", ref, "--", *present], check=True)
+# Validate archive and preload all required bytes BEFORE mutating Git index or worktree.
 with zipfile.ZipFile(src) as z:
-    for m in z.namelist():
-        if m in allow:
-            check_no_links(m)
-            target = top / m
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(z.read(m))
+    bad = z.testzip()
+    if bad is not None:
+        raise zipfile.BadZipFile(bad)
+    payload = {m: z.read(m) for m in z.namelist() if m in allow}
+present_retired = subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", ref, "--", *retired], text=True).splitlines()
+missing = [r for r in present_retired if r not in payload]
+if missing:
+    raise KeyError(f"archive missing paths: {missing}")
+if present_retired:
+    subprocess.run(["git", "-C", str(top), "-c", "core.autocrlf=false", "checkout", ref, "--", *present_retired], check=True)
+for m in present_retired:
+    check_no_links(m)
+    target = top / m
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(payload[m])
+# Restore archived entries for the retired paths into .conclave/kits.json without discarding later kit registrations.
+if ".conclave/kits.json" in payload:
+    kits_path = top / ".conclave/kits.json"
+    archived_kits = json.loads(payload[".conclave/kits.json"].decode("utf-8"))
+    if kits_path.is_file():
+        current_kits = json.loads(kits_path.read_text(encoding="utf-8"))
+        cur_files = current_kits.setdefault("files", {})
+        arc_files = archived_kits.get("files", {})
+        for r in present_retired:
+            if r in arc_files:
+                cur_files[r] = arc_files[r]
+        kits_path.write_text(json.dumps(current_kits, indent=2) + "\n", encoding="utf-8")
+    else:
+        kits_path.parent.mkdir(parents=True, exist_ok=True)
+        kits_path.write_bytes(payload[".conclave/kits.json"])
 ```
 3. Remove only the six retired SDK paths (and `.agents/agents` only if it is now empty; keep migrated `.agents/agents/preserved-*.md` and custom `.agents/agents/<custom>.md` files), remove their retired entries from `.conclave/kits.json` if desired, and commit the cleanup.
 4. Switch interactive and CLI Antigravity launches to `agy --model gemini-4-neon-medium --effort=medium` (or keep `--model gemini-pro-orchestrator` without `--effort` if staying on Orchestrator compatibility).
