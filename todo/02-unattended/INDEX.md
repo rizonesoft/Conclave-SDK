@@ -8,4 +8,4 @@
 
 | File | Scope | Completed |
 | ---- | ----- | --------- |
-| TODO-01-run-guard-three-agents.md | Campaign guard hooks for Antigravity and Codex, with a self-test | 2026-11-12 |
+| TODO-01-run-guard-three-agents.md | Campaign guard hooks, self-test, and Heliograph inbox | 2026-11-26 |
