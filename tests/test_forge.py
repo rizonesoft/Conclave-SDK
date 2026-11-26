@@ -6083,7 +6083,18 @@ sys.exit(2)
                 append_event(f"- helio-ref: {mid} -> {existing}")
                 continue
 
-            body_text = sr.stdout
+            # Extract displayed body only (after "| " blank separator and before END marker)
+            show_lines = sr.stdout.splitlines()
+            body_lines: list[str] = []
+            in_body = False
+            for sline in show_lines:
+                if sline == "=== END HELIOGRAPH MESSAGES ===":
+                    break
+                if in_body:
+                    body_lines.append(sline[2:] if sline.startswith("| ") else sline)
+                elif sline == "| ":
+                    in_body = True
+            body_text = "\n".join(body_lines)
             plan = filing_plan.get(mid, {})
 
             # Already-shipped [x] section covers it: never edit [x]
@@ -6329,8 +6340,8 @@ sys.exit(2)
                         {"id": "m_info", "kind": "headsup", "state": "open", "subject": "FYI", "body": "PRIVATE-BODY-1"},
                         {"id": "m_find", "kind": "finding", "state": "open", "subject": "Note", "body": "PRIVATE-BODY-2"},
                         {"id": "m_badshow", "kind": "request", "state": "open", "subject": "BadShow", "body": "IN_SCOPE"},
-                        {"id": "m_same_in", "kind": "request", "state": "open", "subject": "Same", "body": "IN_SCOPE"},
-                        {"id": "m_out", "kind": "request", "state": "open", "subject": "Same", "body": "OUT_OF_SCOPE PRIVATE-BODY-3"},
+                        {"id": "m_same_in", "kind": "request", "state": "open", "subject": "Same IN_SCOPE", "body": "IN_SCOPE"},
+                        {"id": "m_out", "kind": "request", "state": "open", "subject": "Same IN_SCOPE", "body": "OUT_OF_SCOPE PRIVATE-BODY-3"},
                         {"id": "m_open_cov", "kind": "request", "state": "open", "subject": "Open", "body": "IN_SCOPE"},
                         {"id": "m_shipped_cov", "kind": "request", "state": "open", "subject": "Shipped", "body": "IN_SCOPE"},
                         {"id": "m_incidental", "kind": "handoff", "state": "open", "subject": "Incidental", "body": "IN_SCOPE"},
@@ -6560,6 +6571,7 @@ sys.exit(2)
                 st_e1 = json.loads(state_file.read_text(encoding="utf-8"))
                 for mid in ("m_only_first", "m_shared", "m_only_all"):
                     self.assertEqual(st_e1["calls"].count(["show", mid]), 1)
+                    self.assertEqual(st_e1["calls"].count(["take", mid]), 1)
                     self.assertEqual({m["id"]: m for m in st_e1["messages"]}[mid]["state"], "taken")
 
                 # Two consecutive empty-inbox polls (exit 1) -> zero error lines
@@ -6585,9 +6597,11 @@ sys.exit(2)
                 self._walk_boundary(contract, repo, edge_run, env, None, [], edge_handled, edge_errs, edge_plan)
                 st_e3 = json.loads(state_file.read_text(encoding="utf-8"))
                 self.assertEqual({m["id"]: m for m in st_e3["messages"]}["m_after_errs"]["state"], "taken")
+                self.assertEqual(self._find_marker_ref(repo / "todo", "m_after_errs"), "D01 T01 §13")
                 # Subject mentioning "helio --all" with 1 message must NOT trigger --all
                 self.assertNotIn(["--all"], st_e3["calls"])
                 edge_text = edge_run.read_text(encoding="utf-8")
+                self.assertIn("- helio-ref: m_after_errs -> D01 T01 §13", edge_text)
                 self.assertNotIn("error (exit 1)", edge_text)
                 self.assertEqual(edge_text.count("- helio inbox: error (exit 2)"), 1)
                 self.assertEqual(edge_text.count("- helio inbox-all: error (exit 3)"), 1)
