@@ -5867,6 +5867,12 @@ if cmd == "done" and len(argv) >= 2:
 if cmd == "answer" and len(argv) >= 3:
     mid = argv[1]
     subj = argv[2]
+    ov = pop_override(f"answer:{mid}")
+    if ov is not None:
+        if ov.get("stderr"):
+            sys.stderr.write(ov["stderr"] + "\n")
+        save()
+        sys.exit(ov["rc"])
     st.setdefault("answers", []).append({"re": mid, "subject": subj, "by": lane})
     save()
     sys.exit(0)
@@ -6052,6 +6058,8 @@ sys.exit(2)
                     if ans.returncode == 0:
                         append_event(f"- helio-answered: {mid}")
                         answered.add(mid)
+                    elif ans.returncode in (2, 3):
+                        log_err_once(f"answer-{mid}", ans.returncode)
                 log_err_once(f"done-{mid}", 2)
             elif r.returncode == 3:
                 append_event(f"- helio-done-pending: {mid} -> {ref}")
@@ -6231,9 +6239,16 @@ sys.exit(2)
             append_event(f"- helio-ref: {mid} -> {ref}")
             append_event(f"- helio {mid}: taken -> {ref}")
 
-    def _walk_closeout(self, repo: pathlib.Path, run_file: pathlib.Path, env: dict[str, str]) -> None:
+    def _walk_closeout(
+        self,
+        repo: pathlib.Path,
+        run_file: pathlib.Path,
+        env: dict[str, str],
+        logged_errors: set[str] | None = None,
+    ) -> None:
         """Step 4 closeout: final done attempt when Heliograph is active + Closeout listing."""
         done_pending, release_pending, answered = self._read_pending_from_run_file(run_file)
+        seen_errs = logged_errors if logged_errors is not None else set()
         if self._is_helio_active(repo, env):
             with run_file.open("a", encoding="utf-8") as fh:
                 for mid, ref in sorted(done_pending.items()):
@@ -6244,6 +6259,16 @@ sys.exit(2)
                         ans = self._run_helio_cmd(["answer", mid, f"Shipped {ref}"], repo, env)
                         if ans.returncode == 0:
                             fh.write(f"- helio-answered: {mid}\n")
+                        elif ans.returncode in (2, 3):
+                            key = f"answer-{mid}:{ans.returncode}"
+                            if key not in seen_errs:
+                                seen_errs.add(key)
+                                fh.write(f"- helio answer-{mid}: error (exit {ans.returncode})\n")
+                    elif r.returncode == 3:
+                        key = f"done-{mid}:3"
+                        if key not in seen_errs:
+                            seen_errs.add(key)
+                            fh.write(f"- helio done-{mid}: error (exit 3)\n")
         done_pending, release_pending, _ = self._read_pending_from_run_file(run_file)
         with run_file.open("a", encoding="utf-8") as fh:
             fh.write("\n## Closeout run=test\n\n")
@@ -6668,3 +6693,18 @@ sys.exit(2)
                 self.assertEqual(edge_text.count("- helio inbox-all: error (exit 3)"), 1)
                 for sec in ("PRIVATE-ALL-ERR", "PRIVATE-REFUSED-1", "PRIVATE-REFUSED-2"):
                     self.assertNotIn(sec, edge_text)
+
+                # Failed helio answer (exit 3) at closeout logs sanitized diagnostic once and retains done-pending
+                ans_err_run = repo / "docs" / "phase-runs" / "ans-err-run.md"
+                ans_err_run.write_text("# AnsErr\n- helio-done-pending: m_ans_err -> D01 T02 §1\n", encoding="utf-8")
+                state_file.write_text(json.dumps({
+                    "messages": [{"id": "m_ans_err", "kind": "request", "state": "taken", "by": "proj/other", "session": "other-s", "subject": "AnsErr", "body": "IN_SCOPE"}],
+                    "calls": [],
+                    "answers": [],
+                    "overrides": {"answer:m_ans_err": [{"rc": 3, "stderr": "PRIVATE-ANS-ERR"}]},
+                }), encoding="utf-8")
+                self._walk_closeout(repo, ans_err_run, env)
+                ans_err_text = ans_err_run.read_text(encoding="utf-8")
+                self.assertEqual(ans_err_text.count("- helio answer-m_ans_err: error (exit 3)"), 1)
+                self.assertIn("- done-pending: m_ans_err (D01 T02 §1)", ans_err_text)
+                self.assertNotIn("PRIVATE-ANS-ERR", ans_err_text)
