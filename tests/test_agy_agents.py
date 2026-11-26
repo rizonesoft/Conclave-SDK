@@ -1259,9 +1259,34 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_with_custom)
             self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
             _git("rm", "-q", "--cached", ".agents/agents/code-explorer.md")
-            # Interrupted-retry safety: simulate interruption after index-only restore and before worktree
-            # os.replace; retrying rollback must succeed and publish exact archived bytes (including CRLF).
-            _git("restore", "--source", partial_sha, "--staged", "--", ".agents/agents/code-explorer.md")
+            # Interrupted-retry safety: run the README restore script itself, interrupting immediately after
+            # its `git restore` call returns; verify the wrapper is still absent from the worktree (proving
+            # index-only restore; adding --worktree would fail here), then retry the unmodified script.
+            interrupt_harness = (
+                "import subprocess, sys\n"
+                "_orig_run = subprocess.run\n"
+                "def _wrapped_run(cmd, *a, **kw):\n"
+                "    res = _orig_run(cmd, *a, **kw)\n"
+                "    if isinstance(cmd, (list, tuple)) and 'restore' in cmd:\n"
+                "        sys.exit(99)\n"
+                "    return res\n"
+                "subprocess.run = _wrapped_run\n"
+                + restore_script
+            )
+            interrupted = subprocess.run(
+                [sys.executable, "-c", interrupt_harness],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(interrupted.returncode, 99, interrupted.stderr)
+            self.assertFalse(
+                (project / ".agents/agents/code-explorer.md").exists(),
+                "index-only restore must not write normalized bytes to worktree",
+            )
+            self.assertIn(".agents/agents/code-explorer.md", _git("ls-files", "--stage").stdout)
             # Hard-link safety: when an existing matching wrapper shares an inode with another file, atomic
             # os.replace must publish a fresh inode rather than writing through the hard link.
             linked_copy = project / ".agents/agents/preserved-hardlink.md"
@@ -1291,6 +1316,25 @@ class OrchestratorContractTests(unittest.TestCase):
                 preserved_agent.read_bytes(),
                 expected_pre_bytes[".agents/agents/code-explorer.md"],
             )
+            # Staged-deletion refusal: after committing the restored wrapper, staging `git rm` must stop
+            # rollback and leave the staged deletion intact.
+            _git("add", ".agents/agents/code-explorer.md")
+            _git("commit", "-m", "chore: commit restored wrapper")
+            _git("rm", "-q", ".agents/agents/code-explorer.md")
+            stage_before_del_refusal = _git("ls-files", "--stage").stdout
+            del_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(del_refusal.returncode, 0, "rollback must refuse undoing a staged deletion")
+            self.assertIn("code-explorer.md", del_refusal.stderr)
+            self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_del_refusal)
+            _git("reset", "-q", "--hard", "HEAD~1")
 
             # Junction (Windows) / symlink (POSIX) parent-directory refusal before backup or rollback mutation.
             shared_dir = Path(tmp) / "shared-agents"

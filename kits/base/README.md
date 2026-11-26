@@ -178,11 +178,17 @@ missing = [r for r in present_retired if r not in payload]
 if missing:
     raise KeyError(f"archive missing paths: {missing}")
 staged = {}
+head_tree = set()
 if present_retired:
+    for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", "HEAD", "--", *present_retired], text=True).splitlines():
+        head_tree.add(line)
     for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *present_retired], text=True).splitlines():
         meta, rel = line.split("\t", 1)
         mode, oid, stage = meta.split()
         staged.setdefault(rel, []).append((mode, oid, stage))
+for rel in present_retired:
+    if rel not in staged and rel in head_tree:
+        raise RuntimeError(f"staged deletion would be undone: {rel}")
 for rel, entries in staged.items():
     if len(entries) != 1 or entries[0] != (*ref_tree[rel], "0"):
         raise RuntimeError(f"staged entry differs from recovery ref: {rel}")
