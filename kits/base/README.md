@@ -167,11 +167,25 @@ with zipfile.ZipFile(src) as z:
     if bad is not None:
         raise zipfile.BadZipFile(bad)
     payload = {m: z.read(m) for m in z.namelist() if m in allow}
-    modes = {m: (z.getinfo(m).external_attr >> 16) & 0o777 for m in payload}
-present_retired = subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", "--name-only", ref, "--", *retired], text=True).splitlines()
+    modes = {m: (z.getinfo(m).external_attr >> 16) & 0o777 for m in payload if (z.getinfo(m).external_attr >> 16) != 0}
+ref_tree = {}
+for line in subprocess.check_output(["git", "-C", str(top), "ls-tree", "-r", ref, "--", *retired], text=True).splitlines():
+    meta, rel = line.split("\t", 1)
+    mode, _kind, oid = meta.split()
+    ref_tree[rel] = (mode, oid)
+present_retired = sorted(ref_tree)
 missing = [r for r in present_retired if r not in payload]
 if missing:
     raise KeyError(f"archive missing paths: {missing}")
+staged = {}
+if present_retired:
+    for line in subprocess.check_output(["git", "-C", str(top), "ls-files", "--stage", "--", *present_retired], text=True).splitlines():
+        meta, rel = line.split("\t", 1)
+        mode, oid, stage = meta.split()
+        staged.setdefault(rel, []).append((mode, oid, stage))
+for rel, entries in staged.items():
+    if len(entries) != 1 or entries[0] != (*ref_tree[rel], "0"):
+        raise RuntimeError(f"staged entry differs from recovery ref: {rel}")
 merged_kits_bytes = None
 orig_kits_bytes = None
 kits_mode = None
@@ -189,19 +203,19 @@ if ".conclave/kits.json" in payload:
                 cur_files[r] = arc_files[r]
         merged_kits_bytes = (json.dumps(current_kits, indent=2) + "\n").encode("utf-8")
     else:
-        kits_mode = modes.get(".conclave/kits.json") or 0o644
+        kits_mode = modes[".conclave/kits.json"] if ".conclave/kits.json" in modes else 0o644
         merged_kits_bytes = payload[".conclave/kits.json"]
 for m in retired:
     if m in payload:
         target = top / m
         if target.exists():
             same_bytes = target.is_file() and target.read_bytes() == payload[m]
-            same_mode = (os.name == "nt" or not modes.get(m)
+            same_mode = (os.name == "nt" or m not in modes
                          or (target.stat().st_mode & 0o777) == modes[m])
             if not (same_bytes and same_mode):
                 raise RuntimeError(f"existing path differs from archive: {target}")
 if present_retired:
-    subprocess.run(["git", "-C", str(top), "-c", "core.autocrlf=false", "checkout", ref, "--", *present_retired], check=True)
+    subprocess.run(["git", "-C", str(top), "restore", "--source", ref, "--staged", "--", *present_retired], check=True)
 for m in retired:
     if m in payload:
         check_no_links(m)
@@ -212,7 +226,7 @@ for m in retired:
         tmp_wp = pathlib.Path(tmp_w)
         try:
             tmp_wp.write_bytes(payload[m])
-            if os.name != "nt" and modes.get(m):
+            if os.name != "nt" and m in modes:
                 os.chmod(tmp_wp, modes[m])
             os.replace(tmp_wp, target)
         finally:
@@ -226,7 +240,7 @@ if merged_kits_bytes is not None:
     tmp_p = pathlib.Path(tmp_k)
     try:
         tmp_p.write_bytes(merged_kits_bytes)
-        if os.name != "nt" and kits_mode:
+        if os.name != "nt" and kits_mode is not None:
             os.chmod(tmp_p, kits_mode)
         os.replace(tmp_p, kits_path)
     finally:

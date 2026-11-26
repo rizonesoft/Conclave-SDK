@@ -1240,6 +1240,28 @@ class OrchestratorContractTests(unittest.TestCase):
             self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
             self.assertEqual(_git("ls-files", "--stage").stdout, stage_before_edit_refusal)
             (project / ".agents/agents/git-runner.md").unlink()
+            # Refusal on staged-only edit: staging a customized tracked wrapper and unlinking its working copy
+            # must stop rollback before mutating the index or worktree.
+            (project / ".agents/agents/code-explorer.md").write_bytes(b"# staged customization\n")
+            _git("add", ".agents/agents/code-explorer.md")
+            (project / ".agents/agents/code-explorer.md").unlink()
+            stage_with_custom = _git("ls-files", "--stage").stdout
+            staged_refusal = subprocess.run(
+                [sys.executable, "-c", restore_script],
+                cwd=str(subdir),
+                env=partial_env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(staged_refusal.returncode, 0, "rollback must refuse conflicting staged entry")
+            self.assertIn("code-explorer.md", staged_refusal.stderr)
+            self.assertEqual(_git("ls-files", "--stage").stdout, stage_with_custom)
+            self.assertFalse((project / ".agents/agents/code-explorer.md").exists())
+            _git("rm", "-q", "--cached", ".agents/agents/code-explorer.md")
+            # Interrupted-retry safety: simulate interruption after index-only restore and before worktree
+            # os.replace; retrying rollback must succeed and publish exact archived bytes (including CRLF).
+            _git("restore", "--source", partial_sha, "--staged", "--", ".agents/agents/code-explorer.md")
             # Hard-link safety: when an existing matching wrapper shares an inode with another file, atomic
             # os.replace must publish a fresh inode rather than writing through the hard link.
             linked_copy = project / ".agents/agents/preserved-hardlink.md"
@@ -1325,7 +1347,7 @@ class OrchestratorContractTests(unittest.TestCase):
         self.assertIn("pre-orchestrator-migration.zip", readme)
         self.assertIn("--git-path", readme)
         self.assertIn("--show-toplevel", readme)
-        self.assertIn("core.autocrlf=false", readme)
+        self.assertIn('"--staged"', readme)
         self.assertIn("preserved-code-explorer.md", readme)
         for name in RETIRED_AGENT_FILES:
             self.assertIn(name, readme)
