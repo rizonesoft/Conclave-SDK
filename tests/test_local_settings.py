@@ -760,7 +760,7 @@ class ConsumerIntegrationTests(unittest.TestCase):
         target.mkdir()
         (target / ".git").mkdir()
         _write(target, ".gitignore", ".private/\n")
-        fatal = subprocess.CompletedProcess(["git"], 128, stdout="", stderr="fatal: detected dubious ownership")
+        fatal = subprocess.CompletedProcess(["git"], 128, stdout=b"", stderr=b"fatal: detected dubious ownership")
         with unittest.mock.patch.object(forge.subprocess, "run", return_value=fatal):
             with self.assertRaisesRegex(ValueError, r"git rev-parse failed.*128.*dubious ownership"):
                 forge._ensure_private_gitignore(target)
@@ -827,10 +827,10 @@ class ConsumerIntegrationTests(unittest.TestCase):
             fd = real_open(path, exclusive=exclusive)
             if exclusive and first_call[0]:
                 first_call[0] = False
-                # Second process appends AFTER first process exclusively created the file
+                # Second process appends an UNTERMINATED rule AFTER first process exclusively created the file
                 other_fd = real_open(path, exclusive=False)
                 try:
-                    real_write(other_fd, b"other/\n")
+                    real_write(other_fd, b"other/")
                 finally:
                     os.close(other_fd)
             return fd
@@ -843,28 +843,53 @@ class ConsumerIntegrationTests(unittest.TestCase):
              unittest.mock.patch.object(forge.os, "write", side_effect=short_write):
             forge._append_gitignore_rule(ig, b".private/\n", creating=True)
         content = ig.read_bytes()
-        self.assertIn(b"other/\n", content)
+        self.assertIn(b"other/\n.private/\n", content)
         self.assertTrue(forge._gitignore_bytes_end_with_rule(content, b".private/"))
 
-    def test_git_worktree_prefix_preserves_leading_space_in_monorepo_dir(self):
+    def test_replace_on_save_during_append_is_refused(self):
         import unittest.mock
         import forge
 
-        rev_out = subprocess.CompletedProcess(["git"], 0, stdout=" client/\n", stderr="")
-        ls_out = subprocess.CompletedProcess(["git"], 0, stdout="", stderr="")
-        chk_out = subprocess.CompletedProcess(
-            ["git"], 0, stdout=b" client/.gitignore\x001\x00.private/\x00.private/\x00", stderr=b""
-        )
-        with unittest.mock.patch.object(forge.shutil, "which", return_value="git"), \
-             unittest.mock.patch.object(forge.subprocess, "run", side_effect=[rev_out, ls_out, chk_out]):
-            self.assertTrue(
-                forge._git_repo_ignores(
-                    self.root,
-                    ".private/",
-                    allowed_sources=(".gitignore",),
-                    require_patterns=(".private/",),
+        target = self.root / "replace_on_save_proj"
+        target.mkdir()
+        ig = _write(target, ".gitignore", "build/\n")
+        real_close = forge.os.close
+
+        def replace_on_close(fd):
+            real_close(fd)
+            # Simulate an editor atomically replacing .gitignore with a version lacking .private/
+            tmp_new = target / ".gitignore.editor"
+            tmp_new.write_bytes(b"build/\ndist/\n")
+            os.replace(tmp_new, ig)
+
+        with unittest.mock.patch.object(forge.os, "close", side_effect=replace_on_close):
+            with self.assertRaisesRegex(ValueError, r"replaced or truncated concurrently"):
+                forge._append_gitignore_rule(ig, b".private/\n", creating=False)
+
+    def test_git_worktree_prefix_preserves_leading_space_and_utf8_in_monorepo_dir(self):
+        import unittest.mock
+        import forge
+
+        for prefix_bytes, source_bytes in (
+            (b" client/\n", b" client/.gitignore"),
+            ("café/\n".encode("utf-8"), "café/.gitignore".encode("utf-8")),
+        ):
+            with self.subTest(prefix=prefix_bytes):
+                rev_out = subprocess.CompletedProcess(["git"], 0, stdout=prefix_bytes, stderr=b"")
+                ls_out = subprocess.CompletedProcess(["git"], 0, stdout="", stderr="")
+                chk_out = subprocess.CompletedProcess(
+                    ["git"], 0, stdout=source_bytes + b"\x001\x00.private/\x00.private/\x00", stderr=b""
                 )
-            )
+                with unittest.mock.patch.object(forge.shutil, "which", return_value="git"), \
+                     unittest.mock.patch.object(forge.subprocess, "run", side_effect=[rev_out, ls_out, chk_out]):
+                    self.assertTrue(
+                        forge._git_repo_ignores(
+                            self.root,
+                            ".private/",
+                            allowed_sources=(".gitignore",),
+                            require_patterns=(".private/",),
+                        )
+                    )
 
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock

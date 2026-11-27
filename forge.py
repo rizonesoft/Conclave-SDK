@@ -1706,15 +1706,14 @@ def _git_worktree_prefix(target_root: Path) -> str | None:
         ["git", "rev-parse", "--show-prefix"],
         cwd=str(target_root),
         capture_output=True,
-        text=True,
         timeout=15,
     )
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()
+        detail = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
         if "not a git repository" in detail.lower():
             return None
         raise ValueError(f"git rev-parse failed in {target_root} (exit {proc.returncode}): {detail}")
-    return (proc.stdout or "").rstrip("\r\n").replace("\\", "/")
+    return (proc.stdout or b"").decode("utf-8", errors="surrogateescape").rstrip("\r\n").replace("\\", "/")
 
 
 def _check_untracked_in_git(target_root: Path, rel_paths: tuple[str, ...]) -> str | None:
@@ -1817,10 +1816,11 @@ def _write_all(fd: int, payload: bytes) -> None:
 
 
 def _open_regular_append(path: Path, *, exclusive: bool) -> int:
-    """Open `path` for append-only writes without following symlinks and verifying a regular file handle."""
+    """Open `path` for append-only writes without following symlinks or blocking on a FIFO, verifying a regular file."""
     binary = getattr(os, "O_BINARY", 0)
     nofollow = getattr(os, "O_NOFOLLOW", 0)
-    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | binary | nofollow
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | binary | nofollow | nonblock
     if exclusive:
         flags |= os.O_EXCL
     if _is_link(path):
@@ -1832,6 +1832,8 @@ def _open_regular_append(path: Path, *, exclusive: bool) -> int:
             raise
         if nofollow and getattr(exc, "errno", None) == getattr(os, "ELOOP", 40):
             raise ValueError(f"Refusing to modify symlinked {path}; add ignore rules manually") from None
+        if nonblock and getattr(exc, "errno", None) == getattr(os, "ENXIO", 6):
+            raise ValueError(f"Refusing non-regular FIFO {path}; add ignore rules manually") from None
         raise
     try:
         if _is_link(path) or not stat.S_ISREG(os.fstat(fd).st_mode):
@@ -1844,12 +1846,12 @@ def _open_regular_append(path: Path, *, exclusive: bool) -> int:
 
 def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> None:
     """Append `rule_line` to `path` without overwriting any concurrent edit: uses `O_APPEND | O_CREAT | O_EXCL`
-    for new files and kernel-level `O_APPEND` (`b'\\n' + rule_line`) for existing files, enforces regular-file
-    non-symlink handles, retries short writes, and verifies the canonical rule is present at `path` after close."""
+    for new files and kernel-level `O_APPEND` for existing files, always prefixing `b'\\n'` so a concurrent
+    writer's unterminated rule is never merged with `rule_line`, enforces regular-file non-symlink non-blocking
+    handles, retries short writes, and verifies the canonical rule is present at `path` after close."""
     path.parent.mkdir(parents=True, exist_ok=True)
     canonical = rule_line.rstrip(b"\r\n")
     fd: int | None = None
-    payload = rule_line
     if creating:
         try:
             fd = _open_regular_append(path, exclusive=True)
@@ -1857,9 +1859,8 @@ def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> N
             fd = None
     if fd is None:
         fd = _open_regular_append(path, exclusive=False)
-        payload = b"\n" + rule_line
     try:
-        _write_all(fd, payload)
+        _write_all(fd, b"\n" + rule_line)
     finally:
         os.close(fd)
     if _is_link(path) or not path.is_file() or not _gitignore_bytes_end_with_rule(path.read_bytes(), canonical):
