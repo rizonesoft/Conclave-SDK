@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 REPO = Path(__file__).resolve().parents[1]
 KIT_LS = REPO / "kits" / "base" / "templates" / ".conclave" / "local_settings.py"
@@ -210,11 +211,20 @@ class LocalSettingsReaderTests(unittest.TestCase):
         self.assertEqual(neg_ig.read_bytes(), b".private/\n!.private/README.md\n")
         self.assertFalse((target_neg / ".conclave").exists())
 
-        # 4. Hard-linked .gitignore and .conclave/.gitignore that already ignore .private/ and local.toml
-        #    (including anchored /.private/ and /local.toml followed by unrelated rules like .aider*) are accepted.
-        for idx, (root_rule, sub_rule) in enumerate(((".private/", "local.toml"), ("/.private/", "/local.toml"), (".private", "local.toml"))):
-            good_root_src = _write(other, f"good_root_{idx}.gitignore", f"build/\n{root_rule}\n.aider*\n")
-            good_sub_src = _write(other, f"good_sub_{idx}.gitignore", f".env\n{sub_rule}\n*.bak\n")
+        # 4. Hard-linked .gitignore and .conclave/.gitignore covering all accepted spellings
+        #    (.private/, /.private/, .private, /.private; local.toml, /local.toml) followed by unrelated rules
+        #    and unrelated negations (!README.md, !.env.example) are accepted in apply_kit, preview, and live update.
+        spellings = (
+            (".private/", "local.toml"),
+            ("/.private/", "/local.toml"),
+            (".private", "local.toml"),
+            ("/.private", "/local.toml"),
+        )
+        for idx, (root_rule, sub_rule) in enumerate(spellings):
+            root_body = f"build/\n{root_rule}\n.aider*\n!README.md\n"
+            sub_body = f".env\n{sub_rule}\n*.bak\n!.env.example\n"
+            good_root_src = _write(other, f"good_root_{idx}.gitignore", root_body)
+            good_sub_src = _write(other, f"good_sub_{idx}.gitignore", sub_body)
             target_ok = self.root / f"hardlink_noop_target_{idx}"
             (target_ok / ".conclave").mkdir(parents=True, exist_ok=True)
             os.link(good_root_src, target_ok / ".gitignore")
@@ -228,8 +238,8 @@ class LocalSettingsReaderTests(unittest.TestCase):
             upd_live = forge.update_project(target_ok, dry_run=False)
             self.assertEqual(upd_live["private_gitignore"], "already_present")
             self.assertNotIn("local_gitignore", upd_live)
-            self.assertEqual(good_root_src.read_bytes(), f"build/\n{root_rule}\n.aider*\n".encode())
-            self.assertEqual(good_sub_src.read_bytes(), f".env\n{sub_rule}\n*.bak\n".encode())
+            self.assertEqual(good_root_src.read_bytes(), root_body.encode())
+            self.assertEqual(good_sub_src.read_bytes(), sub_body.encode())
 
         # 5. Opened-handle guard in _open_regular_append directly refuses a hard-linked file.
         direct_a = _write(other, "direct_a.gitignore", "x\n")
@@ -239,20 +249,21 @@ class LocalSettingsReaderTests(unittest.TestCase):
             forge._open_regular_append(direct_b, exclusive=False)
         self.assertEqual(direct_a.read_bytes(), b"x\n")
 
-        # 6. Concurrent unrelated append after os.write does not cause a false failure in _append_gitignore_rule.
-        conc_ig = _write(other, "conc.gitignore", "build/\n")
-        real_close = os.close
-        appended_once = {"done": False}
-        def close_with_concurrent_append(fd):
-            real_close(fd)
-            if not appended_once["done"]:
-                appended_once["done"] = True
-                with conc_ig.open("ab") as fh:
-                    fh.write(b".aider*\n")
-        with unittest.mock.patch("forge.os.close", side_effect=close_with_concurrent_append):
-            forge._append_gitignore_rule(conc_ig, b".private/\n", creating=False)
-        self.assertIn(b".private/\n", conc_ig.read_bytes())
-        self.assertIn(b".aider*\n", conc_ig.read_bytes())
+        # 6. Concurrent unrelated append (both normal rule .aider* and unrelated negation !README.md) succeeds.
+        for label, extra in (("rule", b".aider*\n"), ("negation", b"!README.md\n")):
+            conc_ig = _write(other, f"conc_{label}.gitignore", "build/\n")
+            real_close = os.close
+            appended_once = {"done": False}
+            def close_with_concurrent_append(fd, path=conc_ig, payload=extra, flag=appended_once):
+                real_close(fd)
+                if not flag["done"]:
+                    flag["done"] = True
+                    with path.open("ab") as fh:
+                        fh.write(payload)
+            with unittest.mock.patch("forge.os.close", side_effect=close_with_concurrent_append):
+                forge._append_gitignore_rule(conc_ig, b".private/\n", creating=False)
+            self.assertIn(b".private/\n", conc_ig.read_bytes())
+            self.assertIn(extra, conc_ig.read_bytes())
 
     def test_working_file_symlink_override_is_accepted(self):
         target = _write(self.root, "external.toml", '[vault]\ncli = "custom-op"\n')

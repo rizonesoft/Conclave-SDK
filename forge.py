@@ -1887,11 +1887,36 @@ def _git_repo_ignores(
     return True
 
 
+def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) -> bool:
+    """Conservative check whether a gitignore `!pattern` line could negate `target_name`."""
+    pat = neg_line[1:]
+    if pat.startswith(b"/"):
+        pat = pat[1:]
+    dir_only = pat.endswith(b"/")
+    if dir_only:
+        pat = pat[:-1]
+    if not pat or (dir_only and not is_dir):
+        return False
+    if b"\\" in pat or b"**" in pat or b"[" in pat:
+        return True
+    if b"*" in pat or b"?" in pat:
+        if b"/" in pat:
+            return is_dir and fnmatch.fnmatchcase(target_name, pat.split(b"/", 1)[0])
+        return fnmatch.fnmatchcase(target_name, pat)
+    if is_dir:
+        return pat == target_name or pat.startswith(target_name + b"/")
+    return pat == target_name
+
+
 def _gitignore_bytes_have_unnegated_rule(raw: bytes, accepted_rules: bytes | tuple[bytes, ...]) -> bool:
     """Conservative LF-byte-level check used when the target is not a Git repository yet or after an append.
     Returns True when any rule in `accepted_rules` appears as an exact LF-delimited rule (stripping at most one
-    trailing CR) and no subsequent negation rule (`!...`) follows it; unrelated non-negation rules are allowed."""
+    trailing CR) and no subsequent negation rule (`!...`) that could match the protected target follows it;
+    unrelated rules and unrelated negations (such as `!README.md` or `!.env.example`) are allowed."""
     rules = (accepted_rules,) if isinstance(accepted_rules, bytes) else accepted_rules
+    first = rules[0]
+    is_dir = first.endswith(b"/") or first.lstrip(b"/") == b".private"
+    target_name = first.strip(b"/")
     matched = False
     for part in raw.split(b"\n"):
         line = part[:-1] if part.endswith(b"\r") else part
@@ -1899,7 +1924,7 @@ def _gitignore_bytes_have_unnegated_rule(raw: bytes, accepted_rules: bytes | tup
             continue
         if line in rules:
             matched = True
-        elif matched and line.startswith(b"!"):
+        elif matched and line.startswith(b"!") and _negation_may_match(line, target_name, is_dir=is_dir):
             matched = False
     return matched
 
