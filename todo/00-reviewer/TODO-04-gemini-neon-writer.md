@@ -127,7 +127,11 @@ The todo kit's Antigravity copies of `process-plan`, `process-phase` and `proces
 
 ## 4. Unattended profile runs Neon with its effort
 
+> **Started:** 2026-11-27T01:16Z
+
 The unattended kit allows `"effort": null` for an Orchestrator profile and documents Carbon. A Neon profile carries an effort, and the run passes it.
+
+**Corrected 2026-11-27 (validation):** Verified `kits/unattended/templates/scripts/lib/unattended.py` and `kits/unattended/templates/scripts/unattended-run.py`: the profile template (`.conclave/unattended.json`) intentionally leaves `name`, `model`, and `effort` as `null` with no hardcoded model defaults; `load_profile()` (`lib/unattended.py:72-84,102-119`) already requires a valid `effort` (`low|medium|high|xhigh|max`) for every non-Orchestrator `agy` model (refusing `"effort": null`) while accepting `"effort": null` only for `is_agy_orchestrator(model)`, and `unattended-run.py:230-240` already passes `["agy", f"--model={model}", f"--effort={effort}"]` for non-Orchestrator `agy` models and omits `--effort` for Orchestrator. What still names Carbon is `kits/unattended/templates/docs/unattended-run.md:10`, `kits/unattended/README.md` (which does not yet name `gemini-4-neon-medium`), and the test fixtures in `kits/unattended/templates/scripts/tests/{test_unattended.py,test_run.py,test_shortcut.py}`. Items 1 and 2 therefore verify the existing loader/launcher behavior against `gemini-4-neon-medium` (updating those test fixtures from `gemini-4-carbon-medium` to `gemini-4-neon-medium` and adding a positive Neon `--effort=medium` launch/resume assertion and `effort: null` refusal), without churning working loader/launcher code.
 
 **Phase:** 10
 **Needs:** none
@@ -135,12 +139,13 @@ The unattended kit allows `"effort": null` for an Orchestrator profile and docum
 
 **Build order:**
 
-1. Default the `agy` profile to Neon with an effort. Done when: a Neon profile launches with `--effort` and an Orchestrator profile with `"effort": null` still loads.
+1. Update the unattended kit's Antigravity test fixtures (`kits/unattended/templates/scripts/tests/test_unattended.py`, `test_run.py`, `test_shortcut.py`) from `gemini-4-carbon-medium` to `gemini-4-neon-medium`, verifying `load_profile()` accepts Neon with `"effort": "medium"`, refuses Neon with `"effort": null`, and accepts Orchestrator with `"effort": null`, and verifying `unattended-run.py` launches Neon with `--model=gemini-4-neon-medium --effort=medium`. Done when: `git grep -n -i "carbon" -- kits/unattended/` prints nothing.
+2. Update `kits/unattended/README.md` and `kits/unattended/templates/docs/unattended-run.md` to name Gemini 4 Neon (`gemini-4-neon-medium` with `"effort": "medium"`) beside the Orchestrator `"effort": null` compatibility note, then run `python forge.py check-all --only kit-unattended` on Windows and the `--effort` drop mutation check. Done when: the suite passes and fails when `--effort={effort}` is dropped from `unattended-run.py:240`.
 
-- [ ] Change the `agy` defaults in `kits/unattended/templates/scripts/lib/unattended.py` to `gemini-4-neon-medium` with `"effort": "medium"`, keeping `null` accepted only for an Orchestrator model. Done when: the kit's tests cover both. Cheaper substitute: accepting `null` for every model.
-- [ ] Pass the profile's effort in `kits/unattended/templates/scripts/unattended-run.py` for Neon. Done when: a test's recorded launch line holds `--effort=medium`.
-- [ ] Rewrite the Antigravity parts of `kits/unattended/README.md` and `templates/docs/unattended-run.md`. Done when: neither names Carbon or Hydrogen outside the compatibility note.
-- [ ] Run the unattended kit's suite on Windows. Done when: it passes.
+- [ ] Verify `kits/unattended/templates/scripts/lib/unattended.py` accepts `gemini-4-neon-medium` with `"effort": "medium"`, refuses `"effort": null` on `gemini-4-neon-medium`, and keeps `"effort": null` accepted only for `is_agy_orchestrator(model)` (`gemini-pro-orchestrator`, `gemini-pro-orchestrator-*`), updating `kits/unattended/templates/scripts/tests/test_unattended.py` fixtures from `gemini-4-carbon-medium` to `gemini-4-neon-medium`. Done when: `test_unattended.py` covers both Neon and Orchestrator and names no Carbon. Cheaper substitute: accepting `null` for every model. **Corrected 2026-11-27 (validation):** loader already implements the rule with no hardcoded defaults; verify and update tests to Neon.
+- [ ] Verify `kits/unattended/templates/scripts/unattended-run.py` passes `--model=gemini-4-neon-medium --effort=medium` for Neon (and omits `--effort` for Orchestrator), updating `kits/unattended/templates/scripts/tests/test_run.py` and `test_shortcut.py` fixtures from `gemini-4-carbon-medium` to `gemini-4-neon-medium` (and renaming the `carbon` shortcut test variable at `test_shortcut.py:1951`). Done when: `test_run.py` records `--model=gemini-4-neon-medium` and `--effort=medium` on the launch line and fails if `--effort={effort}` is dropped. **Corrected 2026-11-27 (validation):** launcher already passes `--effort={effort}`; update tests to Neon and verify via mutation.
+- [ ] Rewrite the Antigravity parts of `kits/unattended/README.md` and `kits/unattended/templates/docs/unattended-run.md` to name Gemini 4 Neon (`gemini-4-neon-medium`, `"effort": "medium"`) as the Antigravity writer while keeping the Orchestrator (`"effort": null`) compatibility note. Done when: neither names Carbon or Hydrogen outside compatibility notes (and `git grep -n -i "carbon\|hydrogen" -- kits/unattended/` prints nothing).
+- [ ] Run the unattended kit's suite on Windows (`python forge.py check-all --only kit-unattended`) and `python -m unittest tests.test_forge -k markdown_table`. Done when: both pass.
 - [ ] Commit: `unattended: Antigravity profiles run Gemini 4 Neon with their effort (D00 T04 §4)`
 
 **Test checkpoint:** `python forge.py check-all --only kit-unattended` passes, and fails when the Neon profile's effort is dropped from the launch line.
