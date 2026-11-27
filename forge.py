@@ -1774,19 +1774,16 @@ def _check_untracked_in_git(target_root: Path, rel_paths: tuple[str, ...]) -> st
 
 
 def _preflight_settings_gitignores(target_root: Path) -> None:
-    """Refuse symlinked or non-file `.gitignore` / `.conclave/.gitignore`, unavailable Git in an existing checkout,
-    an enclosing-repo ignore rule that excludes `target_root` itself, or already-tracked `.private/` /
-    `.conclave/local.toml` before any kit file is written (and identically on `--dry-run`)."""
+    """Refuse symlinked or non-file `.gitignore` / `.conclave/.gitignore`, hard-linked ignore files that require
+    an append, unavailable Git in an existing checkout, an enclosing-repo ignore rule that excludes `target_root`
+    itself, or already-tracked `.private/` / `.conclave/local.toml` before any kit file is written (and identically
+    on `--dry-run`)."""
     for rel in (".gitignore", ".conclave/.gitignore"):
         path = target_root / rel
         if _is_link(path):
             raise ValueError(f"Refusing to modify symlinked {rel} in {target_root}; add ignore rules manually")
         if path.exists() and not path.is_file():
             raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
-        if path.exists():
-            st = os.lstat(path)
-            if st.st_nlink > 1:
-                raise ValueError(f"Refusing hard-linked {rel} in {target_root} (st_nlink={st.st_nlink}); add ignore rules manually")
     prefix = _check_untracked_in_git(target_root, (".private/", LOCAL))
     if prefix is not None:
         own_sources = (f"{prefix}.gitignore", f"{prefix}.conclave/.gitignore")
@@ -1813,6 +1810,31 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
             elif proc.returncode != 1:
                 detail = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
                 raise ValueError(f"git check-ignore failed in {target_root} (exit {proc.returncode}): {detail}")
+    root_ig = target_root / ".gitignore"
+    if root_ig.exists():
+        st = os.lstat(root_ig)
+        if st.st_nlink > 1:
+            dir_rules = (".private/", "/.private/", ".private", "/.private")
+            git_ignored = _git_repo_ignores(target_root, ".private/", allowed_sources=(".gitignore",), require_patterns=dir_rules)
+            already = (git_ignored is True) or (
+                git_ignored is None and _gitignore_bytes_end_with_rule(_read_regular_file_bytes(root_ig), b".private/")
+            )
+            if not already:
+                raise ValueError(
+                    f"Refusing hard-linked .gitignore in {target_root} (st_nlink={st.st_nlink}); add ignore rules manually"
+                )
+    conclave_ig = target_root / ".conclave" / ".gitignore"
+    if conclave_ig.exists():
+        st = os.lstat(conclave_ig)
+        if st.st_nlink > 1:
+            git_ignored = _git_repo_ignores(target_root, LOCAL, allowed_sources=(".gitignore", ".conclave/.gitignore"))
+            already = (git_ignored is True) or (
+                git_ignored is None and _gitignore_bytes_end_with_rule(_read_regular_file_bytes(conclave_ig), b"local.toml")
+            )
+            if not already:
+                raise ValueError(
+                    f"Refusing hard-linked .conclave/.gitignore in {target_root} (st_nlink={st.st_nlink}); add ignore rules manually"
+                )
 
 
 def _git_repo_ignores(
