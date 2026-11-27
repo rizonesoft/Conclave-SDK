@@ -1902,11 +1902,64 @@ def _strip_gitignore_trailing_spaces(pat: bytes) -> bytes:
     return pat[:end]
 
 
-def _seg_may_match(seg: bytes, target_low: bytes) -> bool:
-    """Conservative single-segment gitignore match against lowercase `target_low` (used only when Git or a
-    temporary directory is unavailable). Translates backslash escapes, `*`, `?`, and `[...]` / `[!...]` / `[^...]`
-    into a full-segment regex, returning True conservatively for POSIX bracket expressions (`[:`, `[.`, `[=`) or
-    malformed escapes/brackets."""
+def _parse_gitignore_bracket(seg: bytes, start: int) -> tuple[bytes, int] | None:
+    """Parse a gitignore `[...]` bracket expression starting at `start` (`seg[start] == '['`).
+    Returns `(regex_atom, next_idx)` or None if unclosed. Preserves exact case and backslash-escaped literals
+    (so `[\\t]` is literal `t`, not tab), and replaces any bracket containing a POSIX class (`[:...:]`, `[....]`,
+    `[=...=]`) with `.` (any single byte) while preserving surrounding prefix/suffix bytes."""
+    length = len(seg)
+    idx = start + 1
+    if idx >= length:
+        return None
+    neg = b""
+    if seg[idx:idx + 1] in (b"!", b"^"):
+        neg = b"^"
+        idx += 1
+    items: list[bytes] = []
+    has_posix = False
+    first = True
+    while idx < length:
+        ch = seg[idx:idx + 1]
+        if ch == b"]" and not first:
+            if has_posix:
+                return (b".", idx + 1)
+            return (b"[" + neg + b"".join(items) + b"]", idx + 1)
+        first = False
+        if ch == b"[" and idx + 1 < length and seg[idx + 1:idx + 2] in (b":", b".", b"="):
+            marker = seg[idx + 1:idx + 2] + b"]"
+            close = seg.find(marker, idx + 2)
+            if close == -1:
+                return None
+            has_posix = True
+            idx = close + 2
+            continue
+        if ch == b"\\":
+            if idx + 1 >= length:
+                return None
+            atom = seg[idx + 1:idx + 2]
+            idx += 2
+        else:
+            atom = ch
+            idx += 1
+        if idx + 1 < length and seg[idx:idx + 1] == b"-" and seg[idx + 1:idx + 2] != b"]":
+            idx += 1
+            if seg[idx:idx + 1] == b"\\":
+                if idx + 1 >= length:
+                    return None
+                hi = seg[idx + 1:idx + 2]
+                idx += 2
+            else:
+                hi = seg[idx:idx + 1]
+                idx += 1
+            items.append(re.escape(atom) + b"-" + re.escape(hi))
+        else:
+            items.append(re.escape(atom))
+    return None
+
+
+def _seg_may_match(seg: bytes, target: bytes) -> bool:
+    """Conservative single-segment gitignore match against `target` under both case-sensitive and case-insensitive
+    Git modes (used only when Git or a temporary directory is unavailable)."""
     if b"**" in seg:
         return True
     parts: list[bytes] = []
@@ -1926,32 +1979,20 @@ def _seg_may_match(seg: bytes, target_low: bytes) -> bool:
             parts.append(b".")
             idx += 1
         elif ch == b"[":
-            end = idx + 1
-            if end < length and seg[end:end + 1] in (b"!", b"^"):
-                end += 1
-            if end < length and seg[end:end + 1] == b"]":
-                end += 1
-            while end < length and seg[end:end + 1] != b"]":
-                if seg[end:end + 1] == b"\\":
-                    end += 2
-                else:
-                    end += 1
-            if end >= length:
+            parsed = _parse_gitignore_bracket(seg, idx)
+            if parsed is None:
                 return True
-            inner = seg[idx + 1:end]
-            if b"[:" in inner or b"[." in inner or b"[=" in inner:
-                return True
-            neg = b""
-            if inner.startswith((b"!", b"^")):
-                neg = b"^"
-                inner = inner[1:]
-            parts.append(b"[" + neg + inner + b"]")
-            idx = end + 1
+            atom, idx = parsed
+            parts.append(atom)
         else:
             parts.append(re.escape(ch))
             idx += 1
+    pattern = b"".join(parts)
     try:
-        return re.fullmatch(b"".join(parts), target_low, re.DOTALL) is not None
+        return (
+            re.fullmatch(pattern, target, re.DOTALL) is not None
+            or re.fullmatch(pattern, target, re.DOTALL | re.IGNORECASE) is not None
+        )
     except re.error:
         return True
 
@@ -2005,17 +2046,16 @@ def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) ->
         pat = pat[:-1]
     if not pat or (dir_only and not is_dir):
         return False
-    target_low = target_name.lower()
-    segs = [s for s in pat.lower().split(b"/") if s]
+    segs = [s for s in pat.split(b"/") if s]
     while len(segs) > 1 and segs[0] == b"**":
         segs = segs[1:]
     if not segs:
         return False
     if len(segs) == 1:
-        return _seg_may_match(segs[0], target_low)
+        return _seg_may_match(segs[0], target_name)
     if not is_dir:
         return False
-    return _seg_may_match(segs[0], target_low)
+    return _seg_may_match(segs[0], target_name)
 
 
 def _gitignore_bytes_have_unnegated_rule(raw: bytes, accepted_rules: bytes | tuple[bytes, ...]) -> bool:

@@ -254,13 +254,16 @@ class LocalSettingsReaderTests(unittest.TestCase):
             self.assertEqual(good_root_src.read_bytes(), root_body.encode())
             self.assertEqual(good_sub_src.read_bytes(), sub_body.encode())
 
-        # 5. Fallback matcher (when native Git evaluation is unavailable) handles POSIX character classes
-        #    conservatively and allows unrelated escaped filenames and bracket expressions.
+        # 5. Fallback matcher (when native Git evaluation is unavailable) preserves exact-case and case-insensitive
+        #    bracket semantics, backslash escapes inside [...], and surrounding prefixes/suffixes around POSIX classes.
         with unittest.mock.patch("forge._git_check_ignore_bytes", return_value=None):
             fn = forge._gitignore_bytes_have_unnegated_rule
             self.assertFalse(fn(b"local.toml\n![[:alpha:]]ocal.toml\n", b"local.toml"))
+            self.assertFalse(fn(b"local.toml\n![!A-Z]*\n", b"local.toml"))
+            self.assertFalse(fn(b"local.toml\n!local.[\\t]oml\n", b"local.toml"))
             self.assertFalse(fn(b"local.toml\n!**/local.toml\n", b"local.toml"))
             self.assertFalse(fn(b".private/\n!\\.private/\n", forge.PRIVATE_GITIGNORE_RULES_BYTES))
+            self.assertTrue(fn(b"local.toml\n!docs[[:digit:]].md\n", b"local.toml"))
             self.assertTrue(fn(b"local.toml\n!README\\ notes.md\n", b"local.toml"))
             self.assertTrue(fn(b"local.toml\n!**/[Rr]EADME.md\n", b"local.toml"))
 
