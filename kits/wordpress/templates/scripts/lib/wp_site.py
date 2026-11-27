@@ -3,37 +3,64 @@
 Installed by the Conclave-SDK WordPress kit. Every helper reads the pin through this module. A malformed pin is
 refused outright. A value the setup has not filled in yet is `null`, and `require` names it instead of guessing.
 Credentials are read from the vault by immutable item id, never by title. Which vault, and which command line tool
-reads it, are this owner's settings: `[vault] name` and `cli` in `.conclave/local.toml` (ignored by git; the template
-is `.conclave/local.example.toml`), `Conclave` and `conclave-op` on PATH when unset.
+reads it, are this owner's settings: `[vault] name` and `cli` in `.conclave/local.toml` with `.private/local.toml`
+as the overlay fallback (both ignored by git; the template is `.conclave/local.example.toml`), `Conclave` and
+`conclave-op` on PATH when unset.
 """
+import importlib.util
 import json
 from pathlib import Path
 import re
 import subprocess
-import tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 PIN = ROOT / ".conclave" / "wordpress-site.json"
 LOCAL = ROOT / ".conclave" / "local.toml"
 
 
-def vault_settings(path=LOCAL):
-    """(cli, name) from `[vault]` in `.conclave/local.toml`; a missing file or key keeps its default, and a file
-    that is not TOML or a value that is not a plain non-empty string is refused."""
-    try:
-        with open(path, "rb") as handle:
-            table = tomllib.load(handle).get("vault", {})
-    except FileNotFoundError:
-        table = {}
-    except (OSError, ValueError) as error:
-        raise ValueError(f"{path}: not readable as TOML ({error})") from None
+def _local_settings():
+    """Load the shared local_settings helper beside this module (or from the base kit template during SDK tests)."""
+    candidates = (
+        Path(__file__).resolve().parent / "local_settings.py",
+        ROOT.parents[1] / "base" / "templates" / "scripts" / "lib" / "local_settings.py",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            spec = importlib.util.spec_from_file_location("_wp_local_settings", candidate)
+            if spec is not None and spec.loader is not None:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+    raise ValueError(f"scripts/lib/local_settings.py is missing next to {ROOT}")
+
+
+def vault_settings(path=None, *, root=ROOT):
+    """(cli, name) from `[vault]` in `.conclave/local.toml` and `.private/local.toml` (or an explicit `path`);
+    a missing file or key keeps its default, and a file that is not TOML or a value that is not a plain non-empty
+    string is refused."""
+    ls = _local_settings()
+    if path is not None:
+        source = str(path)
+        try:
+            data = ls.read_toml_file(path)
+        except FileNotFoundError:
+            data = {}
+        except ls.LocalSettingsError as error:
+            raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
+    else:
+        source = f"{ls.LOCAL} / {ls.OVERLAY}"
+        try:
+            data = ls.read_local_settings(root)
+        except ls.LocalSettingsError as error:
+            raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
+    table = data.get("vault", {})
     if not isinstance(table, dict):
-        raise ValueError(f"{path}: [vault] must be a table")
+        raise ValueError(f"{source}: [vault] must be a table")
     found = []
     for key, default in (("cli", "conclave-op"), ("name", "Conclave")):
         value = table.get(key, default)
         if not isinstance(value, str) or not value.strip() or any(char in value for char in "\r\n\0"):
-            raise ValueError(f"{path}: vault.{key} must be a non-empty string")
+            raise ValueError(f"{source}: vault.{key} must be a non-empty string")
         found.append(value)
     return tuple(found)
 

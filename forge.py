@@ -29,6 +29,7 @@ import ctypes
 import difflib
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -367,6 +368,11 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
                 # `update` and `record` compare the project's file with.
                 plan = [(RootedPin(src, app_root) if rel == pins else src, dst, rel, generated)
                         for src, dst, rel, generated in plan]
+    if kit_name in ("automations", "wordpress"):
+        shared_rel = "scripts/lib/local_settings.py"
+        if not any(rel == shared_rel for _src, _dst, rel, _gen in plan):
+            shared_src = FORGE_ROOT / "kits" / "base" / "templates" / shared_rel
+            plan.append((shared_src, target_root / shared_rel, shared_rel, False))
     return plan, extra
 
 
@@ -825,6 +831,8 @@ def apply_kit(
         "merge_needed": merge_needed,
         **extra,
     }
+    if kit_name in ("base", "automations", "wordpress") and not dry_run:
+        result["private_gitignore"] = _ensure_private_gitignore(target_root)
     if kit_name == "todo" and ".codex/hooks.json" in installed and not dry_run:
         result["codex_hook"] = _approve_codex_hook(target_root)
     if kit_name == "todo" and not dry_run:
@@ -1641,7 +1649,8 @@ def record_project(target_root: Path, kit_name: str | None = None, *, dry_run: b
     return {"target": target.as_posix(), "dry_run": dry_run, "recorded": recorded, "skipped": skipped}
 
 
-LOCAL = ".conclave/local.toml"  # this machine's and this owner's settings, ignored by git
+LOCAL = ".conclave/local.toml"  # per-machine settings override, ignored by git
+OVERLAY = ".private/local.toml"  # owner settings overlay, ignored by git
 # What the weekly drift report counts, in its line's order: (label, the diff states it counts). Any of them fails it.
 DRIFT_COUNTS = (
     ("can update", ("kit-newer",)),
@@ -1654,22 +1663,75 @@ DRIFT_COUNTS = (
 DRIFT_SHOWN = 20
 
 
-def load_projects(path: Path) -> list[dict]:
-    """The projects the drift report covers, from the `[[projects]]` tables of `.conclave/local.toml` (`name`, and a
-    `windows` path, a `posix` path or both): where a project lives is this machine's fact, so the list is never
-    committed. Returns each as `{"name", "windows", "posix"}`, a path left out being None; no `[[projects]]` is an
-    empty list. Refuses with a ValueError naming the file and the entry."""
-    path = Path(path)
+def _ensure_private_gitignore(target_root: Path) -> str:
+    """Ensure `<target_root>/.gitignore` ignores `.private/` without overwriting existing rules or following links."""
+    gitignore = target_root / ".gitignore"
+    if _is_link(gitignore):
+        return "skipped_symlink"
+    if not gitignore.exists():
+        atomic_write(gitignore, b".private/\n")
+        return "created"
+    if not gitignore.is_file():
+        return "skipped_nonfile"
+    raw = gitignore.read_bytes()
+    text = raw.decode("utf-8", errors="surrogateescape")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped in (".private/", ".private", "/.private/", "/.private"):
+            return "already_present"
+    sep = "" if (not text or text.endswith("\n")) else "\n"
+    updated = (text + sep + ".private/\n").encode("utf-8", errors="surrogateescape")
+    atomic_write(gitignore, updated)
+    return "added"
+
+
+def _local_settings_module():
+    """Load the base kit's shared `local_settings.py` helper (installed copy first, kit template fallback)."""
+    for candidate in (
+        FORGE_ROOT / "scripts" / "lib" / "local_settings.py",
+        FORGE_ROOT / "kits" / "base" / "templates" / "scripts" / "lib" / "local_settings.py",
+    ):
+        if candidate.is_file():
+            spec = importlib.util.spec_from_file_location("_forge_local_settings", candidate)
+            if spec is not None and spec.loader is not None:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+    raise ValueError(f"scripts/lib/local_settings.py is missing under {FORGE_ROOT}")
+
+
+def load_projects(path: Path | None = None, *, root: Path | None = None) -> list[dict]:
+    """The projects the drift report covers, from the `[[projects]]` tables of `.conclave/local.toml` (override) and
+    `.private/local.toml` (overlay), or from an explicit single TOML file when `path` is passed. Returns each as
+    `{"name", "windows", "posix"}`, a path left out being None; no `[[projects]]` is an empty list. Refuses with a
+    ValueError naming the file(s) and the entry."""
+    if path is not None and root is not None:
+        raise ValueError("load_projects accepts either path or root, not both")
+    ls = _local_settings_module()
+    if path is not None:
+        target = Path(path)
+        label = str(target)
+        try:
+            data = ls.read_toml_file(target, label=label)
+        except FileNotFoundError:
+            raise ValueError(f"{label}: missing: copy .conclave/local.example.toml to it and list the projects") from None
+        except ls.LocalSettingsError as exc:
+            raise ValueError(str(exc)) from None
+    else:
+        base_root = FORGE_ROOT if root is None else Path(root)
+        try:
+            data, loaded = ls.load_local_settings(base_root)
+        except ls.LocalSettingsError as exc:
+            raise ValueError(str(exc)) from None
+        if not loaded:
+            raise ValueError(
+                f"{LOCAL} and {OVERLAY}: missing: copy .conclave/local.example.toml to {LOCAL} or populate {OVERLAY} and list the projects"
+            )
+        label = " / ".join(loaded)
 
     def fault(what: str) -> ValueError:
-        return ValueError(f"{path}: {what}")
+        return ValueError(f"{label}: {what}")
 
-    try:
-        data = tomllib.loads(path.read_bytes().decode("utf-8"))
-    except FileNotFoundError:
-        raise fault("missing: copy .conclave/local.example.toml to it and list the projects") from None
-    except (OSError, ValueError, RecursionError) as exc:
-        raise fault(f"not readable as UTF-8 TOML ({exc})") from None
     listed = data.get("projects", [])
     if not isinstance(listed, list):
         raise fault("projects must be [[projects]] tables")
@@ -4108,7 +4170,7 @@ def main(argv: list[str] | None = None) -> int:
                        help="Record a hand merge from PATH.kit-new (relative to the project; repeatable), then remove the copy")
 
     p_drift = sub.add_parser("drift", help="Report which listed projects have kit files to update or merge (exit 3 if any)")
-    p_drift.add_argument("--projects", default=None, help=f"The project list (default: the SDK's {LOCAL})")
+    p_drift.add_argument("--projects", default=None, help=f"The project list (default: the SDK's {LOCAL} and {OVERLAY})")
 
     sub.add_parser("kits", help="List available overlay kits")
     p_self = sub.add_parser("self-sync", help="Refresh the SDK's own installed copy of base, todo, reviewer and automations")
@@ -4180,7 +4242,8 @@ def _run(args: argparse.Namespace) -> int:
         return 1 if failed else 0
 
     if args.command == "drift":
-        lines, drifted = drift_lines(drift_report(load_projects(Path(args.projects or FORGE_ROOT / LOCAL))))
+        projects = load_projects(Path(args.projects)) if args.projects else load_projects(root=FORGE_ROOT)
+        lines, drifted = drift_lines(drift_report(projects))
         print("\n".join(lines))
         # Exit 3 is the report: the automations runner emails a non-zero exit with the tail of this output.
         return 3 if drifted else 0

@@ -8,16 +8,18 @@ wrapper that saw it fail, whatever the command printed. The email carries the ta
 finish, the tail of that run's log, and how to run it again on this machine's scheduler.
 
 It goes through SMTP2GO's `/v3/email/send`. Who sends it, who receives it and which vault item holds the key are
-this owner's settings, read from `[alert]` in `.conclave/local.toml` (`sender`, `to`, `key_item`; the template is
-`.conclave/local.example.toml`), and the email is refused while one is unset. The key is read at send time through
-the vault tool `[vault] cli` names (`conclave-op` by default, in WSL when this runs on Windows), for this run only:
-never written to disk, an argument, or the output. SMTP2GO answers a refused send with HTTP 200 and `succeeded: 0`,
-so anything but one success and no failures is a refusal.
+this owner's settings, read from `[alert]` in `.conclave/local.toml` with `.private/local.toml` as the overlay
+fallback (`sender`, `to`, `key_item`; the template is `.conclave/local.example.toml`), and the email is refused
+while one is unset. The key is read at send time through the vault tool `[vault] cli` names (`conclave-op` by
+default, in WSL when this runs on Windows), for this run only: never written to disk, an argument, or the output.
+SMTP2GO answers a refused send with HTTP 200 and `succeeded: 0`, so anything but one success and no failures is a
+refusal.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -25,12 +27,12 @@ import shlex
 import socket
 import subprocess
 import sys
-import tomllib
 import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
 LOCAL = os.path.join(".conclave", "local.toml")
+OVERLAY = os.path.join(".private", "local.toml")
 ENDPOINT = "https://api.smtp2go.com/v3/email/send"
 LOG_LINES = 60
 ADDRESS = re.compile(r"[^@\s<>\"',;]+@[^@\s<>\"',;]+")
@@ -41,28 +43,48 @@ class Refused(Exception):
     pass
 
 
+def _local_settings():
+    """Load the shared local_settings helper relative to this installed script (lazy so import errors stay inside
+    run.py's alert-failure handler)."""
+    candidates = (
+        os.path.join(REPO, "scripts", "lib", "local_settings.py"),
+        os.path.normpath(os.path.join(REPO, "..", "..", "base", "templates", "scripts", "lib", "local_settings.py")),
+    )
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            spec = importlib.util.spec_from_file_location("_conclave_local_settings", candidate)
+            if spec is not None and spec.loader is not None:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module
+    raise Refused(f"scripts/lib/local_settings.py is missing next to {REPO}")
+
+
 def settings(root: str = REPO) -> dict:
-    """This owner's `sender`, `to`, `key_item` and vault `cli` from `.conclave/local.toml`. Refuses, naming the key,
-    while the file is missing or malformed or a value is unset or not of its shape: nothing is guessed."""
-    path = os.path.join(root, LOCAL)
+    """This owner's `sender`, `to`, `key_item` and vault `cli` from `.conclave/local.toml` (per-machine override)
+    and `.private/local.toml` (owner overlay). Refuses, naming the key, while both files are missing, either file
+    is malformed, or a value is unset or not of its shape: nothing is guessed."""
+    ls = _local_settings()
     try:
-        with open(path, "rb") as fh:
-            data = tomllib.load(fh)
-    except FileNotFoundError:
-        raise Refused(f"{LOCAL} is missing: copy .conclave/local.example.toml to it and set [alert]") from None
-    except (OSError, ValueError) as error:
-        raise Refused(f"{LOCAL} is not readable as TOML ({error})") from None
+        data, loaded = ls.load_local_settings(root)
+    except ls.LocalSettingsError as error:
+        raise Refused(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
+    if not loaded:
+        raise Refused(
+            f"{LOCAL} is missing (and {OVERLAY} is not present): copy .conclave/local.example.toml to it and set [alert]"
+        )
+    sources = f"{LOCAL} / {OVERLAY}"
     alert, vault = data.get("alert", {}), data.get("vault", {})
     if not isinstance(alert, dict) or not isinstance(vault, dict):
-        raise Refused(f"{LOCAL}: [alert] and [vault] must be tables")
+        raise Refused(f"{sources}: [alert] and [vault] must be tables")
     found = {"cli": vault.get("cli", "conclave-op")}
     for name, shape in (("sender", ADDRESS), ("to", ADDRESS), ("key_item", KEY_ITEM)):
         value = alert.get(name, "")
         if not isinstance(value, str) or not shape.fullmatch(value):
-            raise Refused(f"{LOCAL}: set alert.{name} (see .conclave/local.example.toml)")
+            raise Refused(f"{sources}: set alert.{name} (see .conclave/local.example.toml)")
         found[name] = value
     if not isinstance(found["cli"], str) or not found["cli"].strip() or any(c in found["cli"] for c in "\r\n\0"):
-        raise Refused(f"{LOCAL}: vault.cli must be a command name or a path")
+        raise Refused(f"{sources}: vault.cli must be a command name or a path")
     return found
 
 

@@ -446,7 +446,7 @@ def main(argv: list[str], root: str = REPO, popen=subprocess.Popen, alerter=None
         tail = alert.tail_of(os.path.join(root, outcome["log"]))
         if alerter:
             alerter(argv[0], task, outcome, tail, manifest["folder"])
-        else:  # the owner's sender, recipient and key item come from this project's .conclave/local.toml
+        else:  # the owner's sender, recipient and key item come from .conclave/local.toml or .private/local.toml
             alert.send_failure(argv[0], task, outcome, tail, manifest["folder"], root=root)
     except Exception as error:  # the run already failed; an unsent alert must still show, as exit 3
         with open(os.path.join(root, outcome["log"]), "a", encoding="utf-8") as fh:

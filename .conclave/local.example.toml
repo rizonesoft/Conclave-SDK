@@ -1,5 +1,6 @@
-# Settings that belong to one machine or one owner. Copy this file to `.conclave/local.toml` and fill it in.
-# `.conclave/local.toml` is ignored by git (`.conclave/.gitignore`), so nothing here is ever committed.
+# Settings that belong to one machine or one owner. Put owner defaults in `.private/local.toml` (ignored by root
+# `.gitignore`) and copy this file to `.conclave/local.toml` (ignored by `.conclave/.gitignore`) for per-machine
+# overrides. `scripts/lib/local_settings.py` merges both per key with `.conclave/local.toml` winning.
 # Every key is optional: one left out keeps the default this file shows. No secret goes in this file,
 # only where to find it.
 

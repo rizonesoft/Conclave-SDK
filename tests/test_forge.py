@@ -3468,25 +3468,31 @@ class DriftTests(KitFixture, unittest.TestCase):
         self.assertEqual(code, 0, out)
 
     def test_a_scheduled_run_reaches_the_alert_with_the_report(self):
-        sdk = pathlib.Path(self.tmp.name) / "sdk"
-        shutil.copytree(FORGE_ROOT / "kits", sdk / "kits", ignore=shutil.ignore_patterns("__pycache__"))
-        shutil.copyfile(FORGE_ROOT / "forge.py", sdk / "forge.py")
-        shutil.copytree(FORGE_ROOT / ".conclave/automations", sdk / ".conclave/automations",
-                        ignore=shutil.ignore_patterns("__pycache__"))
-        self.six_state_fixture()
-        (sdk / forge.LOCAL).write_text(self.toml([self.entry("Drifted", self.target)]), encoding="utf-8")
-        spec = importlib.util.spec_from_file_location("sdk_run", sdk / ".conclave/automations/run.py")
-        assert spec is not None and spec.loader is not None
-        run = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(run)
-        alerts = []
-        code = run.main(["conclave-sdk-drift"], root=str(sdk), alerter=lambda *a: alerts.append(a))
-        self.assertEqual(code, 3)
-        self.assertEqual(len(alerts), 1)
-        name, task, outcome, tail, folder = alerts[0]
-        self.assertEqual((name, task["command"], outcome["exit"], folder),
-                         ("conclave-sdk-drift", ["python", "forge.py", "drift"], 3, "\\Conclave-SDK\\"))
-        self.assertIn("Drifted: 1 can update, 1 need a merge", tail)
+        for rel in (forge.LOCAL, forge.OVERLAY):
+            with self.subTest(source=rel):
+                sdk = pathlib.Path(self.tmp.name) / ("sdk_" + rel.replace("/", "_").replace(".", ""))
+                shutil.copytree(FORGE_ROOT / "kits", sdk / "kits", ignore=shutil.ignore_patterns("__pycache__"))
+                shutil.copyfile(FORGE_ROOT / "forge.py", sdk / "forge.py")
+                shutil.copytree(FORGE_ROOT / ".conclave/automations", sdk / ".conclave/automations",
+                                ignore=shutil.ignore_patterns("__pycache__"))
+                (sdk / "scripts" / "lib").mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(FORGE_ROOT / "scripts/lib/local_settings.py", sdk / "scripts/lib/local_settings.py")
+                self.six_state_fixture()
+                cfg_path = sdk / rel
+                cfg_path.parent.mkdir(parents=True, exist_ok=True)
+                cfg_path.write_text(self.toml([self.entry("Drifted", self.target)]), encoding="utf-8")
+                spec = importlib.util.spec_from_file_location("sdk_run", sdk / ".conclave/automations/run.py")
+                assert spec is not None and spec.loader is not None
+                run = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(run)
+                alerts = []
+                code = run.main(["conclave-sdk-drift"], root=str(sdk), alerter=lambda *a: alerts.append(a))
+                self.assertEqual(code, 3)
+                self.assertEqual(len(alerts), 1)
+                name, task, outcome, tail, folder = alerts[0]
+                self.assertEqual((name, task["command"], outcome["exit"], folder),
+                                 ("conclave-sdk-drift", ["python", "forge.py", "drift"], 3, "\\Conclave-SDK\\"))
+                self.assertIn("Drifted: 1 can update, 1 need a merge", tail)
 
     def test_every_summary_survives_the_alerts_tail(self):
         (self.target.parent / "RasterFold").mkdir()

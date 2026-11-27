@@ -8,4 +8,6 @@ scratch/
 .DS_Store
 Thumbs.db
 
+.private/
+
 .aider*

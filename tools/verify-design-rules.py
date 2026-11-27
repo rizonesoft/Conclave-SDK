@@ -332,8 +332,25 @@ def validate_held_retry(alias: str, ref: str, resolved: dict, s16_deps: set[str]
     return errs
 
 
+def _read_local_settings(sdk_root: pathlib.Path) -> dict:
+    import importlib.util
+
+    for candidate in (
+        sdk_root / "scripts" / "lib" / "local_settings.py",
+        pathlib.Path(__file__).resolve().parents[1] / "scripts" / "lib" / "local_settings.py",
+        pathlib.Path(__file__).resolve().parents[1] / "kits" / "base" / "templates" / "scripts" / "lib" / "local_settings.py",
+    ):
+        if candidate.is_file():
+            spec = importlib.util.spec_from_file_location("_verify_design_local_settings", candidate)
+            if spec is not None and spec.loader is not None:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                return module.read_local_settings(sdk_root)
+    raise RuntimeError(f"scripts/lib/local_settings.py is missing under {sdk_root}")
+
+
 def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: bool, negative_test: bool) -> int:
-    cfg = tomllib.loads((sdk_root / ".conclave" / "local.toml").read_text(encoding="utf-8"))
+    cfg = _read_local_settings(sdk_root)
     proj_map: dict[str, dict] = {}
     for proj in cfg.get("projects", []):
         alias = proj.get("alias") or proj["name"]

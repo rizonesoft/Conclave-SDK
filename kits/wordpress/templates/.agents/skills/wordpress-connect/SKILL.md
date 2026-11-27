@@ -5,7 +5,7 @@ description: "Connect a WordPress project to its one live site on Pressable or W
 
 # Connect a WordPress project to its site
 
-The reference is the project `wordpress.reference` names in `.conclave/local.toml` (a Pressable site; its `docs/production-access.md` records the whole setup), and the project `wordpress.port_source` names in `.conclave/local.toml` (its `docs/connections.md`) is the closest production-only port. Both are optional: where one is unset, work from this skill alone. Follow `wordpress-site-safety` throughout: every write to the live site or the host (a password reset, enabling the MCP, an Application Password) needs the owner's approval first, and no secret is ever printed, put in an argument or written to the repository.
+The reference is the project `wordpress.reference` names in `.conclave/local.toml` or `.private/local.toml` (a Pressable site; its `docs/production-access.md` records the whole setup), and the project `wordpress.port_source` names in `.conclave/local.toml` or `.private/local.toml` (its `docs/connections.md`) is the closest production-only port. Both are optional: where one is unset, work from this skill alone. Follow `wordpress-site-safety` throughout: every write to the live site or the host (a password reset, enabling the MCP, an Application Password) needs the owner's approval first, and no secret is ever printed, put in an argument or written to the repository.
 
 ## 1. Bind the site and fill the pin
 
