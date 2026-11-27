@@ -1086,6 +1086,29 @@ class ConsumerIntegrationTests(unittest.TestCase):
                         forge.apply_kit(sub, "automations", dry_run=dry)
                 self.assertFalse((sub / ".conclave").exists(), "refusal must happen before any kit file is written")
 
+        # Repo root where external core.excludesFile ignores .conclave/
+        root_repo = self.root / "root_ext_exclude"
+        root_repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(root_repo), check=True, timeout=15)
+        ext = _write(self.root, "ext_conclave.ignore", ".conclave/\n")
+        subprocess.run(["git", "config", "core.excludesFile", str(ext)], cwd=str(root_repo), check=True, timeout=15)
+        for dry in (True, False):
+            with self.assertRaisesRegex(ValueError, r"excluded by an enclosing Git ignore rule"):
+                forge.apply_kit(root_repo, "automations", dry_run=dry)
+        self.assertFalse((root_repo / ".conclave").exists())
+
+        # Existing tracked monorepo subproject where enclosing rule now excludes .conclave/
+        tracked_mono = self.root / "tracked_mono"
+        tracked_sub = tracked_mono / "apps" / "web"
+        tracked_sub.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(tracked_mono), check=True, timeout=15)
+        forge.apply_kit(tracked_sub, "automations")
+        subprocess.run(["git", "add", "apps/web/.conclave/local_settings.py"], cwd=str(tracked_mono), check=True, timeout=15)
+        _write(tracked_mono, ".gitignore", ".conclave/\n")
+        for dry in (True, False):
+            with self.assertRaisesRegex(ValueError, r"excluded by an enclosing Git ignore rule"):
+                forge.update_project(tracked_sub, dry_run=dry)
+
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock
         import forge

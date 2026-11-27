@@ -1773,11 +1773,12 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
         if path.exists() and not path.is_file():
             raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
     prefix = _check_untracked_in_git(target_root, (".private/", LOCAL))
-    if prefix:
+    if prefix is not None:
         own_sources = (f"{prefix}.gitignore", f"{prefix}.conclave/.gitignore")
-        for probe_dir in (".", ".conclave/"):
+        probes = (".", ".conclave/") if prefix else (".conclave/",)
+        for probe_dir in probes:
             proc = subprocess.run(
-                ["git", "check-ignore", "-v", "-z", "--stdin"],
+                ["git", "check-ignore", "--no-index", "-v", "-z", "--stdin"],
                 cwd=str(target_root),
                 env=_clean_git_env(),
                 input=probe_dir.encode("utf-8") + b"\0",
