@@ -21,15 +21,20 @@ class LocalSettingsError(ValueError):
     """Raised when a local or overlay settings file cannot be read or parsed as UTF-8 TOML."""
 
 
+def _is_link(path: Path) -> bool:
+    """True for a symlink or a Windows directory junction."""
+    return path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction())
+
+
 def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
     """Read and parse one UTF-8 TOML file. Raises FileNotFoundError only when the path is genuinely absent
-    (not a broken symlink); raises LocalSettingsError for a broken symlink, directory, FIFO, I/O error, or bad TOML.
-    Follows working symlinks to regular files while using O_NONBLOCK + fstat so a FIFO never hangs."""
+    (not a broken symlink or junction); raises LocalSettingsError for a broken symlink/junction, directory, FIFO,
+    I/O error, or bad TOML. Follows working symlinks/junctions to regular files while using O_NONBLOCK + fstat so
+    a FIFO never hangs."""
     target = Path(path)
     shown = label if label is not None else str(target)
     try:
-        is_link = target.is_symlink()
-        if (is_link and not target.exists()) or (target.parent.is_symlink() and not target.parent.exists()):
+        if (_is_link(target) and not target.exists()) or (_is_link(target.parent) and not target.parent.exists()):
             raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)")
     except LocalSettingsError:
         raise
@@ -40,7 +45,7 @@ def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
         fd = os.open(target, flags)
     except FileNotFoundError:
         try:
-            if target.is_symlink() or (target.parent.is_symlink() and not target.parent.exists()):
+            if _is_link(target) or (_is_link(target.parent) and not target.parent.exists()):
                 raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)") from None
         except LocalSettingsError:
             raise

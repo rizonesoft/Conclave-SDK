@@ -34,10 +34,10 @@ def _write(root: Path, rel: str, text: str) -> Path:
     return target
 
 
-def _try_symlink(link: Path, target: Path) -> bool:
+def _try_symlink(link: Path, target: Path, *, target_is_directory: bool = False) -> bool:
     link.parent.mkdir(parents=True, exist_ok=True)
     try:
-        os.symlink(target, link)
+        os.symlink(target, link, target_is_directory=target_is_directory)
         return True
     except OSError:
         return False
@@ -123,8 +123,19 @@ class LocalSettingsReaderTests(unittest.TestCase):
     def test_broken_symlink_settings_directory_beside_valid_overlay_is_refused(self):
         _write(self.root, ".private/local.toml", '[alert]\nsender = "ov@example.com"\n')
         dir_link = self.root / ".conclave"
-        if not _try_symlink(dir_link, self.root / "missing-settings-dir"):
+        if not _try_symlink(dir_link, self.root / "missing-settings-dir", target_is_directory=True):
             self.skipTest("symlinks require privilege on this host")
+        with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.conclave/local\.toml.*broken symlink"):
+            self.ls.read_local_settings(self.root)
+
+    @unittest.skipUnless(os.name == "nt", "Windows directory junctions are Windows-only")
+    def test_broken_windows_junction_settings_directory_beside_valid_overlay_is_refused(self):
+        _write(self.root, ".private/local.toml", '[alert]\nsender = "ov@example.com"\n')
+        target_dir = self.root / "moved-settings-dir"
+        target_dir.mkdir()
+        junction = self.root / ".conclave"
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(target_dir)], check=True, capture_output=True)
+        target_dir.rmdir()
         with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.conclave/local\.toml.*broken symlink"):
             self.ls.read_local_settings(self.root)
 
