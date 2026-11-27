@@ -8,7 +8,6 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | ------ | ---- | ----- |
 | 00 | 00-reviewer/TODO-01-three-pass-review.md | Three-pass review (§9 reopened it: the re-plan route) |
 | 00 | 00-reviewer/TODO-03-design-and-safety-lenses.md | Design and safety lenses by path, in every project |
-| 00 | 00-reviewer/TODO-04-gemini-neon-writer.md | Gemini 4 Neon replaces Orchestrator (Carbon) in every kit |
 | 02 | 02-unattended/TODO-02-unattended-kit.md | Unattended kit (§12 reopened it: the run's windows and links) |
 | 07 | 07-launchers/TODO-02-wordpress-dashboard-login.md | One-use ticket login: plugin, opener, install, removal |
 | 06 | 06-global/TODO-03-private-overlay.md | Public core, private overlay, and the owner material moved into it |
@@ -19,6 +18,7 @@ Governing plans: [docs/plans/2026-11-11-sdk-audit-and-roadmap.md](../docs/plans/
 | Domain | File | Scope | Completed |
 | ------ | ---- | ----- | --------- |
 | 00 | 00-reviewer/TODO-02-three-writers.md | Codex route, Antigravity flag check and Orchestrator Carbon | 2026-11-14 |
+| 00 | 00-reviewer/TODO-04-gemini-neon-writer.md | Gemini 4 Neon replaces Orchestrator (Carbon) in kits | 2026-11-27 |
 | 01 | 01-forge/TODO-01-install-record-and-update.md | Install record, diff, update and drift report | 2026-11-11 |
 | 01 | 01-forge/TODO-02-gates-and-skill-source.md | check-all, one installer, generated skill copies | 2026-11-15 |
 | 02 | 02-unattended/TODO-01-run-guard-three-agents.md | Campaign guard hooks for Antigravity and Codex | 2026-11-12 |

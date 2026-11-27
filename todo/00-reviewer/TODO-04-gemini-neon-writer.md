@@ -2,7 +2,7 @@
 schema_version: 1
 id: gemini-neon-writer
 domain: 00-reviewer
-status: active
+status: done
 title: "TODO-04 -- Gemini 4 Neon replaces Orchestrator (Carbon)"
 ---
 
@@ -37,7 +37,7 @@ title: "TODO-04 -- Gemini 4 Neon replaces Orchestrator (Carbon)"
 | 2 | §2 | Antigravity TODO skills without Carbon handoffs | §1 | [x] |
 | 3 | §3 | Reviewer pin accepts Neon with an effort | -- | [x] |
 | 4 | §4 | Unattended profile runs Neon with its effort | -- | [x] |
-| 5 | §5 | SDK copies, documents and tests follow the kits | §1, §2, §3, §4 | [ ] |
+| 5 | §5 | SDK copies, documents and tests follow the kits | §1, §2, §3, §4 | [x] |
 
 ## 1. Base kit guidance names Gemini 4 Neon
 
@@ -173,9 +173,12 @@ The SDK runs its own installed copy of the base, todo and reviewer kits, so the 
 - [x] Update `README.md:234` so the Antigravity passage names `-Runner agy`, `gemini-4-neon-medium`, and `-Effort` together, confirm `docs/agent-skills-and-rules-structure.md` is Neon-current, and update `assets/brand/README.md:26` to `Antigravity's blue Gemini sparkle` (no `Carbon`). Done when: `git grep -nE "Carbon|Hydrogen|exit_plan_mode|gemini-pro-orchestrator" -- README.md docs/agent-skills-and-rules-structure.md assets/brand/README.md` prints nothing. **Corrected 2026-11-27 (plan review):** required `-Runner agy`, `gemini-4-neon-medium`, and `-Effort` together in the Antigravity passage.
 - [x] Update `tests/test_reviewer_flags.py:121,124,131,135` to `gemini-4-neon-medium` (preserving `tests/fixtures/agy-stop-payload.json` as an authentic `agy 1.5.5` capture), and add a focused regression test in `tests/test_forge.py` asserting `-Runner agy`, `gemini-4-neon-medium`, and `-Effort` in `README.md`'s Antigravity passage and `blue Gemini sparkle` (no `Carbon`) in `assets/brand/README.md`'s launcher-icons passage. Done when: `python -m unittest tests.test_forge -k the_sdk_uses_the_agent_setup -k neon_sdk_docs -k markdown_table` and `python -m unittest tests.test_reviewer_flags` pass, and reverting `README.md` to Carbon fails `tests.test_forge -k neon_sdk_docs`. **Corrected 2026-11-27 (plan review):** preserved `agy-stop-payload.json`, attributed mutation to the reading test, and focused local runs.
 - [x] Leave stamped sections, prior `docs/reviews/`, and `docs/phase-runs/` untouched, verified against the candidate's `git diff --name-only`. Done when: none of those paths appears in the implementation diff. **Corrected 2026-11-27 (plan review):** verified against final diff.
-- [ ] Commit: `sdk: own copies, documents and tests follow Gemini 4 Neon (D00 T04 §5)`
+- [x] Commit: `sdk: own copies, documents and tests follow Gemini 4 Neon (D00 T04 §5)`
 
 **Test checkpoint:** `python -m unittest tests.test_forge -k the_sdk_uses_the_agent_setup -k neon_sdk_docs -k markdown_table` and `python -m unittest tests.test_reviewer_flags` end `OK`, reverting `README.md` to Carbon fails `tests.test_forge -k neon_sdk_docs`, and CI is green on the commit. **Corrected 2026-11-27 (plan review):** focused local checkpoint plus green CI.
+
+> **Verified:** 2026-11-27 | §5 | 5de15413116894e20add4e4f62453ea2333c5168
+> **Review:** `docs/reviews/d00-t04-s5.json`
 
 ## Verification
 
