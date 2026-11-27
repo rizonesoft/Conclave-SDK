@@ -1736,6 +1736,22 @@ def _git_repo_ignores(
     return True
 
 
+def _gitignore_lines_ignore(text: str, exact_rules: tuple[str, ...]) -> bool:
+    """Conservative text-only `.gitignore` check used when the target is not a Git repo yet.
+    Preserves leading whitespace (Git treats leading spaces as part of the pattern) and rejects any subsequent
+    negation line."""
+    ignored = False
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip("\r")
+        if not line or line.startswith("#"):
+            continue
+        if line in exact_rules:
+            ignored = True
+        elif line.startswith("!"):
+            ignored = False
+    return ignored
+
+
 def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
     """Ensure `<target_root>/.gitignore` ignores the `.private/` directory itself (so Git never descends into
     `.private/` and child negations like `!.private/README.md` cannot stage overlay files) without overwriting
@@ -1756,18 +1772,8 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
         return "created"
     raw = gitignore.read_bytes()
     text = raw.decode("utf-8", errors="surrogateescape")
-    if git_ignored is None:
-        ignored = False
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if stripped in dir_rules:
-                ignored = True
-            elif stripped.startswith("!"):
-                ignored = False
-        if ignored:
-            return "already_present"
+    if git_ignored is None and _gitignore_lines_ignore(text, dir_rules):
+        return "already_present"
     if dry_run:
         return "would_add"
     sep = "" if (not text or text.endswith("\n")) else "\n"
@@ -1796,18 +1802,8 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
         return "created"
     raw = conclave_ig.read_bytes()
     text = raw.decode("utf-8", errors="surrogateescape")
-    if git_ignored is None:
-        ignored = False
-        for line in text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if stripped in ("local.toml", "/local.toml"):
-                ignored = True
-            elif stripped.startswith("!"):
-                ignored = False
-        if ignored:
-            return "already_present"
+    if git_ignored is None and _gitignore_lines_ignore(text, ("local.toml", "/local.toml")):
+        return "already_present"
     if dry_run:
         return "would_add"
     sep = "" if (not text or text.endswith("\n")) else "\n"

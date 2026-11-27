@@ -722,6 +722,36 @@ class ConsumerIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"^\.private/local\.toml: vault\.cli"):
             wp_site.vault_settings(root=self.root)
 
+    def test_indented_gitignore_rules_before_git_init_are_not_treated_as_effective(self):
+        import forge
+
+        target = self.root / "pre_git_indented"
+        target.mkdir()
+        _write(target, ".gitignore", "  .private/\n")
+        _write(target, ".conclave/.gitignore", "  local.toml\n")
+        res = forge.apply_kit(target, "automations")
+        self.assertEqual(res["private_gitignore"], "added")
+        self.assertEqual(res.get("local_gitignore"), "added")
+        subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
+        for rel in (".private/local.toml", ".conclave/local.toml"):
+            chk = subprocess.run(
+                ["git", "check-ignore", "-q", "--", rel],
+                cwd=str(target),
+                capture_output=True,
+                timeout=15,
+            )
+            self.assertEqual(chk.returncode, 0, f"{rel} not ignored after git init")
+
+    def test_replacing_table_with_scalar_clears_descendant_provenance(self):
+        ls = _load("test_ls_clear_desc", KIT_LS)
+        _write(self.root, ".private/local.toml", '[vault]\ncli = "ov-op"\nname = "Ov"\n')
+        _write(self.root, ".conclave/local.toml", "vault = false\n")
+        merged, _loaded, origins = ls.load_local_settings_with_origins(self.root)
+        self.assertIs(merged["vault"], False)
+        self.assertEqual(origins[("vault",)], ".conclave/local.toml")
+        self.assertNotIn(("vault", "cli"), origins)
+        self.assertNotIn(("vault", "name"), origins)
+
     def test_minimal_override_preserves_overlay_alert_settings(self):
         alert = _load("test_sdk_alert_min", ALERT_PATH)
         _write(

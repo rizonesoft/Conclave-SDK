@@ -58,8 +58,13 @@ def _merge_into(
             if key in dst and isinstance(dst[key], dict) and isinstance(value, dict):
                 stack.append((dst[key], value, path))
             else:
+                was_table = key in dst and isinstance(dst[key], dict)
                 dst[key] = value
                 if origins is not None:
+                    if was_table:
+                        prefix_len = len(path)
+                        for old in [p for p in origins if len(p) > prefix_len and p[:prefix_len] == path]:
+                            del origins[old]
                     origins[path] = source
                     if isinstance(value, dict):
                         _record_origins(value, origins, source, path)
