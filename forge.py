@@ -1698,6 +1698,27 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
             raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
 
 
+def _git_worktree_prefix(target_root: Path) -> str | None:
+    """Return the POSIX prefix of `target_root` inside its enclosing Git worktree (`""` at the repo root, `"sub/"`
+    in a subdirectory), or `None` when `target_root` is not inside any Git worktree. Raises `ValueError` on fatal
+    Git errors such as dubious ownership."""
+    if not shutil.which("git"):
+        return None
+    proc = subprocess.run(
+        ["git", "rev-parse", "--show-prefix"],
+        cwd=str(target_root),
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()
+        if "not a git repository" in detail.lower():
+            return None
+        raise ValueError(f"git rev-parse failed in {target_root} (exit {proc.returncode}): {detail}")
+    return (proc.stdout or "").strip().replace("\\", "/")
+
+
 def _git_repo_ignores(
     target_root: Path,
     rel_path: str,
@@ -1705,11 +1726,25 @@ def _git_repo_ignores(
     allowed_sources: tuple[str, ...],
     require_patterns: tuple[str, ...] | None = None,
 ) -> bool | None:
-    """Return True if Git ignores `rel_path` via one of `allowed_sources` (in-repo `.gitignore` files, never a
-    global `core.excludesFile` or `.git/info/exclude`), False if not, or None if `target_root` is not a Git repo.
-    When `require_patterns` is given, the winning pattern must also be one of those exact directory/path rules."""
-    if not (target_root / ".git").exists() or not shutil.which("git"):
+    """Return True if Git ignores `rel_path` via one of `allowed_sources` (in-repo `.gitignore` files relative to
+    `target_root`, accounting for any enclosing monorepo prefix, never a global `core.excludesFile` or
+    `.git/info/exclude`), False if not, or None if `target_root` is not inside a Git worktree.
+    Raises `ValueError` if `rel_path` is already tracked in Git's index or on fatal Git errors."""
+    prefix = _git_worktree_prefix(target_root)
+    if prefix is None:
         return None
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", rel_path],
+        cwd=str(target_root),
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    if tracked.returncode != 0:
+        detail = (tracked.stderr or tracked.stdout or "").strip()
+        raise ValueError(f"git ls-files failed in {target_root} (exit {tracked.returncode}): {detail}")
+    if (tracked.stdout or "").strip():
+        raise ValueError(f"{rel_path} is already tracked in git in {target_root}; untrack it with git rm --cached")
     proc = subprocess.run(
         ["git", "check-ignore", "-v", "--", rel_path],
         cwd=str(target_root),
@@ -1730,7 +1765,8 @@ def _git_repo_ignores(
     pattern = parts[2].split("\t", 1)[0]
     if pattern.startswith("!"):
         return False
-    if source not in allowed_sources:
+    prefixed_allowed = tuple(f"{prefix}{src}" for src in allowed_sources)
+    if source not in prefixed_allowed:
         return False
     if require_patterns is not None and pattern not in require_patterns:
         return False
@@ -1750,6 +1786,17 @@ def _gitignore_bytes_end_with_rule(raw: bytes, canonical_rule: bytes) -> bool:
     return last_rule == canonical_rule
 
 
+def _append_gitignore_checked(path: Path, rule_line: bytes, expected_raw: bytes | None) -> None:
+    """Atomically append `rule_line` to `path`, refusing with `ValueError` if `path` changed concurrently since
+    `expected_raw` was read (never silently overwriting an intervening edit)."""
+    current: bytes | None = path.read_bytes() if path.exists() else None
+    if current != expected_raw:
+        raise ValueError(f"{path} changed concurrently while updating ignore rules; retry")
+    base = b"" if expected_raw is None else expected_raw
+    sep = b"" if (not base or base.endswith(b"\n")) else b"\n"
+    atomic_write(path, base + sep + rule_line)
+
+
 def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
     """Ensure `<target_root>/.gitignore` ignores the `.private/` directory itself (so Git never descends into
     `.private/` and child negations like `!.private/README.md` cannot stage overlay files) without overwriting
@@ -1764,7 +1811,7 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
     if not gitignore.exists():
         if dry_run:
             return "would_create"
-        atomic_write(gitignore, b".private/\n")
+        _append_gitignore_checked(gitignore, b".private/\n", None)
         if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
             raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
         return "created"
@@ -1773,8 +1820,7 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
         return "already_present"
     if dry_run:
         return "would_add"
-    sep = b"" if (not raw or raw.endswith(b"\n")) else b"\n"
-    atomic_write(gitignore, raw + sep + b".private/\n")
+    _append_gitignore_checked(gitignore, b".private/\n", raw)
     if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
         raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
     return "added"
@@ -1792,7 +1838,7 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
     if not conclave_ig.exists():
         if dry_run:
             return "would_create"
-        atomic_write(conclave_ig, b"local.toml\n")
+        _append_gitignore_checked(conclave_ig, b"local.toml\n", None)
         if _git_repo_ignores(target_root, LOCAL, allowed_sources=allowed) is False:
             raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
         return "created"
@@ -1801,8 +1847,7 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
         return "already_present"
     if dry_run:
         return "would_add"
-    sep = b"" if (not raw or raw.endswith(b"\n")) else b"\n"
-    atomic_write(conclave_ig, raw + sep + b"local.toml\n")
+    _append_gitignore_checked(conclave_ig, b"local.toml\n", raw)
     if _git_repo_ignores(target_root, LOCAL, allowed_sources=allowed) is False:
         raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
     return "added"

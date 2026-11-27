@@ -762,8 +762,38 @@ class ConsumerIntegrationTests(unittest.TestCase):
         _write(target, ".gitignore", ".private/\n")
         fatal = subprocess.CompletedProcess(["git"], 128, stdout="", stderr="fatal: detected dubious ownership")
         with unittest.mock.patch.object(forge.subprocess, "run", return_value=fatal):
-            with self.assertRaisesRegex(ValueError, r"git check-ignore failed.*128.*dubious ownership"):
+            with self.assertRaisesRegex(ValueError, r"git rev-parse failed.*128.*dubious ownership"):
                 forge._ensure_private_gitignore(target)
+
+    def test_monorepo_subdirectory_detects_enclosing_repo_and_refuses_tracked_local_toml(self):
+        import forge
+
+        mono = self.root / "monorepo"
+        sub = mono / "apps" / "web"
+        sub.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(mono), check=True, timeout=15)
+        res = forge.apply_kit(sub, "automations")
+        self.assertEqual(res["private_gitignore"], "created")
+        self.assertTrue(forge._git_repo_ignores(sub, ".private/", allowed_sources=(".gitignore",),
+                                                require_patterns=(".private/",)))
+        # Now track .conclave/local.toml in the enclosing repo; ignore check must refuse
+        _write(sub, ".conclave/local.toml", '[paths]\nscratch = "x"\n')
+        subprocess.run(["git", "add", "-f", "apps/web/.conclave/local.toml"], cwd=str(mono), check=True, timeout=15)
+        with self.assertRaisesRegex(ValueError, r"already tracked in git"):
+            forge._ensure_local_toml_gitignore(sub)
+
+    def test_concurrent_gitignore_edit_is_not_silently_overwritten(self):
+        import forge
+
+        target = self.root / "concurrent_ig"
+        target.mkdir()
+        ig = _write(target, ".gitignore", "build/\n")
+        orig = ig.read_bytes()
+        # Simulate another process saving a new rule after Forge read `orig`
+        ig.write_bytes(b"build/\ndist/\n")
+        with self.assertRaisesRegex(ValueError, r"changed concurrently"):
+            forge._append_gitignore_checked(ig, b".private/\n", orig)
+        self.assertIn(b"dist/", ig.read_bytes())
 
     def test_cr_only_gitignore_before_git_init_appends_lf_canonical_rule(self):
         import forge
