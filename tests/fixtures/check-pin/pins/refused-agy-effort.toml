@@ -18,11 +18,10 @@ cli = "codex"
 model = "gpt-6.2-astra"
 effort = "medium"
 
-# Gemini 4 through the Antigravity CLI in plan mode and its sandbox. The
-# effort is part of the model name (gemini-4-argon-low, -medium or -high).
+# Gemini Orchestrator manages its own effort and rejects --effort.
 [reviewers.gemini]
 cli = "agy"
-model = "gemini-4-argon-high"
+model = "gemini-pro-orchestrator"
 effort = "high"
 
 # Sonnet 5.5 through Claude Code in plan mode.

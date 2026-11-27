@@ -2128,7 +2128,7 @@ def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, s
     return proc.returncode, out.decode("utf-8", "replace"), ""
 
 
-def _agy_flags_check(dispatch, executable: str) -> tuple[str, str]:
+def _agy_flags_check(dispatch, executable: str, *, need_effort: bool = False) -> tuple[str, str]:
     """(status, detail) for one Antigravity reviewer: every flag the dispatcher passes is in the installed CLI's
     --help, and the CLI accepts the dispatcher's session settings. A probe that failed is never `ok`."""
     code, text, problem = _probe([executable, "--help"])
@@ -2136,7 +2136,7 @@ def _agy_flags_check(dispatch, executable: str) -> tuple[str, str]:
         return "setup_required", f"{executable} --help: {problem}"
     if code != 0:
         return "unexpected", f"{executable} --help exited {code}"
-    missing = dispatch.agy_flags_missing(text)
+    missing = dispatch.agy_flags_missing(text, need_effort=need_effort)
     if missing:
         return "unexpected", (f"{executable} no longer lists {', '.join(missing)}, which the dispatcher passes: every "
                               f"Antigravity review would return no review")
@@ -2162,7 +2162,8 @@ def _agy_flags_check(dispatch, executable: str) -> tuple[str, str]:
     if code != 0 or not text.strip():
         return "unexpected", f"{executable} --version exited {code} and named no version"
     version = text.strip().splitlines()[0]
-    return "ok", f"{executable} {version} lists {', '.join(dispatch.AGY_FLAGS)} and accepts the review settings"
+    checked_flags = dispatch.AGY_FLAGS + ((dispatch.AGY_EFFORT_FLAG,) if need_effort else ())
+    return "ok", f"{executable} {version} lists {', '.join(checked_flags)} and accepts the review settings"
 
 
 def _doctor_reviewer(target_root: Path, add_check) -> None:
@@ -2184,6 +2185,8 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
         sk = target_root / agent_dir / "skills/independent-review/SKILL.md"
         add_check(f"skill:independent-review:{agent_dir}", "ok" if sk.is_file() else "missing", sk.as_posix())
     if pin:
+        schedule = pin.get("schedule")
+        scheduled_efforts = bool(module.review_pin.schedule_efforts(schedule)) if schedule else False
         flags_checked: dict = {}
         for name, reviewer in pin["reviewers"].items():
             # The dispatcher's own lookup, so doctor probes the executable a review would run: on Windows
@@ -2192,9 +2195,14 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
             add_check(f"reviewer:{name}", "ok" if found else "setup_required",
                       f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; a round routed to this reviewer has no review")
             if found and reviewer["cli"] == "agy":
-                if found not in flags_checked:  # one set of probes per executable, however many reviewers use it
-                    flags_checked[found] = _agy_flags_check(module, found)
-                add_check(f"reviewer-flags:{name}", *flags_checked[found])
+                need_effort = (
+                    not module.review_pin.is_agy_orchestrator(reviewer["model"])
+                    and (scheduled_efforts if schedule else bool(reviewer.get("effort")))
+                )
+                key = (found, need_effort)
+                if key not in flags_checked:  # one set of probes per executable and effort requirement
+                    flags_checked[key] = _agy_flags_check(module, found, need_effort=need_effort)
+                add_check(f"reviewer-flags:{name}", *flags_checked[key])
 
 
 def _doctor_unattended(target_root: Path, add_check, system: str | None = None) -> None:

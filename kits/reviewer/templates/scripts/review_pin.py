@@ -39,8 +39,9 @@ conditional entry joins exactly the passes that entry names. The round's `design
 may repeat on the round: the round has it only for a section with a surface (`--surface`), so an entry naming it gives
 it to the round of any section that changed a file under its paths, whatever the section's Surface says. The plan
 review's counterpart is the built-in `design-plan` lens. An Antigravity Orchestrator model (`gemini-pro-orchestrator`
-or `gemini-pro-orchestrator-*`) manages its own effort and rejects scheduled efforts on both three-pass and rotation;
-any other Antigravity reviewer's model name must end with every effort a three-pass schedule sets. `effort` is
+or `gemini-pro-orchestrator-*`) manages its own effort and rejects `effort` on both reviewer entries and schedule steps
+(three-pass and rotation); other Antigravity reviewers (such as Gemini 4 Neon) accept explicit `effort` (`low`, `medium`,
+`high`, `xhigh`, `max`) on reviewer entries and on any schedule step, including mixed efforts across steps. `effort` is
 optional everywhere: with a schedule, the step alone decides, and a step
 without one passes no effort to the reviewer's CLI, whose own configuration then decides; without a schedule the
 reviewer's `effort` does, or the CLI's configuration when it has none. Standard library only.
@@ -60,8 +61,12 @@ CLIS = ("codex", "agy", "claude")
 # A reviewer is never of the writer's own model family: its CLI names the family, and so does the writer.
 FAMILY = {"codex": "openai", "agy": "google", "claude": "anthropic"}
 WRITER_FAMILY = {"claude": "anthropic", "codex": "openai", "agy": "google", "gemini": "google"}
-# Antigravity carries the effort in its model name, so it takes none.
-EFFORTS = {"codex": ("low", "medium", "high", "xhigh"), "claude": ("low", "medium", "high", "xhigh", "max")}
+# Valid `--effort` values per CLI; Antigravity Orchestrator models reject `--effort` separately in `check_reviewer_effort` and `check_agy_effort`.
+EFFORTS = {
+    "codex": ("low", "medium", "high", "xhigh"),
+    "claude": ("low", "medium", "high", "xhigh", "max"),
+    "agy": ("low", "medium", "high", "xhigh", "max"),
+}
 MODEL = re.compile(r"^[a-z0-9][a-z0-9.-]*$")
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 THREE_PASS = "three-pass"
@@ -144,14 +149,16 @@ def check_reviewer_model(name, entry):
 
 
 def check_reviewer_effort(name, entry):
-    """Rests on a sound `cli`: which efforts it takes, and whether it takes one at all."""
+    """Rests on a sound `cli` (and `model` for `agy`): which efforts it takes, and whether it takes one at all."""
     cli = entry["cli"]
+    if "effort" not in entry:
+        return
     if cli == "agy":
-        if "effort" in entry:
-            raise Refused(f"reviewer {name!r}: Antigravity carries the effort in the model name, so set no effort")
-
+        model = entry.get("model")
+        if isinstance(model, str) and is_agy_orchestrator(model):
+            raise Refused(f"reviewer {name!r}: {model} manages its own effort and rejects --effort")
     # Optional: the reviewer's effort is what a pin without a [schedule] runs at; without one, its CLI decides.
-    elif "effort" in entry and not _one_of(entry["effort"], EFFORTS[cli]):
+    if not _one_of(entry["effort"], EFFORTS[cli]):
         raise Refused(f"reviewer {name!r} needs effort = one of {', '.join(EFFORTS[cli])}")
 
 
@@ -260,7 +267,7 @@ def faults(path=PIN, data=None):
             # Each field on its own; the effort only when the cli it depends on is sound.
             sound_fields = [holds(check_reviewer_keys, name, entry), holds(check_reviewer_cli, name, entry),
                             holds(check_reviewer_model, name, entry)]
-            if sound_fields[1]:
+            if sound_fields[1] and (entry["cli"] != "agy" or sound_fields[2]):
                 sound_fields.append(holds(check_reviewer_effort, name, entry))
             if sound_fields[1] and sound_fields[2]:  # the family rests on both the cli and the model
                 sound_fields.append(holds(check_reviewer_family, name, entry))
@@ -486,24 +493,18 @@ def schedule_efforts(schedule):
 
 def check_agy_effort(name, model, schedule):
     """Orchestrator models reject any scheduled effort across both three-pass and rotation schedules; other
-    Antigravity reviewers run at their model name's effort, which must agree with every three-pass step."""
+    Antigravity reviewers (such as Gemini 4 Neon) accept explicit scheduled efforts validated against EFFORTS['agy']."""
     efforts = schedule_efforts(schedule)
     if is_agy_orchestrator(model):
         if efforts:
             raise Refused(f"reviewer {name!r}: {model} manages its own effort and rejects --effort, but the schedule "
                           f"has a pass at effort = {efforts[0]}")
         return
-    if schedule.get("policy") != THREE_PASS:
-        return
-    for effort in efforts:
-        if not model.endswith(f"-{effort}"):
-            raise Refused(f"reviewer {name!r} runs at the effort in its model name {model}, but the schedule has a "
-                          f"pass at effort = {effort}")
 
 
 def check_schedule(schedule, clis):
-    """The review schedule, as strictly as the reviewers: every effort valid for every routed CLI that takes one (an
-    Antigravity reviewer keeps the effort its model name carries), every lens known, every key of the right type."""
+    """The review schedule, as strictly as the reviewers: every effort valid for every routed CLI that takes one,
+    every lens known, every key of the right type."""
     efforts = [e for e in EFFORTS["claude"] if all(e in EFFORTS[cli] for cli in clis if cli in EFFORTS)]
     if not isinstance(schedule, dict):
         raise Refused(f"[schedule] needs exactly {', '.join(sorted(ROTATION_KEYS))}")

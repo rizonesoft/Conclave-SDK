@@ -428,19 +428,26 @@ class ThreePass(Cases):
         self.refuses(THREE_PASS.replace("pass_cap = 45\n", "").replace("no_progress_cap = 3", "no_progress_cap = 34"),
                      "[schedule] no_progress_cap needs", "(33)")
 
-    def test_an_antigravity_model_name_agrees_with_the_schedules_efforts(self):
-        argon = THREE_PASS.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
-                                   'cli = "agy"\nmodel = "gemini-4-argon-medium"')
-        self.assertEqual(load(argon)["reviewers"]["astra"]["cli"], "agy")
-        self.refuses(argon.replace("gemini-4-argon-medium", "gemini-4-argon-high"),
-                     "runs at the effort in its model name gemini-4-argon-high", "effort = medium")
-        # With no effort set by the schedule there is nothing to disagree with.
-        bare = argon.replace("gemini-4-argon-medium", "gemini-4-argon-high").replace('effort = "medium"\n', "")
-        self.assertNotIn("effort", bare)
-        load(bare)
-        # A rotation pin with an Antigravity reviewer loads as it always did, whatever its efforts.
-        load(ROTATION.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
-                              'cli = "agy"\nmodel = "gemini-4-argon-high"'))
+    def test_an_antigravity_neon_reviewer_accepts_explicit_and_mixed_scheduled_efforts(self):
+        neon = THREE_PASS.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
+                                  'cli = "agy"\nmodel = "gemini-4-neon-medium"\neffort = "high"')
+        loaded = load(neon)
+        self.assertEqual((loaded["reviewers"]["astra"]["cli"], loaded["reviewers"]["astra"]["effort"]), ("agy", "high"))
+        self.assertEqual(review_pin.faults(data=neon.encode("utf-8")), [])
+        # Mixed efforts across three-pass steps (medium plan/round, low completion/reconciliation) are accepted.
+        mixed = neon.replace('[schedule.completion]\neffort = "medium"', '[schedule.completion]\neffort = "low"')
+        self.assertEqual(load(mixed)["schedule"]["completion"]["effort"], "low")
+        self.assertEqual(review_pin.faults(data=mixed.encode("utf-8")), [])
+        # A step with no effort is allowed even when the reviewer entry sets a default effort.
+        omitted_step = neon.replace('[schedule.completion]\neffort = "medium"\n', '[schedule.completion]\n')
+        self.assertNotIn("effort", load(omitted_step)["schedule"]["completion"])
+        # Invalid effort values on an Antigravity reviewer are refused.
+        self.refuses(neon.replace('effort = "high"', 'effort = "ultra"'),
+                     "reviewer 'astra' needs effort = one of low, medium, high, xhigh, max")
+        # A rotation pin with an Antigravity reviewer accepts reviewer-level and step efforts.
+        rot = ROTATION.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
+                               'cli = "agy"\nmodel = "gemini-4-neon-medium"\neffort = "medium"')
+        self.assertEqual(load(rot)["reviewers"]["astra"]["effort"], "medium")
 
     def test_an_antigravity_reviewer_runs_a_google_model(self):
         # D00 T02 §1: agy also serves Anthropic and OpenAI models, so its reviewer's family is its model's.
@@ -453,12 +460,19 @@ class ThreePass(Cases):
                              "must be one of Google's (gemini-...)", model)
 
     def test_an_antigravity_orchestrator_manages_its_own_effort_and_rejects_scheduled_effort(self):
-        for model in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"):
+        for model in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-argon", "gemini-pro-orchestrator-neon"):
             with self.subTest(model=model):
                 unscheduled = HEAD.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
                                            f'cli = "agy"\nmodel = "{model}"')
                 self.assertEqual(load(unscheduled)["reviewers"]["astra"]["model"], model)
                 self.assertEqual(review_pin.faults(data=unscheduled.encode("utf-8")), [])
+
+                reviewer_effort = HEAD.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
+                                               f'cli = "agy"\nmodel = "{model}"\neffort = "medium"')
+                self.refuses(reviewer_effort, "reviewer 'astra'", model, "manages its own effort and rejects --effort")
+                with self.assertRaises(review_pin.Refused) as rev_exc:
+                    load(reviewer_effort)
+                self.assertEqual(review_pin.faults(data=reviewer_effort.encode("utf-8")), [str(rev_exc.exception)])
 
                 three_pass_bare = THREE_PASS.replace(
                     'cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
@@ -716,7 +730,7 @@ class Faults(unittest.TestCase):
                  THREE_PASS.replace('lenses = ["design"]\npasses = ["plan", "round"]',
                                     'lenses = ["quality"]\npasses = ["plan"]'),
                  THREE_PASS.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
-                                    'cli = "agy"\nmodel = "gemini-4-argon-high"'))
+                                    'cli = "agy"\nmodel = "gemini-pro-orchestrator"'))
         for text in cases:
             with self.subTest(text=text[-60:]):
                 self.assertEqual(self.found(text), [self.first(text)])

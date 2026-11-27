@@ -1085,11 +1085,13 @@ class NoLenses(ThreePass):
 
 
 class Antigravity(ThreePass):
-    def test_a_pass_reviewed_through_antigravity_records_the_scheduled_effort(self):
-        # Completion review of D00 T01 §3: the record held no effort, so the stamp's replay of the schedule refused it.
-        argon = PIN.replace('cli = "codex"\nmodel = "gpt-6.1-sol"\neffort = "xhigh"',
-                            'cli = "agy"\nmodel = "gemini-4-argon-medium"').replace('gemini = ["sol"]\n', "")
-        self.base = self.commit("antigravity reviewer", {".conclave/reviewers.toml": argon})
+    def test_a_pass_reviewed_through_antigravity_passes_and_records_the_scheduled_effort(self):
+        # Neon accepts explicit scheduled efforts (including mixed efforts and step-omitted overrides).
+        neon = PIN.replace('cli = "codex"\nmodel = "gpt-6.1-sol"\neffort = "xhigh"',
+                           'cli = "agy"\nmodel = "gemini-4-neon-medium"\neffort = "high"').replace(
+            'gemini = ["sol"]\n', "").replace(
+            '[schedule.completion]\neffort = "medium"', '[schedule.completion]\neffort = "low"')
+        self.base = self.commit("antigravity reviewer", {".conclave/reviewers.toml": neon})
         module = self.module()
         schedule = module.load_pin(self.repo / ".conclave/reviewers.toml")["schedule"]
         say = reply("plan", LENSES["plan"])
@@ -1097,11 +1099,20 @@ class Antigravity(ThreePass):
                                         "--candidate", self.base, "--record", str(self.record), agy="say", say=say)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual((summary["cli"], summary["effort"]), ("agy", "medium"))
-        # No effort flag reaches agy; the prompt itself (passed inline as -p= on Linux) does mention the effort.
-        self.assertFalse([a for a in self.calls()[-1]["argv"] if "effort" in a and not a.startswith("-p=")])
+        self.assertIn("--effort=medium", self.calls()[-1]["argv"])
         (entry,) = self.findings()["plans"]
         expected = module.scheduled(schedule, "plan", [], False)
         self.assertEqual((entry["effort"], entry["lenses"]), (expected["effort"], expected["lenses"]))
+
+        # A step without effort overrides the reviewer-level default and passes no --effort flag.
+        omitted = neon.replace('[schedule.plan]\neffort = "medium"\n', '[schedule.plan]\n')
+        base2 = self.commit("antigravity omitted step effort", {".conclave/reviewers.toml": omitted})
+        rec2 = self.repo / "docs/reviews/01-x/D01-T01-s2.md"
+        result2, summary2 = self.dispatch("--kind", "plan", "--writer", "claude", "--prompt", str(self.prompt),
+                                          "--candidate", base2, "--record", str(rec2), agy="say", say=say)
+        self.assertEqual(result2.returncode, 0, result2.stdout + result2.stderr)
+        self.assertIsNone(summary2["effort"])
+        self.assertFalse([a for a in self.calls()[-1]["argv"] if a.startswith("--effort")])
 
 
 class Decoding(ThreePass):

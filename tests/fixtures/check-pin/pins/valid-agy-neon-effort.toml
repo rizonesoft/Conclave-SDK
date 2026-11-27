@@ -1,0 +1,30 @@
+schema_version = 1
+
+[reviewers.neon]
+cli = "agy"
+model = "gemini-4-neon-medium"
+effort = "medium"
+
+[routes]
+codex = ["neon"]
+
+[schedule]
+policy = "three-pass"
+pass_cap = 33
+blocking = ["P1", "P2"]
+
+[schedule.plan]
+effort = "medium"
+lenses = ["plan"]
+
+[[schedule.rounds]]
+effort = "medium"
+lenses = ["adversarial", "integration"]
+
+[schedule.completion]
+effort = "low"
+lenses = ["plan-delivery", "record"]
+
+[schedule.reconciliation]
+effort = "low"
+lenses = ["adversarial", "integration", "plan-delivery", "record"]

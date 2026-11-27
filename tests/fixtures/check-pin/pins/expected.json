@@ -58,7 +58,7 @@
   "refused-agy-effort.toml": {
     "exit": 2,
     "ok": false,
-    "error": "reviewer 'gemini': Antigravity carries the effort in the model name, so set no effort"
+    "error": "reviewer 'gemini': gemini-pro-orchestrator manages its own effort and rejects --effort"
   },
   "refused-bad-effort.toml": {
     "exit": 2,
@@ -213,5 +213,14 @@
     "exit": 2,
     "ok": false,
     "error": "reviewer 'orchestrator': gemini-pro-orchestrator manages its own effort and rejects --effort, but the schedule has a pass at effort = low"
+  },
+  "valid-agy-neon-effort.toml": {
+    "exit": 0,
+    "ok": true,
+    "routes": {
+      "codex": [
+        "neon"
+      ]
+    }
   }
 }

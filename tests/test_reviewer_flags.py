@@ -23,8 +23,10 @@ assert spec is not None and spec.loader is not None
 dispatch = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(dispatch)
 
-# What `agy --help` printed for these flags on 1.5.8 (2026-11-13), with a neighbour (`--print`) that is not one of them.
+# What `agy --help` printed for these flags (including `--effort` for Neon/explicit-effort pins), with a neighbour
+# (`--print`) that is not one of them.
 HELP = """Usage of agy.exe:
+  --effort                        Reasoning effort for the current CLI session (low|medium|high|xhigh|max)
   --model                         Model for the current CLI session
   -p                              Short alias for --print
   --print                         Run a single prompt non-interactively and print the response
@@ -93,6 +95,10 @@ def alive(pid):
 class FlagList(unittest.TestCase):
     def test_the_captured_help_lists_every_flag(self):
         self.assertEqual(dispatch.agy_flags_missing(HELP), [])
+        self.assertEqual(dispatch.agy_flags_missing(HELP, need_effort=True), [])
+        without_effort = "\n".join(line for line in HELP.splitlines() if "--effort" not in line) + "\n"
+        self.assertEqual(dispatch.agy_flags_missing(without_effort, need_effort=False), [])
+        self.assertEqual(dispatch.agy_flags_missing(without_effort, need_effort=True), ["--effort"])
 
     def test_a_renamed_flag_is_missing_and_a_longer_neighbour_does_not_stand_in(self):
         self.assertEqual(dispatch.agy_flags_missing(HELP.replace("  --print-timeout", "  --print-limit")),
@@ -317,7 +323,7 @@ class DoctorCheck(unittest.TestCase):
         calls = []
         real = forge._agy_flags_check
         with self.path_with_only_the_stub(), \
-                mock.patch.object(forge, "_agy_flags_check", lambda *a: calls.append(a[1]) or real(*a)):
+                mock.patch.object(forge, "_agy_flags_check", lambda *a, **kw: calls.append(a[1]) or real(*a, **kw)):
             checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual((checks["reviewer-flags:carbon"], checks["reviewer-flags:argon"]), ("ok", "ok"))
         self.assertEqual(len(calls), 1)
@@ -476,6 +482,42 @@ class DoctorCheck(unittest.TestCase):
         self.assertEqual(code, 3, payload)
         self.assertEqual(checks["reviewer:carbon"]["status"], "setup_required")
         self.assertNotIn("reviewer-flags:carbon", checks)
+
+    def test_doctor_checks_effort_flag_only_when_pin_uses_explicit_agy_effort(self):
+        project = self.dir / "project-effort"
+        project.mkdir()
+        forge.apply_kit(project, "reviewer")
+        self._install_codex_stub()
+        without_effort = "\n".join(line for line in HELP.splitlines() if "--effort" not in line) + "\n"
+
+        # Explicit-effort Neon pin fails when agy --help omits --effort, and passes when --effort is present.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-agy-neon-effort.toml").read_bytes())
+        (self.dir / "help.txt").write_text(without_effort, encoding="utf-8")
+        with self.path_with_only_the_stub():
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-flags:neon"]["status"], "unexpected")
+            self.assertIn("--effort", checks["reviewer-flags:neon"]["detail"])
+
+            (self.dir / "help.txt").write_text(HELP, encoding="utf-8")
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 0, payload)
+            self.assertEqual(checks["reviewer-flags:neon"]["status"], "ok")
+            self.assertIn("--effort", checks["reviewer-flags:neon"]["detail"])
+
+        # Effort-free Orchestrator pin stays compatible even when agy --help omits --effort.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-agy-orchestrator-unscheduled.toml").read_bytes())
+        (self.dir / "help.txt").write_text(without_effort, encoding="utf-8")
+        with self.path_with_only_the_stub():
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 0, payload)
+            self.assertEqual(checks["reviewer-flags:orchestrator"]["status"], "ok")
+            self.assertNotIn("--effort", checks["reviewer-flags:orchestrator"]["detail"])
 
 
 if __name__ == "__main__":

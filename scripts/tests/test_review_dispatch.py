@@ -456,8 +456,9 @@ class Dispatch(Harness):
         # The strict loader names what is wrong: an effort on Antigravity, a fallback, a same-family reviewer.
         module, pin, good = self.module(), self.repo / ".conclave/reviewers.toml", FIXTURE_PIN
         mini = '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n'
-        cases = {good.replace('cli = "codex"', 'cli = "agy"'):
-                     "reviewer 'sol': Antigravity carries the effort in the model name, so set no effort",
+        cases = {good.replace('cli = "codex"\nmodel = "gpt-6.1-sol"',
+                              'cli = "agy"\nmodel = "gemini-pro-orchestrator"'):
+                     "reviewer 'sol': gemini-pro-orchestrator manages its own effort and rejects --effort",
                  good.replace('cli = "codex"', 'cli = "bash"'): "reviewer 'sol' needs cli = one of " + ", ".join(module.CLIS),
                  good.replace('claude = ["sol"]', 'claude = ["sol", "mini"]') + mini:
                      "route 'claude' must list exactly one reviewer",
@@ -1480,14 +1481,60 @@ class MultiCli(Harness):
         argv, _ = self.module().command(reviewer, "/usr/bin/agy", "short prompt", Path("/p.md"), Path("o"), 60)
         self.assertEqual(argv[-1], "-p=short prompt")
 
-    def test_a_scheduled_effort_reaches_claude_and_never_antigravity(self):
+    def test_effort_reaches_claude_and_neon_but_never_orchestrator(self):
         module = self.module()
         claude = {"cli": "claude", "model": "claude-sonnet-5-5", "effort": "high"}
         argv, _ = module.command(claude, "/usr/bin/claude", "p", Path("/p.md"), Path("o"), 60, "low")
         self.assertEqual(argv[argv.index("--effort") + 1], "low")
-        argv, _ = module.command({"cli": "agy", "model": "gemini-4-argon-high"}, "/usr/bin/agy", "p", Path("/p.md"),
-                                 Path("o"), 60, "low")
-        self.assertNotIn("low", " ".join(argv))
+        neon = {"cli": "agy", "model": "gemini-4-neon-medium"}
+        argv, _ = module.command(neon, "/usr/bin/agy", "p", Path("/p.md"), Path("o"), 60, "high")
+        self.assertIn("--effort=high", argv)
+        argv, _ = module.command(neon, "/usr/bin/agy", "p", Path("/p.md"), Path("o"), 60, None)
+        self.assertFalse([a for a in argv if a.startswith("--effort")])
+        orch = {"cli": "agy", "model": "gemini-pro-orchestrator"}
+        argv, _ = module.command(orch, "/usr/bin/agy", "p", Path("/p.md"), Path("o"), 60, "low")
+        self.assertFalse([a for a in argv if a.startswith("--effort")])
+
+    def test_unscheduled_neon_dispatches_explicit_effort_and_records_it(self):
+        pin = self.repo / ".conclave/reviewers.toml"
+        pin.write_text(
+            'schema_version = 1\n\n[reviewers.neon]\ncli = "agy"\nmodel = "gemini-4-neon-medium"\neffort = "high"\n'
+            '\n[routes]\nclaude = ["neon"]\n',
+            encoding="utf-8",
+        )
+        record = self.repo / "docs/reviews/neon-effort.md"
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+                                        agy="say", say="Checked.\nOVERALL: approve")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((summary["cli"], summary["model"], summary["effort"]), ("agy", "gemini-4-neon-medium", "high"))
+        self.assertIn("--effort=high", self.calls()[-1]["argv"])
+        _, listing = self.dispatch("--list-rounds", "--json")
+        listed = listing["records"][0]["rounds"][0]
+        self.assertEqual(listed["effort"], "high")
+
+        # Omitting effort sends no --effort flag and records None.
+        pin.write_text(
+            'schema_version = 1\n\n[reviewers.neon]\ncli = "agy"\nmodel = "gemini-4-neon-medium"\n'
+            '\n[routes]\nclaude = ["neon"]\n',
+            encoding="utf-8",
+        )
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+                                        agy="say", say="Checked.\nOVERALL: approve")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIsNone(summary["effort"])
+        self.assertFalse([a for a in self.calls()[-1]["argv"] if a.startswith("--effort")])
+
+        # Effort-free Orchestrator pin still runs and passes no --effort flag.
+        pin.write_text(
+            'schema_version = 1\n\n[reviewers.orch]\ncli = "agy"\nmodel = "gemini-pro-orchestrator"\n'
+            '\n[routes]\nclaude = ["orch"]\n',
+            encoding="utf-8",
+        )
+        result, summary = self.dispatch("--writer", "claude", "--prompt", str(self.prompt), "--record", str(record),
+                                        agy="say", say="Checked.\nOVERALL: approve")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIsNone(summary["effort"])
+        self.assertFalse([a for a in self.calls()[-1]["argv"] if a.startswith("--effort")])
 
     def test_a_schedule_is_checked_against_every_effort_taking_cli(self):
         module = self.module()

@@ -9,7 +9,7 @@ Additive overlay that gives a project independent review by a different model: o
 | Claude Code | `claude` | `astra`: GPT-6.2 Astra through `codex` |
 | Antigravity | `agy` (or `gemini`) | `astra`: GPT-6.2 Astra through `codex` |
 
-Claude Code and Antigravity are the two writers. Codex is reviewer only, through `astra` (`gpt-6.2-astra`, read-only sandbox). The default pin has no Codex writer route and no Antigravity reviewer. Astra uses medium effort for plan and initial round reviews, then low for completion and reconciliation. Routes, lenses and pass limits otherwise retain their existing behavior.
+Claude Code and Antigravity (Gemini 4 Neon, `gemini-4-neon-medium`) are the two writers. Codex is reviewer only, through `astra` (`gpt-6.2-astra`, read-only sandbox). The default pin has no Codex writer route and no Antigravity reviewer. Astra uses medium effort for plan and initial round reviews, then low for completion and reconciliation. Routes, lenses and pass limits otherwise retain their existing behavior.
 
 | Reviewer | CLI | Model | Effort |
 | --- | --- | --- | --- |
@@ -19,7 +19,7 @@ A route names exactly one reviewer, never of the writer's own model family: the 
 
 ## Updating existing projects
 
-Keep the Claude and Antigravity writer routes pointing to Astra. Remove the Codex writer route and unused Carbon reviewer from the project's pin. Restore medium plan/round effort and low completion/reconciliation effort without changing other lenses or limits. Remove Codex campaign shortcuts and keep the Claude and Carbon writer shortcuts. Existing projects own their copies and are not changed by an SDK update.
+Keep the Claude and Antigravity (Gemini 4 Neon) writer routes pointing to Astra. Remove the Codex writer route and unused Carbon reviewer from the project's pin. Restore medium plan/round effort and low completion/reconciliation effort without changing other lenses or limits. Remove Codex campaign shortcuts and keep the Claude and Gemini (Neon) writer shortcuts. Existing projects own their copies and are not changed by an SDK update.
 
 ## The review schedule
 
@@ -58,7 +58,7 @@ lenses = ["thread-safety", "memory-safety"]
 passes = ["round", "reconciliation"]
 paths = ["src/", "include/"]
 ```
-- **Effort is optional** on reviewers and steps: a step without one passes no effort to the reviewer's CLI, whose own configuration then decides. For non-Orchestrator Antigravity reviewers (`agy`), the model name must end with every effort a three-pass schedule sets; Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) require an effort-free schedule, and non-Orchestrator rotation schedules ignore step effort.
+- **Effort is optional** on reviewers and steps: with a `[schedule]`, each step's own `effort` decides (a step without `effort` passes no effort flag, overriding any reviewer-level default, so the CLI's own configuration decides); without a `[schedule]`, the reviewer entry's `effort` runs. Non-Orchestrator Antigravity reviewers (such as Gemini 4 Neon) accept explicit `effort` (`low`, `medium`, `high`, `xhigh`, `max`) on reviewer entries and on any three-pass or rotation step (including mixed efforts across steps), passing `--effort=<effort>` to `agy`. Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) reject `effort` on both reviewer entries and schedule steps (three-pass and rotation) and must use an effort-free pin.
 
 ### Rotation (no `policy` key)
 
@@ -72,7 +72,7 @@ paths = ["src/", "include/"]
 | Later rounds, one lens each | low | consistency, quality, design, optimization, record |
 | After a low-effort round that finds a P1 | medium | adversarial |
 
-The design lens joins the rotation only with `--surface`. With `severity_stop_after = 0` the first round with no P1 or P2 finding ends the loop (the summary's `severity_stop` is true); the cap is 33 rounds. A rotation schedule takes none of the three-pass keys. A project on a rotation pin keeps it for as long as its pin says so. Orchestrator ignores the effort settings; other reviewers retain this cadence:
+The design lens joins the rotation only with `--surface`. With `severity_stop_after = 0` the first round with no P1 or P2 finding ends the loop (the summary's `severity_stop` is true); the cap is 33 rounds. A rotation schedule takes none of the three-pass keys. A project on a rotation pin keeps it for as long as its pin says so. Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) are refused by the pin validator if any rotation step sets `effort`; other reviewers (including Gemini 4 Neon) retain this cadence:
 
 ```toml
 [schedule]

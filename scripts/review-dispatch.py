@@ -212,8 +212,9 @@ def _agy_uses_prompt_file(executable, prompt):
 
 def command(reviewer, executable, prompt, prompt_path, output_path, timeout, effort=None):
     """The argv and stdin for one read-only review. The model comes only from the pin, and the effort from the pin's
-    reviewer or, when the pin has a [schedule], from the step it schedules for this pass (Antigravity takes none).
-    When neither sets one, no effort argument is passed and the CLI's own configuration decides."""
+    reviewer or, when the pin has a [schedule], from the step it schedules for this pass (Antigravity Orchestrator
+    models reject `--effort` and never receive one). When neither sets one, no effort argument is passed and the CLI's
+    own configuration decides."""
     cli, model = reviewer["cli"], reviewer["model"]
     if cli == "codex":
         return [executable, "exec", "-m", model, *(["-c", f"model_reasoning_effort={effort}"] if effort else []),
@@ -227,7 +228,8 @@ def command(reviewer, executable, prompt, prompt_path, output_path, timeout, eff
     if _agy_uses_prompt_file(executable, prompt):
         text = f"Follow the review instructions in the file {prompt_path} exactly. Do not modify any file."
     model_flag, sandbox_flag, settings_flag, timeout_flag, prompt_flag = AGY_FLAGS
-    return [executable, model_flag, model, sandbox_flag, settings_flag, str(agy_settings_path(output_path)),
+    effort_args = [f"{AGY_EFFORT_FLAG}={effort}"] if effort and not review_pin.is_agy_orchestrator(model) else []
+    return [executable, model_flag, model, *effort_args, sandbox_flag, settings_flag, str(agy_settings_path(output_path)),
             timeout_flag, f"{timeout}s", f"{prompt_flag}={text}"], None
 
 
@@ -235,11 +237,14 @@ def command(reviewer, executable, prompt, prompt_path, output_path, timeout, eff
 # each against the installed CLI's own --help (D00 T02 §2), so a release that renames one is seen at once instead of
 # turning every Antigravity review into "no review".
 AGY_FLAGS = ("--model", "--sandbox", "--settings", "--print-timeout", "-p")
+AGY_EFFORT_FLAG = "--effort"
 
 
-def agy_flags_missing(help_text):
-    """The flags of AGY_FLAGS the CLI's --help text does not list as whole words (`--print` is not `--print-timeout`)."""
-    return [flag for flag in AGY_FLAGS
+def agy_flags_missing(help_text, *, need_effort=False):
+    """The flags of AGY_FLAGS (plus AGY_EFFORT_FLAG when need_effort is True) that the CLI's --help text does not list
+    as whole words (`--print` is not `--print-timeout`)."""
+    flags = AGY_FLAGS + ((AGY_EFFORT_FLAG,) if need_effort else ())
+    return [flag for flag in flags
             if re.search(r"(?<![\w-])" + re.escape(flag) + r"(?![\w-])", help_text) is None]
 
 
@@ -547,11 +552,9 @@ def review(pin, writer, prompt_path, timeout, plan=None, kind="round"):
     # replay it: a step without an effort passes none, whatever the reviewer's own. Without a schedule the reviewer's
     # effort runs. With neither, no effort is passed and the CLI's own configuration decides.
     effort = plan["effort"] if plan else reviewer.get("effort")
-    if reviewer["cli"] == "agy":
-        # Antigravity takes no effort argument: it runs at the effort its model name carries. That is the scheduled
-        # effort whenever the name ends with it (a three-pass pin loads only so), and then the record says so, as the
-        # stamp's replay of the schedule expects; otherwise nothing is claimed.
-        effort = effort if effort and reviewer["model"].endswith(f"-{effort}") else None
+    if reviewer["cli"] == "agy" and review_pin.is_agy_orchestrator(reviewer["model"]):
+        # Orchestrator models manage effort internally and reject --effort; never pass or claim one.
+        effort = None
     lenses = plan["lenses"] if plan else []
     schedule = pin.get("schedule", {})
     three_pass = schedule.get("policy") == THREE_PASS
