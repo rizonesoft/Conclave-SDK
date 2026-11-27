@@ -1902,9 +1902,19 @@ def _strip_gitignore_trailing_spaces(pat: bytes) -> bytes:
     return pat[:end]
 
 
+def _seg_may_match(seg: bytes, target_low: bytes) -> bool:
+    """Conservative single-segment gitignore match against lowercase `target_low`."""
+    if b"\\" in seg or b"[" in seg or b"**" in seg:
+        return True
+    if b"*" in seg or b"?" in seg:
+        return fnmatch.fnmatchcase(target_low, seg)
+    return seg == target_low
+
+
 def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) -> bool:
     """Conservative check whether a gitignore `!pattern` line could negate `target_name` (case-insensitively,
-    so Windows/macOS `core.ignorecase=true` negations are never missed, and stripping unescaped trailing spaces)."""
+    so Windows/macOS `core.ignorecase=true` negations are never missed, stripping unescaped trailing spaces, and
+    peeling leading `**/` prefixes before matching the depth-0 segment)."""
     pat = _strip_gitignore_trailing_spaces(neg_line[1:])
     if pat.startswith(b"/"):
         pat = pat[1:]
@@ -1914,23 +1924,16 @@ def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) ->
     if not pat or (dir_only and not is_dir):
         return False
     target_low = target_name.lower()
-    pat_low = pat.lower()
-    if b"/" in pat_low:
-        first_seg = pat_low.split(b"/", 1)[0]
-        if first_seg == b"**":
-            return True
-        if not is_dir:
-            return False
-        if b"\\" in first_seg or b"[" in first_seg or b"**" in first_seg:
-            return True
-        if b"*" in first_seg or b"?" in first_seg:
-            return fnmatch.fnmatchcase(target_low, first_seg)
-        return first_seg == target_low
-    if b"\\" in pat_low or b"[" in pat_low or b"**" in pat_low:
-        return True
-    if b"*" in pat_low or b"?" in pat_low:
-        return fnmatch.fnmatchcase(target_low, pat_low)
-    return pat_low == target_low
+    segs = [s for s in pat.lower().split(b"/") if s]
+    while len(segs) > 1 and segs[0] == b"**":
+        segs = segs[1:]
+    if not segs:
+        return False
+    if len(segs) == 1:
+        return _seg_may_match(segs[0], target_low)
+    if not is_dir:
+        return False
+    return _seg_may_match(segs[0], target_low)
 
 
 def _gitignore_bytes_have_unnegated_rule(raw: bytes, accepted_rules: bytes | tuple[bytes, ...]) -> bool:
