@@ -282,7 +282,7 @@ posix_only = unittest.skipUnless(os.name == "posix", "the launch lock is fcntl.f
 class RunnersTest(unittest.TestCase):
     """D02 T02 §10: one profile, several runners (`start --agent`), each with its own model and effort."""
 
-    RUNNERS = {"agy": {"model": "gemini-4-neon-medium", "effort": "medium"},
+    RUNNERS = {"agy": {"model": "gemini-4-neon-medium", "effort": "high"},
                "codex": {"model": "gpt-6.2-astra", "effort": "minimal"}}
 
     def setUp(self):
@@ -301,7 +301,7 @@ class RunnersTest(unittest.TestCase):
     def test_a_runner_runs_with_its_own_model_and_effort(self):
         profile = self.load(self.RUNNERS)
         self.assertEqual({k: unattended.runner(profile, "agy")[k] for k in ("agent", "model", "effort")},
-                         {"agent": "agy", "model": "gemini-4-neon-medium", "effort": "medium"})
+                         {"agent": "agy", "model": "gemini-4-neon-medium", "effort": "high"})
         self.assertIs(unattended.runner(profile, None), profile)
         self.assertIs(unattended.runner(profile, "claude"), profile)
         with self.assertRaisesRegex(unattended.ProfileError, "runners.agy: the profile names no runner for agy"):

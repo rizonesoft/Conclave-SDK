@@ -154,14 +154,13 @@ class CommandTest(unittest.TestCase):
                 with self.subTest(model=model, effort=effort, skip_permissions=skip):
                     profile = {**agy, "skip_permissions": skip}
                     bypass = ["--dangerously-skip-permissions"] if skip else []
-                    self.assertEqual(run.agent_command(self.root, profile, "tag-1", None),
+                    fresh = run.agent_command(self.root, profile, "tag-1", None)
+                    self.assertEqual(fresh,
                                      ["agy", f"--model={model}", f"--effort={effort}", *bypass,
                                       f"--prompt-interactive={PROMPT}"])
                     self.assertEqual(run.agent_command(self.root, profile, "tag-1", "conv-7"),
                                      ["agy", f"--model={model}", f"--effort={effort}", "--conversation=conv-7", *bypass,
                                       f"--prompt-interactive={run.RESUME_PROMPT}"])
-                    argv = run.agent_command(self.root, profile, "tag-1", None)
-                    self.assertFalse([a for a in argv if a in ("--session-id", "--resume", "--disallowedTools")], argv)
 
     def test_the_antigravity_orchestrator_command_omits_effort_and_guards_invalid_efforts(self):
         run = load_run_module()
