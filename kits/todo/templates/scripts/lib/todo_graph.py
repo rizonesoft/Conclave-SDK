@@ -75,7 +75,7 @@ FILED = re.compile(r"^- Filed: (D\d{2} T\d{2} §[1-9]\d*)(?![\w§]|\.\d)")
 # under `before_plan` in LEGACY_RECEIPTS, so dropping the fields from a new receipt does not dodge the checks.
 PIN = ".conclave/reviewers.toml"
 PLAN_KEYS = {"report", "candidate", "reviewer", "model", "effort", "lenses"}
-STARTED = re.compile(r"^> \*\*Started:\*\* .+$", re.M)
+STARTED = re.compile(r"^(?:> )?\*\*Started:\*\* .+$", re.M)
 # The Corrected note replan writes, naming the chain it kept: a retry finds it whatever day it ran.
 REPLANNED = re.compile(r"re-planned with `todo-graph\.py replan`; the build first began at [^;\n]+; its review chain is "
                        r"kept as `([^`\n]+)`")

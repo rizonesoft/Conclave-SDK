@@ -223,7 +223,7 @@ Sections: 16 | Checklist items: 95
 | [x]    | D00 T04 §3  | Reviewer pin accepts Neon with an effort                     | none  | 5     |
 | [x]    | D00 T04 §4  | Unattended profile runs Neon with its effort                 | none  | 5     |
 | [x]    | D00 T04 §5  | SDK copies, documents and tests follow the kits              | none  | 5     |
-| [ ]    | D06 T03 §1  | Overlay folder and the settings reader that falls back to it | none  | 8     |
+| [x]    | D06 T03 §1  | Overlay folder and the settings reader that falls back to it | none  | 8     |
 | [ ]    | D06 T03 §2  | Overlay clone in setup and pull after merge                  | none  | 7     |
 | [ ]    | D06 T03 §3  | One sync command for both repositories                       | none  | 7     |
 | [ ]    | D06 T03 §4  | Pre-push leak guard over commits and messages                | none  | 8     |
@@ -246,6 +246,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 139/156 verified sections, 1 ready to run now.
+Progress: 140/156 verified sections, 3 ready to run now.
 
 Checklist: 1088/1180 items completed (includes Commit items).

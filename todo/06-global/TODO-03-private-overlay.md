@@ -35,7 +35,7 @@ title: "TODO-03 -- Public core and private overlay"
 
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
-| 1 | §1 | Overlay folder and the settings reader that falls back to it | -- | [ ] |
+| 1 | §1 | Overlay folder and the settings reader that falls back to it | -- | [x] |
 | 2 | §2 | Overlay clone in setup and pull after merge | §1 | [ ] |
 | 3 | §3 | One sync command for both repositories | §2 | [ ] |
 | 4 | §4 | Pre-push leak guard over commits and messages | §1 | [ ] |
@@ -72,6 +72,9 @@ The repository already keeps owner values in the ignored `.conclave/local.toml`.
 **Test checkpoint:** `python -m unittest tests.test_local_settings` ends `OK`, and fails when which value wins (override vs overlay) is swapped on a conflicting leaf with an inherited sibling.
 
 Plan review (`0be28386`) folded in: routed `kits/wordpress/templates/scripts/lib/wp_site.py` `vault_settings()`, `open-dashboard.py`, `wordpress-connect` skill, and `tools/verify-design-rules.py` fleet lookup through `.conclave/local_settings.py`; shared base-owned `.conclave/local_settings.py` and `.conclave/.gitignore` with `automations` and `wordpress` (surviving `--no-scripts` and deduplicated in multi-kit updates); lazy-loaded in `alert.settings()`; kept explicit `load_projects(path)` vs `load_projects(root=...)`; distinguished absence from broken symlinks/directories in one iterative read pass; enforced effective root `.gitignore` protection on both `apply_kit` and `update_project` (with `--dry-run` preview and symlink refusal); updated all single-file operator docs and agent rules.
+
+> **Verified:** 2026-11-27 | §1 | 91343916be1ef2787104462c8c69e906b07a159e
+> **Review:** `docs/reviews/d06-t03-s1.json`
 
 ## 2. Overlay clone in setup and pull after merge
 

@@ -1,0 +1,88 @@
+{
+  "ref": "D06 T03 \u00a71",
+  "title": "Overlay folder and the settings reader that falls back to it",
+  "implementation_sha": "91343916be1ef2787104462c8c69e906b07a159e",
+  "date": "2026-11-27",
+  "reviews": [
+    {
+      "round": 2,
+      "report": "docs/reviews/06-global/D06-T03-s1.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "local kit-base 10/10, kit-automations 40/40, test_local_settings 59/59, markdown_table 1/1, merge-order mutation rc=1; CI green 7/7 https://github.com/rizonesoft/Conclave-SDK/actions/runs/45954285219"
+  ],
+  "completion": {
+    "report": "docs/reviews/06-global/D06-T03-s1.md",
+    "verdict": "capped",
+    "candidate": "416a3921fe4215ab7ac6839afb69a624455b0a71",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 2,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/06-global/D06-T03-s1.md",
+    "candidate": "0be28386caa14a0ad50101bbb6a65497961c420c",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "0be28386caa14a0ad50101bbb6a65497961c420c",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 33,
+  "pass_cap": 33
+}
