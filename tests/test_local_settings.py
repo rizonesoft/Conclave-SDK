@@ -752,6 +752,70 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertNotIn(("vault", "cli"), origins)
         self.assertNotIn(("vault", "name"), origins)
 
+    def test_git_check_ignore_fatal_error_is_propagated_not_swallowed(self):
+        import unittest.mock
+        import forge
+
+        target = self.root / "dubious_repo"
+        target.mkdir()
+        (target / ".git").mkdir()
+        _write(target, ".gitignore", ".private/\n")
+        fatal = subprocess.CompletedProcess(["git"], 128, stdout="", stderr="fatal: detected dubious ownership")
+        with unittest.mock.patch.object(forge.subprocess, "run", return_value=fatal):
+            with self.assertRaisesRegex(ValueError, r"git check-ignore failed.*128.*dubious ownership"):
+                forge._ensure_private_gitignore(target)
+
+    def test_cr_only_gitignore_before_git_init_appends_lf_canonical_rule(self):
+        import forge
+
+        target = self.root / "cr_only_proj"
+        target.mkdir()
+        (target / ".gitignore").write_bytes(b"build/\r.private/\r")
+        res = forge.apply_kit(target, "base")
+        self.assertEqual(res["private_gitignore"], "added")
+        # Idempotent on second call once LF-delimited canonical rule is at the end
+        res2 = forge.apply_kit(target, "base")
+        self.assertEqual(res2["private_gitignore"], "already_present")
+        subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
+        chk = subprocess.run(
+            ["git", "check-ignore", "-q", "--", ".private/local.toml"],
+            cwd=str(target),
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(chk.returncode, 0)
+
+    def test_forge_load_projects_accepts_optional_fleet_alias(self):
+        import forge
+
+        _write(
+            self.root,
+            ".private/local.toml",
+            '[[projects]]\nname = "Resolute-SDK"\nalias = "RSDK"\nwindows = "C:\\\\work\\\\rsdk"\n',
+        )
+        self.assertEqual(
+            forge.load_projects(root=self.root),
+            [{"name": "Resolute-SDK", "windows": "C:\\work\\rsdk", "posix": None}],
+        )
+
+    def test_verify_design_rules_fleet_rejects_non_string_posix(self):
+        import contextlib
+        import io
+
+        vdr = _load("test_vdr_bad_posix", VERIFY_DESIGN_PATH)
+        _write(
+            self.root,
+            ".private/local.toml",
+            '[[projects]]\nname = "Resolute-SDK"\nwindows = "C:\\\\work\\\\rsdk"\nposix = ["/mnt/d/rsdk"]\n',
+        )
+        run_file = _write(self.root, "run.md", "# empty\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = vdr.run_fleet_mode(self.root, run_file, check_clean=False, negative_test=False)
+        self.assertEqual(rc, 1)
+        self.assertIn("posix", buf.getvalue())
+        self.assertIn(".private/local.toml", buf.getvalue())
+
     def test_minimal_override_preserves_overlay_alert_settings(self):
         alert = _load("test_sdk_alert_min", ALERT_PATH)
         _write(

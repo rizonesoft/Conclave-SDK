@@ -1720,7 +1720,8 @@ def _git_repo_ignores(
     if proc.returncode == 1:
         return False
     if proc.returncode != 0:
-        return None
+        detail = (proc.stderr or proc.stdout or "").strip()
+        raise ValueError(f"git check-ignore failed in {target_root} (exit {proc.returncode}): {detail}")
     line = (proc.stdout or "").splitlines()[0] if proc.stdout else ""
     parts = line.split(":", 2)
     if len(parts) < 3:
@@ -1736,20 +1737,17 @@ def _git_repo_ignores(
     return True
 
 
-def _gitignore_lines_ignore(text: str, exact_rules: tuple[str, ...]) -> bool:
-    """Conservative text-only `.gitignore` check used when the target is not a Git repo yet.
-    Preserves leading whitespace (Git treats leading spaces as part of the pattern) and rejects any subsequent
-    negation line."""
-    ignored = False
-    for raw_line in text.splitlines():
-        line = raw_line.rstrip("\r")
-        if not line or line.startswith("#"):
+def _gitignore_bytes_end_with_rule(raw: bytes, canonical_rule: bytes) -> bool:
+    """Conservative LF-byte-level check used when the target is not a Git repository yet.
+    Splits strictly on LF (`b'\\n'`, never `splitlines()`), strips at most one trailing CR, and returns True only
+    when the final non-empty, non-comment LF-delimited line is exactly `canonical_rule` with no embedded CR."""
+    last_rule: bytes | None = None
+    for part in raw.split(b"\n"):
+        line = part[:-1] if part.endswith(b"\r") else part
+        if not line or line.startswith(b"#"):
             continue
-        if line in exact_rules:
-            ignored = True
-        elif line.startswith("!"):
-            ignored = False
-    return ignored
+        last_rule = line
+    return last_rule == canonical_rule
 
 
 def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
@@ -1771,14 +1769,12 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
             raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
         return "created"
     raw = gitignore.read_bytes()
-    text = raw.decode("utf-8", errors="surrogateescape")
-    if git_ignored is None and _gitignore_lines_ignore(text, dir_rules):
+    if git_ignored is None and _gitignore_bytes_end_with_rule(raw, b".private/"):
         return "already_present"
     if dry_run:
         return "would_add"
-    sep = "" if (not text or text.endswith("\n")) else "\n"
-    updated = (text + sep + ".private/\n").encode("utf-8", errors="surrogateescape")
-    atomic_write(gitignore, updated)
+    sep = b"" if (not raw or raw.endswith(b"\n")) else b"\n"
+    atomic_write(gitignore, raw + sep + b".private/\n")
     if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
         raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
     return "added"
@@ -1801,14 +1797,12 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
             raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
         return "created"
     raw = conclave_ig.read_bytes()
-    text = raw.decode("utf-8", errors="surrogateescape")
-    if git_ignored is None and _gitignore_lines_ignore(text, ("local.toml", "/local.toml")):
+    if git_ignored is None and _gitignore_bytes_end_with_rule(raw, b"local.toml"):
         return "already_present"
     if dry_run:
         return "would_add"
-    sep = "" if (not text or text.endswith("\n")) else "\n"
-    updated = (text + sep + "local.toml\n").encode("utf-8", errors="surrogateescape")
-    atomic_write(conclave_ig, updated)
+    sep = b"" if (not raw or raw.endswith(b"\n")) else b"\n"
+    atomic_write(conclave_ig, raw + sep + b"local.toml\n")
     if _git_repo_ignores(target_root, LOCAL, allowed_sources=allowed) is False:
         raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
     return "added"
@@ -1868,11 +1862,13 @@ def load_projects(path: Path | None = None, *, root: Path | None = None) -> list
     seen: set[str] = set()
     for index, entry in enumerate(listed):
         where = f"projects[{index}]"
-        if not isinstance(entry, dict) or "name" not in entry or set(entry) - {"name", "windows", "posix"}:
-            raise fault(f"{where} needs a name and only the keys name, posix and windows")
+        if not isinstance(entry, dict) or "name" not in entry or set(entry) - {"name", "alias", "windows", "posix"}:
+            raise fault(f"{where} needs a name and only the keys name, alias, posix and windows")
         if not isinstance(entry["name"], str) or not entry["name"].strip():
             raise fault(f"{where}.name must be a non-empty string")
         where = f"{where} ({entry['name']})"
+        if "alias" in entry and (not isinstance(entry["alias"], str) or not entry["alias"].strip()):
+            raise fault(f"{where}.alias must be a non-empty string")
         if entry["name"] in seen:
             raise fault(f"{where}: the name appears twice")
         seen.add(entry["name"])

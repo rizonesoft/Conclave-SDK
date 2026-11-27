@@ -376,6 +376,10 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
         if not isinstance(raw_win, str) or not raw_win.strip():
             print(f"FAIL fleet settings invalid ({sources}): projects[{idx}] ({proj['name']}) missing non-empty windows path")
             return 1
+        raw_posix = proj.get("posix")
+        if raw_posix is not None and not isinstance(raw_posix, str):
+            print(f"FAIL fleet settings invalid ({sources}): projects[{idx}] ({proj['name']}) posix must be a string")
+            return 1
         alias = raw_alias or proj["name"]
         if alias in proj_map:
             print(f"FAIL fleet settings invalid ({sources}): duplicate alias '{alias}' ({proj_map[alias]['name']} and {proj['name']})")
