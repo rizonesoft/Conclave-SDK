@@ -3475,8 +3475,7 @@ class DriftTests(KitFixture, unittest.TestCase):
                 shutil.copyfile(FORGE_ROOT / "forge.py", sdk / "forge.py")
                 shutil.copytree(FORGE_ROOT / ".conclave/automations", sdk / ".conclave/automations",
                                 ignore=shutil.ignore_patterns("__pycache__"))
-                (sdk / "scripts" / "lib").mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(FORGE_ROOT / "scripts/lib/local_settings.py", sdk / "scripts/lib/local_settings.py")
+                shutil.copyfile(FORGE_ROOT / ".conclave/local_settings.py", sdk / ".conclave/local_settings.py")
                 self.six_state_fixture()
                 cfg_path = sdk / rel
                 cfg_path.parent.mkdir(parents=True, exist_ok=True)

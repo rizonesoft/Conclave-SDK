@@ -1666,6 +1666,10 @@ class CommandLineTest(unittest.TestCase):
             (scripts / "lib").mkdir(parents=True)
             (proj / ".conclave").mkdir(parents=True)
             (proj / ".conclave" / "local.toml").write_text("vault = []\n", encoding="utf-8")
+            base_ls = SCRIPTS.parents[2] / "base" / "templates" / ".conclave" / "local_settings.py"
+            installed_ls = SCRIPTS.parent / ".conclave" / "local_settings.py"
+            ls_src = installed_ls if installed_ls.is_file() else base_ls
+            shutil.copyfile(ls_src, proj / ".conclave" / "local_settings.py")
             shutil.copyfile(OPENER, scripts / "open-dashboard.py")
             for name in ("site_ssh.py", "wp_site.py"):
                 shutil.copyfile(SCRIPTS / "lib" / name, scripts / "lib" / name)

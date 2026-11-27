@@ -18,7 +18,7 @@ Not stated yet: replace this line with the project's goal in one sentence (`pyth
 - A review gap reopened twice is redesigned, not patched again. When a reconciliation reopens an in-scope gap that an earlier pass already reopened (the same gap returned open twice), stop patching the cases the reviewer names: find the mechanism that keeps producing them and replace it so the whole class closes, record the redesign under the completion review, and add a regression for the class, not only the latest case. The obligation stays as the completion review read it.
 - Markdown prose is never hard-wrapped: one line per paragraph and per list item. Every Markdown table row stays `<= 120` characters so raw `.md` files never wrap.
 - Never use em dashes or en dashes anywhere: prose, code, comments, commit messages and generated files.
-- Temporary files and full logs go to scratch, never the repository: the session scratchpad when one is given, otherwise the folder `paths.scratch` names in `.conclave/local.toml`, otherwise the operating system's temporary folder.
+- Temporary files and full logs go to scratch, never the repository: the session scratchpad when one is given, otherwise the folder `paths.scratch` names in `.conclave/local.toml` or `.private/local.toml`, otherwise the operating system's temporary folder.
 - Local ops and deploy secrets (1Password fallback) live in `.conclave/.env.local` (ignored by `.conclave/.gitignore`), with committed template `.conclave/.env.example`, so they never collide with a live site's or app's root `.env`. Precedence: process environment -> `.conclave/.env.local` -> 1Password `Conclave` vault.
 
 ## Operating directive

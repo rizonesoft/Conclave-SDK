@@ -1,6 +1,6 @@
 # WordPress agent tooling
 
-Every WordPress project Conclave starts or adopts gets this overlay. The reference site is the project `wordpress.reference` names in `.conclave/local.toml`; its `docs/production-access.md` records the whole setup, and the `docs/connections.md` of the project `wordpress.port_source` names in `.conclave/local.toml` is the closest production-only port. The `wordpress-connect` skill walks through the setup.
+Every WordPress project Conclave starts or adopts gets this overlay. The reference site is the project `wordpress.reference` names in `.conclave/local.toml` or `.private/local.toml`; its `docs/production-access.md` records the whole setup, and the `docs/connections.md` of the project `wordpress.port_source` names in `.conclave/local.toml` or `.private/local.toml` is the closest production-only port. The `wordpress-connect` skill walks through the setup.
 
 ## Bind one site first
 

@@ -45,11 +45,16 @@ class Refused(Exception):
 
 def _local_settings():
     """Load the shared local_settings helper relative to this installed script (lazy so import errors stay inside
-    run.py's alert-failure handler)."""
-    candidates = (
-        os.path.join(REPO, "scripts", "lib", "local_settings.py"),
-        os.path.normpath(os.path.join(REPO, "..", "..", "base", "templates", "scripts", "lib", "local_settings.py")),
-    )
+    run.py's alert-failure handler). Falls back to the base kit template only when running inside the SDK tree."""
+    local_candidate = os.path.join(REPO, ".conclave", "local_settings.py")
+    candidates = [local_candidate]
+    repo_path = os.path.abspath(REPO)
+    if os.path.basename(repo_path) == "templates":
+        kit_dir = os.path.dirname(repo_path)
+        kits_dir = os.path.dirname(kit_dir)
+        sdk_dir = os.path.dirname(kits_dir)
+        if os.path.basename(kits_dir) == "kits" and os.path.isfile(os.path.join(sdk_dir, "forge.py")):
+            candidates.append(os.path.join(kits_dir, "base", "templates", ".conclave", "local_settings.py"))
     for candidate in candidates:
         if os.path.isfile(candidate):
             spec = importlib.util.spec_from_file_location("_conclave_local_settings", candidate)
@@ -57,7 +62,7 @@ def _local_settings():
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 return module
-    raise Refused(f"scripts/lib/local_settings.py is missing next to {REPO}")
+    raise Refused(f".conclave/local_settings.py is missing next to {REPO}")
 
 
 def settings(root: str = REPO) -> dict:
@@ -71,9 +76,10 @@ def settings(root: str = REPO) -> dict:
         raise Refused(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
     if not loaded:
         raise Refused(
-            f"{LOCAL} is missing (and {OVERLAY} is not present): copy .conclave/local.example.toml to it and set [alert]"
+            f"{LOCAL} is missing (and {OVERLAY} is not present): set alert.sender, alert.to and alert.key_item "
+            f"(see .conclave/local.example.toml)"
         )
-    sources = f"{LOCAL} / {OVERLAY}"
+    sources = " / ".join(loaded)
     alert, vault = data.get("alert", {}), data.get("vault", {})
     if not isinstance(alert, dict) or not isinstance(vault, dict):
         raise Refused(f"{sources}: [alert] and [vault] must be tables")

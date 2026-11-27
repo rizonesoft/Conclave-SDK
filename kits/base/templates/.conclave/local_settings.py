@@ -8,7 +8,6 @@ symlink, directory, unreadable file, or invalid TOML is always refused naming th
 
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 import tomllib
 
@@ -36,22 +35,25 @@ def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
     except OSError as exc:
         raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
     try:
-        data = tomllib.loads(raw.decode("utf-8"))
+        return tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
-    return data
 
 
-def _merge_tables(base: dict, override: dict) -> dict:
-    """Deep-merge two TOML tables per key with `override` winning. Recurses only when both values are tables;
-    any other value in `override` (including `[]`, `""`, scalars, or a scalar over a table) replaces `base` whole."""
-    merged = copy.deepcopy(base)
-    for key, value in override.items():
-        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-            merged[key] = _merge_tables(merged[key], value)
-        else:
-            merged[key] = copy.deepcopy(value)
-    return merged
+def _merge_into(base: dict, override: dict) -> dict:
+    """Iteratively merge `override` into freshly parsed `base` in place with `override` winning.
+    Merges nested values only when both sides are tables; any other value in `override` (including `[]`, `""`,
+    scalars, or a scalar over a table) replaces `base` whole. Iterative so deeply nested TOML never hits
+    Python's recursion limit."""
+    stack: list[tuple[dict, dict]] = [(base, override)]
+    while stack:
+        dst, src = stack.pop()
+        for key, value in src.items():
+            if key in dst and isinstance(dst[key], dict) and isinstance(value, dict):
+                stack.append((dst[key], value))
+            else:
+                dst[key] = value
+    return base
 
 
 def load_local_settings(root: Path | str) -> tuple[dict, tuple[str, ...]]:
@@ -63,20 +65,18 @@ def load_local_settings(root: Path | str) -> tuple[dict, tuple[str, ...]]:
     """
     base_dir = Path(root)
     loaded: list[str] = []
-    tables: list[dict] = []
+    merged: dict | None = None
     for rel in (OVERLAY, LOCAL):
         try:
             data = read_toml_file(base_dir / rel, label=rel)
         except FileNotFoundError:
             continue
         loaded.append(rel)
-        tables.append(data)
-    if not tables:
-        return {}, ()
-    merged = copy.deepcopy(tables[0])
-    for extra in tables[1:]:
-        merged = _merge_tables(merged, extra)
-    return merged, tuple(loaded)
+        if merged is None:
+            merged = data
+        else:
+            _merge_into(merged, data)
+    return (merged if merged is not None else {}), tuple(loaded)
 
 
 def read_local_settings(root: Path | str) -> dict:

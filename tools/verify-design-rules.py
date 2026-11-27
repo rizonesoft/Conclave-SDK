@@ -332,30 +332,40 @@ def validate_held_retry(alias: str, ref: str, resolved: dict, s16_deps: set[str]
     return errs
 
 
-def _read_local_settings(sdk_root: pathlib.Path) -> dict:
+def _read_local_settings(sdk_root: pathlib.Path) -> tuple[dict, tuple[str, ...]]:
     import importlib.util
 
     for candidate in (
-        sdk_root / "scripts" / "lib" / "local_settings.py",
-        pathlib.Path(__file__).resolve().parents[1] / "scripts" / "lib" / "local_settings.py",
-        pathlib.Path(__file__).resolve().parents[1] / "kits" / "base" / "templates" / "scripts" / "lib" / "local_settings.py",
+        sdk_root / ".conclave" / "local_settings.py",
+        pathlib.Path(__file__).resolve().parents[1] / ".conclave" / "local_settings.py",
+        pathlib.Path(__file__).resolve().parents[1] / "kits" / "base" / "templates" / ".conclave" / "local_settings.py",
     ):
         if candidate.is_file():
             spec = importlib.util.spec_from_file_location("_verify_design_local_settings", candidate)
             if spec is not None and spec.loader is not None:
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
-                return module.read_local_settings(sdk_root)
-    raise RuntimeError(f"scripts/lib/local_settings.py is missing under {sdk_root}")
+                return module.load_local_settings(sdk_root)
+    raise RuntimeError(f".conclave/local_settings.py is missing under {sdk_root}")
 
 
 def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: bool, negative_test: bool) -> int:
-    cfg = _read_local_settings(sdk_root)
+    try:
+        cfg, loaded = _read_local_settings(sdk_root)
+    except ValueError as exc:
+        print(f"FAIL fleet settings invalid: {exc}")
+        return 1
+    if not loaded:
+        print("FAIL fleet settings missing: configure [[projects]] in .conclave/local.toml or .private/local.toml")
+        return 1
     proj_map: dict[str, dict] = {}
     for proj in cfg.get("projects", []):
         alias = proj.get("alias") or proj["name"]
         proj_map[alias] = proj
 
+    if "Resolute-SDK" not in proj_map:
+        print("FAIL fleet settings missing Resolute-SDK entry under [[projects]] in .conclave/local.toml or .private/local.toml")
+        return 1
     rsdk_root = pathlib.Path(proj_map["Resolute-SDK"]["windows"])
     table_rows = parse_fleet_table(run_file)
     seen_aliases = [r[0] for r in table_rows]

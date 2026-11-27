@@ -226,7 +226,7 @@ CACHE_DIRS = frozenset({"__pycache__", ".pytest_cache"})
 SELF_KITS = ("base", "todo", "reviewer", "automations")
 SELF_PREFIXES = tuple(f"{d}/{kind}/" for d in AGENT_DIRS for kind in ("skills", "rules")) + (
     ".claude/agents/", "scripts/", "bin/", "docs/", ".agents/hooks.json",
-    ".codex/hooks.json", ".conclave/local.example.toml", ".conclave/.gitignore") + AUTOMATIONS_SCRIPTS
+    ".codex/hooks.json", ".conclave/local.example.toml", ".conclave/local_settings.py", ".conclave/.gitignore") + AUTOMATIONS_SCRIPTS
 
 
 LSP_TABLE = ".conclave/lsp.json"  # the lsp kit's server table: the one list of a project's language servers
@@ -369,10 +369,10 @@ def kit_plan(target_root: Path, kit_name: str, *, agent: str = "all", host: str 
                 plan = [(RootedPin(src, app_root) if rel == pins else src, dst, rel, generated)
                         for src, dst, rel, generated in plan]
     if kit_name in ("automations", "wordpress"):
-        shared_rel = "scripts/lib/local_settings.py"
-        if not any(rel == shared_rel for _src, _dst, rel, _gen in plan):
-            shared_src = FORGE_ROOT / "kits" / "base" / "templates" / shared_rel
-            plan.append((shared_src, target_root / shared_rel, shared_rel, False))
+        for shared_rel in (".conclave/local_settings.py", ".conclave/.gitignore"):
+            if not any(rel == shared_rel for _src, _dst, rel, _gen in plan):
+                shared_src = FORGE_ROOT / "kits" / "base" / "templates" / shared_rel
+                plan.append((shared_src, target_root / shared_rel, shared_rel, False))
     return plan, extra
 
 
@@ -831,8 +831,8 @@ def apply_kit(
         "merge_needed": merge_needed,
         **extra,
     }
-    if kit_name in ("base", "automations", "wordpress") and not dry_run:
-        result["private_gitignore"] = _ensure_private_gitignore(target_root)
+    if kit_name in ("base", "automations", "wordpress"):
+        result["private_gitignore"] = _ensure_private_gitignore(target_root, dry_run=dry_run)
     if kit_name == "todo" and ".codex/hooks.json" in installed and not dry_run:
         result["codex_hook"] = _approve_codex_hook(target_root)
     if kit_name == "todo" and not dry_run:
@@ -1500,6 +1500,7 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
     written: list[str] = []
     left: list[dict] = []
     siblings: list[str] = []
+    seen_shared: set[str] = set()
     # The Laravel kit first: its hook serves either client, so it is in place before the lsp kit's client replaces
     # an old one. An update stopped between the two leaves the new hook with the old client, which work together;
     # the other order would leave the old hook calling a client that refuses its names.
@@ -1512,7 +1513,7 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
         expect: dict[str, str | None] = {}
         for item in kit["files"]:
             rel, state = item["path"], item["state"]
-            if state == "identical" or not chosen(rel):
+            if state == "identical" or not chosen(rel) or rel in seen_shared:
                 continue
             if plan.get(rel, False) is None:  # a generated entry has no source
                 left.append({"path": rel, "state": state, "hint": UPDATE_HINT_GENERATED})
@@ -1538,6 +1539,7 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
             entry = record["files"].get(rel)
             expect[rel] = entry["sha256"] if state == "kit-newer" and entry else None
             copies.append((rel, target / rel, data))
+            seen_shared.add(rel)
         if dry_run:
             written.extend(rel for rel, _dst, _data in copies)
             continue
@@ -1548,6 +1550,8 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
         left.extend({"path": rel, "state": "changed-since-diff"} for rel in changed)
     result = {"target": target.as_posix(), "dry_run": dry_run, "record": (target / RECORD).is_file(),
               "written": written, "left": left}
+    if any(k in report["kits"] for k in ("base", "automations", "wordpress")):
+        result["private_gitignore"] = _ensure_private_gitignore(target, dry_run=dry_run)
     # The links are written again when the update wrote what they run: for a project with a record, and for one whose
     # shortcut script the update replaced, which may have links from before the record (the script then names them,
     # with the command that writes them and the record again). Off Windows the result names the command to run there.
@@ -1663,40 +1667,71 @@ DRIFT_COUNTS = (
 DRIFT_SHOWN = 20
 
 
-def _ensure_private_gitignore(target_root: Path) -> str:
-    """Ensure `<target_root>/.gitignore` ignores `.private/` without overwriting existing rules or following links."""
+def _git_ignores_private(target_root: Path) -> bool | None:
+    """Return True if Git effectively ignores `.private/local.toml`, False if not, or None if not a Git repo."""
+    if not (target_root / ".git").exists() or not shutil.which("git"):
+        return None
+    proc = subprocess.run(
+        ["git", "check-ignore", "-q", "--", ".private/local.toml"],
+        cwd=str(target_root),
+        capture_output=True,
+        timeout=15,
+    )
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    return None
+
+
+def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
+    """Ensure `<target_root>/.gitignore` effectively ignores `.private/local.toml` without overwriting existing
+    rules. Refuses a symlinked or non-file `.gitignore`, and refuses if Git still does not ignore `.private/local.toml`
+    after appending `.private/`."""
     gitignore = target_root / ".gitignore"
     if _is_link(gitignore):
-        return "skipped_symlink"
+        raise ValueError(f"Refusing to modify symlinked .gitignore in {target_root}; add .private/ manually")
+    if gitignore.exists() and not gitignore.is_file():
+        raise ValueError(f"Refusing non-file .gitignore in {target_root}; add .private/ manually")
+    git_ignored = _git_ignores_private(target_root)
+    if git_ignored is True:
+        return "already_present"
     if not gitignore.exists():
+        if dry_run:
+            return "would_create"
         atomic_write(gitignore, b".private/\n")
+        if _git_ignores_private(target_root) is False:
+            raise ValueError(f".private/local.toml is still not ignored by git in {target_root}")
         return "created"
-    if not gitignore.is_file():
-        return "skipped_nonfile"
     raw = gitignore.read_bytes()
     text = raw.decode("utf-8", errors="surrogateescape")
-    ignored = False
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if stripped in (".private/", ".private", "/.private/", "/.private"):
-            ignored = True
-        elif stripped in ("!.private/", "!.private", "!/.private/", "!/.private"):
-            ignored = False
-    if ignored:
-        return "already_present"
+    if git_ignored is None:
+        ignored = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped in (".private/", ".private", "/.private/", "/.private"):
+                ignored = True
+            elif stripped.startswith("!"):
+                ignored = False
+        if ignored:
+            return "already_present"
+    if dry_run:
+        return "would_add"
     sep = "" if (not text or text.endswith("\n")) else "\n"
     updated = (text + sep + ".private/\n").encode("utf-8", errors="surrogateescape")
     atomic_write(gitignore, updated)
+    if _git_ignores_private(target_root) is False:
+        raise ValueError(f".private/local.toml is still not ignored by git in {target_root}")
     return "added"
 
 
 def _local_settings_module():
-    """Load the base kit's shared `local_settings.py` helper (installed copy first, kit template fallback)."""
+    """Load the base kit's shared `.conclave/local_settings.py` helper (installed copy first, kit template fallback)."""
     for candidate in (
-        FORGE_ROOT / "scripts" / "lib" / "local_settings.py",
-        FORGE_ROOT / "kits" / "base" / "templates" / "scripts" / "lib" / "local_settings.py",
+        FORGE_ROOT / ".conclave" / "local_settings.py",
+        FORGE_ROOT / "kits" / "base" / "templates" / ".conclave" / "local_settings.py",
     ):
         if candidate.is_file():
             spec = importlib.util.spec_from_file_location("_forge_local_settings", candidate)
@@ -1704,7 +1739,7 @@ def _local_settings_module():
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 return module
-    raise ValueError(f"scripts/lib/local_settings.py is missing under {FORGE_ROOT}")
+    raise ValueError(f".conclave/local_settings.py is missing under {FORGE_ROOT}")
 
 
 def load_projects(path: Path | None = None, *, root: Path | None = None) -> list[dict]:

@@ -19,11 +19,14 @@ LOCAL = ROOT / ".conclave" / "local.toml"
 
 
 def _local_settings():
-    """Load the shared local_settings helper beside this module (or from the base kit template during SDK tests)."""
-    candidates = (
-        Path(__file__).resolve().parent / "local_settings.py",
-        ROOT.parents[1] / "base" / "templates" / "scripts" / "lib" / "local_settings.py",
-    )
+    """Load the shared local_settings helper from this project's `.conclave/local_settings.py` (falling back to
+    the base kit template only when running directly inside the SDK's `kits/wordpress/templates/` tree)."""
+    candidates = [ROOT / ".conclave" / "local_settings.py"]
+    if ROOT.name == "templates" and len(ROOT.parents) >= 3:
+        kits_dir = ROOT.parents[1]
+        sdk_dir = ROOT.parents[2]
+        if kits_dir.name == "kits" and (sdk_dir / "forge.py").is_file():
+            candidates.append(kits_dir / "base" / "templates" / ".conclave" / "local_settings.py")
     for candidate in candidates:
         if candidate.is_file():
             spec = importlib.util.spec_from_file_location("_wp_local_settings", candidate)
@@ -31,7 +34,7 @@ def _local_settings():
                 module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(module)
                 return module
-    raise ValueError(f"scripts/lib/local_settings.py is missing next to {ROOT}")
+    raise ValueError(f".conclave/local_settings.py is missing under {ROOT}")
 
 
 def vault_settings(path=None, *, root=ROOT):
@@ -48,11 +51,11 @@ def vault_settings(path=None, *, root=ROOT):
         except ls.LocalSettingsError as error:
             raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
     else:
-        source = f"{ls.LOCAL} / {ls.OVERLAY}"
         try:
-            data = ls.read_local_settings(root)
+            data, loaded = ls.load_local_settings(root)
         except ls.LocalSettingsError as error:
             raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
+        source = " / ".join(loaded) if loaded else f"{ls.LOCAL} / {ls.OVERLAY}"
     table = data.get("vault", {})
     if not isinstance(table, dict):
         raise ValueError(f"{source}: [vault] must be a table")
