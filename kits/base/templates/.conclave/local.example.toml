@@ -1,6 +1,8 @@
 # Settings that belong to one machine or one owner. Put owner defaults in `.private/local.toml` (ignored by root
-# `.gitignore`) and copy this file to `.conclave/local.toml` (ignored by `.conclave/.gitignore`) for per-machine
-# overrides. `scripts/lib/local_settings.py` merges both per key with `.conclave/local.toml` winning.
+# `.gitignore`) and put only per-machine overrides in `.conclave/local.toml` (ignored by `.conclave/.gitignore`).
+# Without an overlay, copy this file to `.conclave/local.toml` and fill it in; with an overlay, include only the
+# keys you want to change so empty values here do not override working overlay settings.
+# `scripts/lib/local_settings.py` merges both per key with `.conclave/local.toml` winning.
 # Every key is optional: one left out keeps the default this file shows. No secret goes in this file,
 # only where to find it.
 

@@ -15,7 +15,7 @@ A weekly task starts when available: a run missed while this PC was off fires at
 
 The scheduler starts `.conclave/automations/run.py <name>` (`pythonw.exe` on Windows, so no console opens). The runner writes the run's output to `build/automations/<name>/<UTC>.log` (the newest 20 kept) and its outcome to `build/automations/<name>/last.json`. On a non-zero exit or a timeout it calls `alert.py`, which emails the operator the task, its exit, the tail of that run's log, and how to run it again.
 
-- It sends through SMTP2GO as "`<Folder>` automations", from `alert.sender` to `alert.to` in `.conclave/local.toml` or `.private/local.toml` (both ignored by git; copy `.conclave/local.example.toml` to `.conclave/local.toml` to override on one machine). The alert refuses to send while a setting is missing.
+- It sends through SMTP2GO as "`<Folder>` automations", from `alert.sender` to `alert.to` in `.conclave/local.toml` or `.private/local.toml` (both ignored by git; put only overridden keys in `.conclave/local.toml` when an overlay is present, or copy `.conclave/local.example.toml` when starting without one). The alert refuses to send while a setting is missing.
 - The key is read at send time from the vault item `alert.key_item` names, through the vault tool `vault.cli` names (`conclave-op` by default, in WSL when the run is on Windows). Nothing is stored here, and there is no `.env`.
 - SMTP2GO answers a refused send with HTTP 200 and `succeeded: 0`; the alert treats that as a failure.
 - The runner exits with the command's code (124 on a timeout, 126 when it cannot start), or 3 when the alert could not be sent, with the reason appended to the run's log, so Task Scheduler's Last Run Result and `systemctl --user status` show every failure.

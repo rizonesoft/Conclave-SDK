@@ -271,14 +271,67 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertIn("MachineVault", seen[0])
 
     def test_verify_design_rules_fleet_reads_overlay_only_and_preserves_alias(self):
+        import io
+        import contextlib
+
         vdr = _load("test_vdr", VERIFY_DESIGN_PATH)
         _write(
             self.root,
             ".private/local.toml",
-            '[[projects]]\nname = "Resolute-SDK"\nalias = "Resolute-SDK"\nwindows = "C:\\\\work\\\\rsdk"\n',
+            '[[projects]]\nname = "Resolute-SDK-Repo"\nalias = "Resolute-SDK"\nwindows = "C:\\\\work\\\\rsdk"\n'
+            '[[projects]]\nname = "Other-Repo"\nalias = "OtherAlias"\nwindows = "C:\\\\work\\\\other"\n',
         )
-        cfg = vdr._read_local_settings(self.root)
-        self.assertEqual(cfg["projects"][0]["alias"], "Resolute-SDK")
+        run_file = _write(
+            self.root,
+            "run.md",
+            "## Fleet\n\n| Project | Commit | Disposition |\n| --- | --- | --- |\n"
+            "| Resolute-SDK | abc123 | delivered |\n",
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = vdr.run_fleet_mode(self.root, run_file, check_clean=False, negative_test=False)
+        out = buf.getvalue()
+        self.assertEqual(rc, 1)
+        self.assertIn("OtherAlias", out)
+        self.assertIn("Resolute-SDK", out)
+        self.assertNotIn("Resolute-SDK-Repo", out)
+        self.assertNotIn("Other-Repo", out)
+
+    def test_open_dashboard_refusal_names_malformed_overlay_file(self):
+        import forge
+
+        target = self.root / "wp_site"
+        target.mkdir()
+        forge.apply_kit(target, "wordpress")
+        _write(target, ".private/local.toml", "[vault\nbroken")
+        orig_path = list(sys.path)
+        saved = {name: sys.modules.pop(name, None) for name in ("wp_site", "site_ssh")}
+        try:
+            mod = _load("test_open_dashboard_malformed", target / "scripts/open-dashboard.py")
+            with self.assertRaises(mod.Refusal) as caught:
+                mod._pin()
+        finally:
+            sys.path[:] = orig_path
+            for name, prev in saved.items():
+                if prev is not None:
+                    sys.modules[name] = prev
+                else:
+                    sys.modules.pop(name, None)
+        self.assertEqual(caught.exception.code, 2)
+        self.assertIn(".private/local.toml", str(caught.exception))
+
+    def test_minimal_override_preserves_overlay_alert_settings(self):
+        alert = _load("test_sdk_alert_min", ALERT_PATH)
+        _write(
+            self.root,
+            ".private/local.toml",
+            '[alert]\nsender = "ov@example.com"\nto = "owner@example.com"\nkey_item = "op://Conclave/item1"\n',
+        )
+        _write(self.root, ".conclave/local.toml", '[paths]\nscratch = "C:\\\\work\\\\tmp"\n')
+        cfg = alert.settings(str(self.root))
+        self.assertEqual(cfg["sender"], "ov@example.com")
+        self.assertEqual(cfg["to"], "owner@example.com")
+        self.assertEqual(cfg["key_item"], "op://Conclave/item1")
 
     def test_private_gitignore_in_sdk_and_provisioned_target(self):
         import forge
@@ -297,7 +350,7 @@ class ConsumerIntegrationTests(unittest.TestCase):
         target = self.root / "new_project"
         target.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
-        (target / ".gitignore").write_text("build/\n", encoding="utf-8", newline="\n")
+        (target / ".gitignore").write_text("build/\n.private/\n!.private/\n", encoding="utf-8", newline="\n")
         res = forge.apply_kit(target, "base")
         self.assertEqual(res["private_gitignore"], "added")
         self.assertIn("build/", (target / ".gitignore").read_text(encoding="utf-8"))

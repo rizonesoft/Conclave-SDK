@@ -455,7 +455,7 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Verify design-contract rules, raw-byte mirrors, and AGENTS.md at recorded commits.")
-    ap.add_argument("--fleet", action="store_true", help="Verify all projects from .conclave/local.toml and --run-file.")
+    ap.add_argument("--fleet", action="store_true", help="Verify all projects from .conclave/local.toml or .private/local.toml and --run-file.")
     ap.add_argument("--run-file", default="", help="Phase run Markdown file holding the fleet table (for --fleet).")
     ap.add_argument("--sdk-root", default=".", help="Conclave-SDK root (default: .).")
     ap.add_argument("--project", default="", help="Single target project checkout path.")

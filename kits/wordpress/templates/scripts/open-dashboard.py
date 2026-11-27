@@ -33,14 +33,18 @@ import tempfile
 import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
-_LOCAL_SETTINGS_ERROR = False
+_LOCAL_SETTINGS_ERROR = None
 try:
     import site_ssh
     import wp_site
-except (ValueError, OSError):
+except (ValueError, OSError) as exc:
     site_ssh = None
     wp_site = None
-    _LOCAL_SETTINGS_ERROR = True
+    _LOCAL_SETTINGS_ERROR = (
+        "the local settings file .private/local.toml is not valid"
+        if ".private/local.toml" in str(exc) or ".private\\local.toml" in str(exc)
+        else "the local settings file .conclave/local.toml is not valid"
+    )
 
 QUERY = "conclave_ticket"
 OPTION = "conclave_login_ticket"
@@ -577,7 +581,7 @@ def _clean_up(pin, digest, err):
 def _pin():
     """The pin and the pinned user, refused before any ticket exists (exit 2) when they cannot carry a login."""
     if _LOCAL_SETTINGS_ERROR or wp_site is None:
-        raise Refusal("the local settings file .conclave/local.toml is not valid", 2)
+        raise Refusal(_LOCAL_SETTINGS_ERROR or "the local settings file .conclave/local.toml is not valid", 2)
     try:
         pin = wp_site.load()
     except OSError:

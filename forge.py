@@ -1675,10 +1675,17 @@ def _ensure_private_gitignore(target_root: Path) -> str:
         return "skipped_nonfile"
     raw = gitignore.read_bytes()
     text = raw.decode("utf-8", errors="surrogateescape")
+    ignored = False
     for line in text.splitlines():
         stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
         if stripped in (".private/", ".private", "/.private/", "/.private"):
-            return "already_present"
+            ignored = True
+        elif stripped in ("!.private/", "!.private", "!/.private/", "!/.private"):
+            ignored = False
+    if ignored:
+        return "already_present"
     sep = "" if (not text or text.endswith("\n")) else "\n"
     updated = (text + sep + ".private/\n").encode("utf-8", errors="surrogateescape")
     atomic_write(gitignore, updated)
