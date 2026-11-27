@@ -1903,12 +1903,57 @@ def _strip_gitignore_trailing_spaces(pat: bytes) -> bytes:
 
 
 def _seg_may_match(seg: bytes, target_low: bytes) -> bool:
-    """Conservative single-segment gitignore match against lowercase `target_low`."""
-    if b"\\" in seg or b"**" in seg:
+    """Conservative single-segment gitignore match against lowercase `target_low` (used only when Git or a
+    temporary directory is unavailable). Translates backslash escapes, `*`, `?`, and `[...]` / `[!...]` / `[^...]`
+    into a full-segment regex, returning True conservatively for POSIX bracket expressions (`[:`, `[.`, `[=`) or
+    malformed escapes/brackets."""
+    if b"**" in seg:
         return True
-    if b"*" in seg or b"?" in seg or b"[" in seg:
-        return fnmatch.fnmatchcase(target_low, seg.replace(b"[^", b"[!"))
-    return seg == target_low
+    parts: list[bytes] = []
+    idx = 0
+    length = len(seg)
+    while idx < length:
+        ch = seg[idx:idx + 1]
+        if ch == b"\\":
+            if idx + 1 >= length:
+                return True
+            parts.append(re.escape(seg[idx + 1:idx + 2]))
+            idx += 2
+        elif ch == b"*":
+            parts.append(b".*")
+            idx += 1
+        elif ch == b"?":
+            parts.append(b".")
+            idx += 1
+        elif ch == b"[":
+            end = idx + 1
+            if end < length and seg[end:end + 1] in (b"!", b"^"):
+                end += 1
+            if end < length and seg[end:end + 1] == b"]":
+                end += 1
+            while end < length and seg[end:end + 1] != b"]":
+                if seg[end:end + 1] == b"\\":
+                    end += 2
+                else:
+                    end += 1
+            if end >= length:
+                return True
+            inner = seg[idx + 1:end]
+            if b"[:" in inner or b"[." in inner or b"[=" in inner:
+                return True
+            neg = b""
+            if inner.startswith((b"!", b"^")):
+                neg = b"^"
+                inner = inner[1:]
+            parts.append(b"[" + neg + inner + b"]")
+            idx = end + 1
+        else:
+            parts.append(re.escape(ch))
+            idx += 1
+    try:
+        return re.fullmatch(b"".join(parts), target_low, re.DOTALL) is not None
+    except re.error:
+        return True
 
 
 def _git_check_ignore_bytes(raw: bytes, probe: str, *, require_patterns: tuple[str, ...] | None = None) -> bool | None:

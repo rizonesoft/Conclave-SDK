@@ -226,7 +226,7 @@ class LocalSettingsReaderTests(unittest.TestCase):
         # 4. Hard-linked .gitignore and .conclave/.gitignore covering all accepted spellings
         #    (.private/, /.private/, .private, /.private; local.toml, /local.toml) followed by unrelated rules,
         #    unrelated literal negations (!README.md, !.env.example), and unrelated wildcard/bracket negations
-        #    (!docs/**, !**/README.md, !**/[Rr]EADME.md) are accepted in apply_kit, preview, and live update.
+        #    (!docs/**, !**/[Rr]EADME.md) are accepted in apply_kit, preview, and live update.
         spellings = (
             (".private/", "local.toml"),
             ("/.private/", "/local.toml"),
@@ -254,7 +254,17 @@ class LocalSettingsReaderTests(unittest.TestCase):
             self.assertEqual(good_root_src.read_bytes(), root_body.encode())
             self.assertEqual(good_sub_src.read_bytes(), sub_body.encode())
 
-        # 5. Opened-handle guard in _open_regular_append directly refuses a hard-linked file.
+        # 5. Fallback matcher (when native Git evaluation is unavailable) handles POSIX character classes
+        #    conservatively and allows unrelated escaped filenames and bracket expressions.
+        with unittest.mock.patch("forge._git_check_ignore_bytes", return_value=None):
+            fn = forge._gitignore_bytes_have_unnegated_rule
+            self.assertFalse(fn(b"local.toml\n![[:alpha:]]ocal.toml\n", b"local.toml"))
+            self.assertFalse(fn(b"local.toml\n!**/local.toml\n", b"local.toml"))
+            self.assertFalse(fn(b".private/\n!\\.private/\n", forge.PRIVATE_GITIGNORE_RULES_BYTES))
+            self.assertTrue(fn(b"local.toml\n!README\\ notes.md\n", b"local.toml"))
+            self.assertTrue(fn(b"local.toml\n!**/[Rr]EADME.md\n", b"local.toml"))
+
+        # 6. Opened-handle guard in _open_regular_append directly refuses a hard-linked file.
         direct_a = _write(other, "direct_a.gitignore", "x\n")
         direct_b = other / "direct_b.gitignore"
         os.link(direct_a, direct_b)
