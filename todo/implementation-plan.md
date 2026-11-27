@@ -214,13 +214,13 @@ Sections: 27 | Checklist items: 173
 
 ### Phase 10: Public release: private overlay and the Neon writer
 
-Sections: 16 | Checklist items: 94
+Sections: 16 | Checklist items: 95
 
 | Status | Reference   | Deliverable                                                  | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------------ | ----- | ----- |
 | [x]    | D00 T04 §1  | Base kit guidance names Gemini 4 Neon                        | none  | 6     |
 | [x]    | D00 T04 §2  | Antigravity TODO skills without Carbon handoffs              | none  | 5     |
-| [ ]    | D00 T04 §3  | Reviewer pin accepts Neon with an effort                     | none  | 4     |
+| [ ]    | D00 T04 §3  | Reviewer pin accepts Neon with an effort                     | none  | 5     |
 | [ ]    | D00 T04 §4  | Unattended profile runs Neon with its effort                 | none  | 5     |
 | [ ]    | D00 T04 §5  | SDK copies, documents and tests follow the kits              | none  | 5     |
 | [ ]    | D06 T03 §1  | Overlay folder and the settings reader that falls back to it | none  | 8     |
@@ -248,4 +248,4 @@ Sections: 4 | Checklist items: 33
 
 Progress: 136/156 verified sections, 3 ready to run now.
 
-Checklist: 1065/1179 items completed (includes Commit items).
+Checklist: 1065/1180 items completed (includes Commit items).
