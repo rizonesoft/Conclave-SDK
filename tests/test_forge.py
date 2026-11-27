@@ -416,7 +416,8 @@ class ForgeProvisionTests(unittest.TestCase):
             self.assertEqual(record["files"][rel],
                              {"kit": "todo", "sha256": forge.file_digest((templates / rel).read_bytes())}, rel)
         on_disk = {p.relative_to(self.target).as_posix() for p in self.target.rglob("*") if p.is_file()}
-        self.assertEqual(set(record["files"]), on_disk - {forge.RECORD})
+        self.assertEqual(set(record["files"]), on_disk - {forge.RECORD, ".gitignore"})
+        self.assertEqual((self.target / ".gitignore").read_text(encoding="utf-8").strip(), ".private/")
 
     def test_the_cli_has_no_sync_or_mode_that_links_a_project_to_the_sdk(self):
         for argv in (["sync", str(self.target)], ["digest"], ["init", str(self.target), "--mode", "inherit"]):
@@ -550,6 +551,9 @@ class ForgeProvisionTests(unittest.TestCase):
                 rel = path.relative_to(root).as_posix()
                 if path.is_file() and not forge.CACHE_DIRS.intersection(path.parts) and self.kept_for(rel, agent):
                     expected[rel] = path
+        if kit in ("automations", "wordpress"):
+            for shared in (".conclave/.gitignore", ".conclave/local_settings.py"):
+                expected[shared] = kits / "base/templates" / shared
         return expected
 
     def kit_fixtures(self):
@@ -610,7 +614,10 @@ class ForgeProvisionTests(unittest.TestCase):
                                  sorted(rel for _src, _dst, rel, _generated in brought))
                 if kit == "unattended":
                     self.assertIn(forge.LAUNCHERS_RENDERER, res["launchers"]["installed"])
-                written = {p for p in project.rglob("*") if p.is_file()} - before - {project / forge.RECORD}
+                extra_ignore = {project / ".gitignore"} if kit in ("base", "automations", "wordpress") else set()
+                if extra_ignore:
+                    self.assertEqual((project / ".gitignore").read_text(encoding="utf-8").strip(), ".private/")
+                written = {p for p in project.rglob("*") if p.is_file()} - before - {project / forge.RECORD} - extra_ignore
                 self.assertEqual(written, {dst for _src, dst, _rel, _generated in entries + brought})
                 for src, dst, rel, generated in entries + brought:
                     # Only the Laravel install fills the table it brought; every other kit's files are the kit's.
