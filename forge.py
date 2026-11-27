@@ -3905,8 +3905,6 @@ def provision(
     _check_line("--acceptance", "bar", acceptance)
     agent = normalize_agent(agent)
     raw_target = Path(target_root)
-    if _is_link(raw_target):
-        raise ValueError(f"Target must be a folder, or a path that does not exist yet: {raw_target}")
     target_root = raw_target.resolve()
     # Checked on the resolved path, which is the one written to, so no link (dangling or retargeted before this run)
     # can lead into git's own data, or lead init over the kits' own source.
@@ -3914,8 +3912,8 @@ def provision(
         raise ValueError(f"Target is inside a .git folder: {target_root}")
     if os.path.normcase(str(target_root)) == os.path.normcase(str(FORGE_ROOT)):
         raise ValueError(f"Target is the Conclave-SDK source folder itself (use self-sync): {target_root}")
-    if target_root.exists() and (not target_root.is_dir() or _is_link(target_root)):
-        raise ValueError(f"Target must be a folder, or a path that does not exist yet: {target_root}")
+    if _is_link(raw_target) or (target_root.exists() and (not target_root.is_dir() or _is_link(target_root))):
+        raise ValueError(f"Target must be a folder, or a path that does not exist yet: {raw_target}")
 
     chosen = ["base", *(["todo"] if with_todo else []), *(kits or [])]
     chosen += [BROUGHT_KITS[k] for k in chosen if k in BROUGHT_KITS]   # planned and preflighted with the rest
