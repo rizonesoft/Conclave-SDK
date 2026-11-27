@@ -860,43 +860,101 @@ class ConsumerIntegrationTests(unittest.TestCase):
 
     def test_fifo_is_refused_without_blocking_across_all_ignore_and_settings_paths(self):
         import stat as stat_mod
+        import threading
         import types
         import unittest.mock
         import forge
 
-        target = self.root / "fifo_proj"
-        target.mkdir()
+        def run_bounded(fn):
+            err: list[BaseException] = []
+            done = threading.Event()
+
+            def worker():
+                try:
+                    fn()
+                except Exception as exc:
+                    err.append(exc)
+                finally:
+                    done.set()
+
+            t = threading.Thread(target=worker, daemon=True)
+            t.start()
+            self.assertTrue(done.wait(timeout=5.0), "FIFO operation blocked past 5s timeout")
+            if err:
+                raise err[0]
+
         ls = _load("test_ls_fifo", KIT_LS)
         if hasattr(os, "mkfifo"):
-            fifo = target / ".gitignore"
-            os.mkfifo(fifo)
-            with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                forge._ensure_private_gitignore(target)
-            (target / ".conclave").mkdir(exist_ok=True)
-            cfifo = target / ".conclave" / ".gitignore"
-            os.mkfifo(cfifo)
-            with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                forge._ensure_local_toml_gitignore(target)
-            sfifo = target / ".conclave" / "local.toml"
-            os.mkfifo(sfifo)
+            # 1. Root .gitignore replaced with a FIFO after preflight
+            t1 = self.root / "fifo_root"
+            t1.mkdir()
+            ig1 = _write(t1, ".gitignore", "build/\n")
+            real_preflight = forge._preflight_settings_gitignores
+
+            def swap_root_after_preflight(root_dir):
+                real_preflight(root_dir)
+                ig1.unlink()
+                os.mkfifo(ig1)
+
+            with unittest.mock.patch.object(forge, "_preflight_settings_gitignores", side_effect=swap_root_after_preflight):
+                with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                    run_bounded(lambda: forge._ensure_private_gitignore(t1))
+
+            # 2. .conclave/.gitignore replaced with a FIFO after preflight
+            t2 = self.root / "fifo_local"
+            t2.mkdir()
+            ig2 = _write(t2, ".conclave/.gitignore", "cache/\n")
+
+            def swap_local_after_preflight(root_dir):
+                real_preflight(root_dir)
+                ig2.unlink()
+                os.mkfifo(ig2)
+
+            with unittest.mock.patch.object(forge, "_preflight_settings_gitignores", side_effect=swap_local_after_preflight):
+                with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                    run_bounded(lambda: forge._ensure_local_toml_gitignore(t2))
+
+            # 3. Post-close verification read encounters a FIFO swapped in after close
+            t3 = self.root / "fifo_post_close"
+            t3.mkdir()
+            ig3 = _write(t3, ".gitignore", "build/\n")
+            real_close = forge.os.close
+            swapped = [False]
+
+            def swap_on_close(fd):
+                real_close(fd)
+                if not swapped[0]:
+                    swapped[0] = True
+                    ig3.unlink()
+                    os.mkfifo(ig3)
+
+            with unittest.mock.patch.object(forge.os, "close", side_effect=swap_on_close):
+                with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                    run_bounded(lambda: forge._append_gitignore_rule(ig3, b".private/\n", creating=False))
+
+            # 4. Shared settings reader refuses a FIFO without blocking
+            t4 = self.root / "fifo_settings"
+            (t4 / ".conclave").mkdir(parents=True)
+            os.mkfifo(t4 / ".conclave" / "local.toml")
             with self.assertRaisesRegex(ls.LocalSettingsError, r"\.conclave/local\.toml.*not a regular file"):
-                ls.read_local_settings(target)
+                run_bounded(lambda: ls.read_local_settings(t4))
         else:
-            _write(target, ".gitignore", "build/\n")
-            _write(target, ".conclave/.gitignore", "cache/\n")
-            _write(target, ".conclave/local.toml", '[paths]\nscratch = "x"\n')
             fake_stat = types.SimpleNamespace(st_mode=stat_mod.S_IFIFO | 0o600)
+            t1 = self.root / "fifo_root"
+            _write(t1, ".gitignore", "build/\n")
             with unittest.mock.patch.object(forge.os, "fstat", return_value=fake_stat):
                 with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                    forge._ensure_private_gitignore(target)
+                    forge._ensure_private_gitignore(t1)
+
+            t2 = self.root / "fifo_local"
+            _write(t2, ".conclave/.gitignore", "cache/\n")
+            with unittest.mock.patch.object(forge.os, "fstat", return_value=fake_stat):
                 with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                    forge._ensure_local_toml_gitignore(target)
-            with unittest.mock.patch.object(ls.os, "fstat", return_value=fake_stat):
-                with self.assertRaisesRegex(ls.LocalSettingsError, r"\.conclave/local\.toml.*not a regular file"):
-                    ls.read_local_settings(target)
-            # Post-close read path also refuses a FIFO
+                    forge._ensure_local_toml_gitignore(t2)
+
+            t3 = self.root / "fifo_post_close"
+            ig3 = _write(t3, ".gitignore", "build/\n")
             real_close = forge.os.close
-            ig3 = _write(target, ".gitignore3", "build/\n")
             switched = [False]
 
             def flip_to_fifo_on_close(fd):
@@ -912,6 +970,12 @@ class ConsumerIntegrationTests(unittest.TestCase):
                  unittest.mock.patch.object(forge.os, "fstat", side_effect=fstat_fifo_after_close):
                 with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
                     forge._append_gitignore_rule(ig3, b".private/\n", creating=False)
+
+            t4 = self.root / "fifo_settings"
+            _write(t4, ".conclave/local.toml", '[paths]\nscratch = "x"\n')
+            with unittest.mock.patch.object(ls.os, "fstat", return_value=fake_stat):
+                with self.assertRaisesRegex(ls.LocalSettingsError, r"\.conclave/local\.toml.*not a regular file"):
+                    ls.read_local_settings(t4)
 
     def test_replace_on_save_during_append_is_refused(self):
         import unittest.mock

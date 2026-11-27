@@ -1519,6 +1519,7 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
     left: list[dict] = []
     siblings: list[str] = []
     seen_shared: set[str] = set()
+    shared_base = {".conclave/local_settings.py", ".conclave/.gitignore"}
     # The Laravel kit first: its hook serves either client, so it is in place before the lsp kit's client replaces
     # an old one. An update stopped between the two leaves the new hook with the old client, which work together;
     # the other order would leave the old hook calling a client that refuses its names.
@@ -1533,7 +1534,8 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
             rel, state = item["path"], item["state"]
             if state == "identical" or not chosen(rel) or rel in seen_shared:
                 continue
-            seen_shared.add(rel)
+            if rel in shared_base:
+                seen_shared.add(rel)
             if plan.get(rel, False) is None:  # a generated entry has no source
                 left.append({"path": rel, "state": state, "hint": UPDATE_HINT_GENERATED})
                 continue

@@ -817,6 +817,9 @@ class ForgeProvisionTests(unittest.TestCase):
             # The ticket login's tests read the plugin where an install puts it, beside scripts/ (D07 T02 section 1).
             for name in ("ticket-login", "elementor-cache-purge"):
                 shutil.copytree(kit / "templates/tools" / name, pathlib.Path(tmp) / "tools" / name)
+            (pathlib.Path(tmp) / ".conclave").mkdir(exist_ok=True)
+            shutil.copyfile(FORGE_ROOT / "kits/base/templates/.conclave/local_settings.py",
+                            pathlib.Path(tmp) / ".conclave/local_settings.py")
             result = run_kit_suite(scripts / "tests", 120)
         self.assertTrue(result["passed"], suite_failure(result))
 
