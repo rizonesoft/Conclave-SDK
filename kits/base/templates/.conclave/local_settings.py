@@ -40,45 +40,55 @@ def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
         raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
 
 
-def _merge_into(base: dict, override: dict, origins: dict[str, str] | None = None, source: str = "") -> dict:
+def _merge_into(
+    base: dict,
+    override: dict,
+    origins: dict[tuple[str, ...], str] | None = None,
+    source: str = "",
+) -> dict:
     """Iteratively merge `override` into freshly parsed `base` in place with `override` winning.
     Merges nested values only when both sides are tables; any other value in `override` (including `[]`, `""`,
     scalars, or a scalar over a table) replaces `base` whole. Iterative so deeply nested TOML never hits
     Python's recursion limit."""
-    stack: list[tuple[dict, dict, str]] = [(base, override, "")]
+    stack: list[tuple[dict, dict, tuple[str, ...]]] = [(base, override, ())]
     while stack:
         dst, src, prefix = stack.pop()
         for key, value in src.items():
-            dotted = f"{prefix}.{key}" if prefix else key
+            path = (*prefix, key)
             if key in dst and isinstance(dst[key], dict) and isinstance(value, dict):
-                stack.append((dst[key], value, dotted))
+                stack.append((dst[key], value, path))
             else:
                 dst[key] = value
                 if origins is not None:
-                    origins[dotted] = source
+                    origins[path] = source
                     if isinstance(value, dict):
-                        _record_origins(value, origins, source, dotted)
+                        _record_origins(value, origins, source, path)
     return base
 
 
-def _record_origins(table: dict, origins: dict[str, str], source: str, prefix: str = "") -> None:
-    """Iteratively record which file supplied each key in `table`."""
-    stack: list[tuple[dict, str]] = [(table, prefix)]
+def _record_origins(
+    table: dict,
+    origins: dict[tuple[str, ...], str],
+    source: str,
+    prefix: tuple[str, ...] = (),
+) -> None:
+    """Iteratively record which file supplied each key path tuple in `table`."""
+    stack: list[tuple[dict, tuple[str, ...]]] = [(table, prefix)]
     while stack:
         cur, pref = stack.pop()
         for key, value in cur.items():
-            dotted = f"{pref}.{key}" if pref else key
-            origins[dotted] = source
+            path = (*pref, key)
+            origins[path] = source
             if isinstance(value, dict):
-                stack.append((value, dotted))
+                stack.append((value, path))
 
 
-def load_local_settings_with_origins(root: Path | str) -> tuple[dict, tuple[str, ...], dict[str, str]]:
+def load_local_settings_with_origins(root: Path | str) -> tuple[dict, tuple[str, ...], dict[tuple[str, ...], str]]:
     """Load `.private/local.toml` and `.conclave/local.toml` in one pass and return `(merged, loaded, origins)`
-    where `origins` maps dotted key paths (e.g. `vault`, `vault.cli`) to the file that supplied the winning value."""
+    where `origins` maps key-path tuples (e.g. `("vault",)`, `("vault", "cli")`) to the winning file."""
     base_dir = Path(root)
     loaded: list[str] = []
-    origins: dict[str, str] = {}
+    origins: dict[tuple[str, ...], str] = {}
     merged: dict | None = None
     for rel in (OVERLAY, LOCAL):
         try:

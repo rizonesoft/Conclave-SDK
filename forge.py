@@ -1698,9 +1698,16 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
             raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
 
 
-def _git_repo_ignores(target_root: Path, rel_path: str, *, allowed_sources: tuple[str, ...]) -> bool | None:
+def _git_repo_ignores(
+    target_root: Path,
+    rel_path: str,
+    *,
+    allowed_sources: tuple[str, ...],
+    require_patterns: tuple[str, ...] | None = None,
+) -> bool | None:
     """Return True if Git ignores `rel_path` via one of `allowed_sources` (in-repo `.gitignore` files, never a
-    global `core.excludesFile` or `.git/info/exclude`), False if not, or None if `target_root` is not a Git repo."""
+    global `core.excludesFile` or `.git/info/exclude`), False if not, or None if `target_root` is not a Git repo.
+    When `require_patterns` is given, the winning pattern must also be one of those exact directory/path rules."""
     if not (target_root / ".git").exists() or not shutil.which("git"):
         return None
     proc = subprocess.run(
@@ -1722,23 +1729,29 @@ def _git_repo_ignores(target_root: Path, rel_path: str, *, allowed_sources: tupl
     pattern = parts[2].split("\t", 1)[0]
     if pattern.startswith("!"):
         return False
-    return source in allowed_sources
+    if source not in allowed_sources:
+        return False
+    if require_patterns is not None and pattern not in require_patterns:
+        return False
+    return True
 
 
 def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
-    """Ensure `<target_root>/.gitignore` effectively ignores the whole `.private/` directory (not merely a global
-    `local.toml` exclude) without overwriting existing rules."""
+    """Ensure `<target_root>/.gitignore` ignores the `.private/` directory itself (so Git never descends into
+    `.private/` and child negations like `!.private/README.md` cannot stage overlay files) without overwriting
+    existing rules."""
     _preflight_settings_gitignores(target_root)
     gitignore = target_root / ".gitignore"
-    probe = ".private/conclave-overlay-probe"
-    git_ignored = _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",))
-    if git_ignored is True and _git_repo_ignores(target_root, OVERLAY, allowed_sources=(".gitignore",)) is True:
+    probe = ".private/"
+    dir_rules = (".private/", "/.private/", ".private", "/.private")
+    git_ignored = _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules)
+    if git_ignored is True:
         return "already_present"
     if not gitignore.exists():
         if dry_run:
             return "would_create"
         atomic_write(gitignore, b".private/\n")
-        if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",)) is False:
+        if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
             raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
         return "created"
     raw = gitignore.read_bytes()
@@ -1749,7 +1762,7 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            if stripped in (".private/", ".private", "/.private/", "/.private"):
+            if stripped in dir_rules:
                 ignored = True
             elif stripped.startswith("!"):
                 ignored = False
@@ -1760,7 +1773,7 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
     sep = "" if (not text or text.endswith("\n")) else "\n"
     updated = (text + sep + ".private/\n").encode("utf-8", errors="surrogateescape")
     atomic_write(gitignore, updated)
-    if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",)) is False:
+    if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
         raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
     return "added"
 

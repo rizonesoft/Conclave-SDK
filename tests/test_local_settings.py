@@ -676,6 +676,52 @@ class ConsumerIntegrationTests(unittest.TestCase):
             self.assertEqual(wp_site.vault_settings(root=self.root), ("ov-op", "LocalVault"))
         self.assertEqual(len(calls), 2, f"expected 2 reads (overlay + override), got {calls}")
 
+    def test_private_star_with_child_negation_is_replaced_by_directory_ignore(self):
+        import forge
+
+        target = self.root / "child_neg_proj"
+        target.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
+        (target / ".gitignore").write_text(".private/*\n!.private/README.md\n", encoding="utf-8", newline="\n")
+        res = forge.apply_kit(target, "base")
+        self.assertEqual(res["private_gitignore"], "added")
+        chk = subprocess.run(
+            ["git", "check-ignore", "-q", "--", ".private/README.md"],
+            cwd=str(target),
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(chk.returncode, 0)
+
+    def test_verify_design_rules_fleet_rejects_duplicate_alias(self):
+        import contextlib
+        import io
+
+        vdr = _load("test_vdr_dup_alias", VERIFY_DESIGN_PATH)
+        _write(
+            self.root,
+            ".private/local.toml",
+            '[[projects]]\nname = "First"\nalias = "Shared"\nwindows = "C:\\\\work\\\\a"\n'
+            '[[projects]]\nname = "Second"\nalias = "Shared"\nwindows = "C:\\\\work\\\\b"\n',
+        )
+        run_file = _write(self.root, "run.md", "# empty\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = vdr.run_fleet_mode(self.root, run_file, check_clean=False, negative_test=False)
+        self.assertEqual(rc, 1)
+        out = buf.getvalue()
+        self.assertIn("duplicate alias", out)
+        self.assertIn("First", out)
+        self.assertIn("Second", out)
+        self.assertIn(".private/local.toml", out)
+
+    def test_wp_site_quoted_top_level_key_does_not_collide_with_nested_provenance(self):
+        wp_site = _load("test_wp_site_quoted", WP_SITE_PATH)
+        _write(self.root, ".private/local.toml", "[vault]\ncli = []\n")
+        _write(self.root, ".conclave/local.toml", '"vault.cli" = "unrelated"\n')
+        with self.assertRaisesRegex(ValueError, r"^\.private/local\.toml: vault\.cli"):
+            wp_site.vault_settings(root=self.root)
+
     def test_minimal_override_preserves_overlay_alert_settings(self):
         alert = _load("test_sdk_alert_min", ALERT_PATH)
         _write(

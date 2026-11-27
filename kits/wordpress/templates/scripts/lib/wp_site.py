@@ -56,7 +56,7 @@ def vault_settings(path=None, *, root=ROOT):
             data, loaded, origins = ls.load_local_settings_with_origins(root)
         except ls.LocalSettingsError as error:
             raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
-        source = origins.get("vault") or (" / ".join(loaded) if loaded else f"{ls.LOCAL} / {ls.OVERLAY}")
+        source = origins.get(("vault",)) or (" / ".join(loaded) if loaded else f"{ls.LOCAL} / {ls.OVERLAY}")
     table = data.get("vault", {})
     if not isinstance(table, dict):
         raise ValueError(f"{source}: [vault] must be a table")
@@ -64,7 +64,7 @@ def vault_settings(path=None, *, root=ROOT):
     for key, default in (("cli", "conclave-op"), ("name", "Conclave")):
         value = table.get(key, default)
         if not isinstance(value, str) or not value.strip() or any(char in value for char in "\r\n\0"):
-            key_source = origins.get(f"vault.{key}") or source
+            key_source = origins.get(("vault", key)) or source
             raise ValueError(f"{key_source}: vault.{key} must be a non-empty string")
         found.append(value)
     return tuple(found)

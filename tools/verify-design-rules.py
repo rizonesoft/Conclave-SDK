@@ -377,6 +377,9 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
             print(f"FAIL fleet settings invalid ({sources}): projects[{idx}] ({proj['name']}) missing non-empty windows path")
             return 1
         alias = raw_alias or proj["name"]
+        if alias in proj_map:
+            print(f"FAIL fleet settings invalid ({sources}): duplicate alias '{alias}' ({proj_map[alias]['name']} and {proj['name']})")
+            return 1
         proj_map[alias] = proj
 
     if "Resolute-SDK" not in proj_map:
