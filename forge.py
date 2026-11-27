@@ -2193,10 +2193,12 @@ def _installed_reviewer_supports_agy_effort(target_root: Path) -> tuple[bool, st
     dispatch_path = target_root / "scripts/review-dispatch.py"
     pin_path = target_root / "scripts/review_pin.py"
     if not dispatch_path.is_file():
-        return False, "scripts/review-dispatch.py is missing"
+        return False, "scripts/review-dispatch.py is missing; repair with `python forge.py update <project> reviewer`"
+    if not pin_path.is_file():
+        return False, "scripts/review_pin.py is missing; repair with `python forge.py update <project> reviewer`"
     try:
         dispatch_text = dispatch_path.read_text(encoding="utf-8", errors="replace")
-        pin_text = pin_path.read_text(encoding="utf-8", errors="replace") if pin_path.is_file() else ""
+        pin_text = pin_path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         return False, f"could not read installed reviewer scripts: {exc}"
     legacy_msg = "Antigravity carries the effort in the model name"
@@ -2206,7 +2208,7 @@ def _installed_reviewer_supports_agy_effort(target_root: Path) -> tuple[bool, st
     if "AGY_EFFORT_FLAG" not in dispatch_text:
         return False, ("installed scripts/review-dispatch.py predates explicit Antigravity --effort dispatch; "
                        "update with `python forge.py update <project> reviewer`")
-    return True, "scripts/review-dispatch.py supports explicit Antigravity --effort"
+    return True, "scripts/review-dispatch.py and scripts/review_pin.py support explicit Antigravity --effort"
 
 
 def _doctor_reviewer(target_root: Path, add_check) -> None:

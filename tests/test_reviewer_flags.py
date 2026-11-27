@@ -585,6 +585,16 @@ class DoctorCheck(unittest.TestCase):
             self.assertEqual(checks["reviewer-kit-effort"]["status"], "unexpected")
             self.assertIn("forge.py update", checks["reviewer-kit-effort"]["detail"])
 
+        # Missing companion scripts/review_pin.py fails doctor naming the missing path and repair command.
+        (project / "scripts/review_pin.py").unlink()
+        with self.path_with_only_the_stub():
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-kit-effort"]["status"], "unexpected")
+            self.assertIn("scripts/review_pin.py", checks["reviewer-kit-effort"]["detail"])
+            self.assertIn("forge.py update", checks["reviewer-kit-effort"]["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()
