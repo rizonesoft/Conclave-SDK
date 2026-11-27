@@ -201,19 +201,31 @@ class LocalSettingsReaderTests(unittest.TestCase):
         self.assertEqual(other_sub.read_bytes(), b".env\n", "original hard-linked .conclave/.gitignore must stay untouched")
         self.assertFalse((target_sub / ".conclave" / "local_settings.py").exists())
 
-        # 3. Hard-linked .gitignore with a later negation after .private/ is still refused before any writes.
-        neg_ig = _write(other, "neg.gitignore", ".private/\n!.private/README.md\n")
-        target_neg = self.root / "hardlink_neg_target"
-        target_neg.mkdir()
-        os.link(neg_ig, target_neg / ".gitignore")
-        with self.assertRaisesRegex(ValueError, r"Refusing hard-linked \.gitignore"):
-            forge.apply_kit(target_neg, "base")
-        self.assertEqual(neg_ig.read_bytes(), b".private/\n!.private/README.md\n")
-        self.assertFalse((target_neg / ".conclave").exists())
+        # 3. Hard-linked ignore files with matching negations (including case-insensitive !.PRIVATE/ and
+        #    trailing-space !local.toml   ) are still refused before any writes.
+        for label, body in (("child", ".private/\n!.private/README.md\n"), ("case", ".private/\n!.PRIVATE/\n")):
+            neg_ig = _write(other, f"neg_{label}.gitignore", body)
+            target_neg = self.root / f"hardlink_neg_target_{label}"
+            target_neg.mkdir()
+            os.link(neg_ig, target_neg / ".gitignore")
+            with self.assertRaisesRegex(ValueError, r"Refusing hard-linked \.gitignore"):
+                forge.apply_kit(target_neg, "base")
+            self.assertEqual(neg_ig.read_bytes(), body.encode())
+            self.assertFalse((target_neg / ".conclave").exists())
+        neg_sub = _write(other, "neg_sub.gitignore", "local.toml\n!local.toml   \n")
+        target_neg_sub = self.root / "hardlink_neg_sub_target"
+        _write(target_neg_sub, ".gitignore", ".private/\n")
+        (target_neg_sub / ".conclave").mkdir(parents=True, exist_ok=True)
+        os.link(neg_sub, target_neg_sub / ".conclave" / ".gitignore")
+        with self.assertRaisesRegex(ValueError, r"Refusing hard-linked \.conclave/\.gitignore"):
+            forge.apply_kit(target_neg_sub, "base")
+        self.assertEqual(neg_sub.read_bytes(), b"local.toml\n!local.toml   \n")
+        self.assertFalse((target_neg_sub / ".conclave" / "local_settings.py").exists())
 
         # 4. Hard-linked .gitignore and .conclave/.gitignore covering all accepted spellings
-        #    (.private/, /.private/, .private, /.private; local.toml, /local.toml) followed by unrelated rules
-        #    and unrelated negations (!README.md, !.env.example) are accepted in apply_kit, preview, and live update.
+        #    (.private/, /.private/, .private, /.private; local.toml, /local.toml) followed by unrelated rules,
+        #    unrelated literal negations (!README.md, !.env.example), and unrelated directory wildcards (!docs/**)
+        #    are accepted in apply_kit, preview, and live update.
         spellings = (
             (".private/", "local.toml"),
             ("/.private/", "/local.toml"),
@@ -221,8 +233,8 @@ class LocalSettingsReaderTests(unittest.TestCase):
             ("/.private", "/local.toml"),
         )
         for idx, (root_rule, sub_rule) in enumerate(spellings):
-            root_body = f"build/\n{root_rule}\n.aider*\n!README.md\n"
-            sub_body = f".env\n{sub_rule}\n*.bak\n!.env.example\n"
+            root_body = f"build/\n{root_rule}\n.aider*\n!README.md\n!docs/**\n"
+            sub_body = f".env\n{sub_rule}\n*.bak\n!.env.example\n!docs/**\n"
             good_root_src = _write(other, f"good_root_{idx}.gitignore", root_body)
             good_sub_src = _write(other, f"good_sub_{idx}.gitignore", sub_body)
             target_ok = self.root / f"hardlink_noop_target_{idx}"

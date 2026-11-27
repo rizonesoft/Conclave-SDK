@@ -1887,9 +1887,25 @@ def _git_repo_ignores(
     return True
 
 
+def _strip_gitignore_trailing_spaces(pat: bytes) -> bytes:
+    """Strip unescaped trailing ASCII spaces per gitignore(5)."""
+    end = len(pat)
+    while end > 0 and pat[end - 1:end] == b" ":
+        bs = 0
+        idx = end - 2
+        while idx >= 0 and pat[idx:idx + 1] == b"\\":
+            bs += 1
+            idx -= 1
+        if bs % 2 == 1:
+            break
+        end -= 1
+    return pat[:end]
+
+
 def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) -> bool:
-    """Conservative check whether a gitignore `!pattern` line could negate `target_name`."""
-    pat = neg_line[1:]
+    """Conservative check whether a gitignore `!pattern` line could negate `target_name` (case-insensitively,
+    so Windows/macOS `core.ignorecase=true` negations are never missed, and stripping unescaped trailing spaces)."""
+    pat = _strip_gitignore_trailing_spaces(neg_line[1:])
     if pat.startswith(b"/"):
         pat = pat[1:]
     dir_only = pat.endswith(b"/")
@@ -1897,15 +1913,24 @@ def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) ->
         pat = pat[:-1]
     if not pat or (dir_only and not is_dir):
         return False
-    if b"\\" in pat or b"**" in pat or b"[" in pat:
+    target_low = target_name.lower()
+    pat_low = pat.lower()
+    if b"/" in pat_low:
+        first_seg = pat_low.split(b"/", 1)[0]
+        if first_seg == b"**":
+            return True
+        if not is_dir:
+            return False
+        if b"\\" in first_seg or b"[" in first_seg or b"**" in first_seg:
+            return True
+        if b"*" in first_seg or b"?" in first_seg:
+            return fnmatch.fnmatchcase(target_low, first_seg)
+        return first_seg == target_low
+    if b"\\" in pat_low or b"[" in pat_low or b"**" in pat_low:
         return True
-    if b"*" in pat or b"?" in pat:
-        if b"/" in pat:
-            return is_dir and fnmatch.fnmatchcase(target_name, pat.split(b"/", 1)[0])
-        return fnmatch.fnmatchcase(target_name, pat)
-    if is_dir:
-        return pat == target_name or pat.startswith(target_name + b"/")
-    return pat == target_name
+    if b"*" in pat_low or b"?" in pat_low:
+        return fnmatch.fnmatchcase(target_low, pat_low)
+    return pat_low == target_low
 
 
 def _gitignore_bytes_have_unnegated_rule(raw: bytes, accepted_rules: bytes | tuple[bytes, ...]) -> bool:
