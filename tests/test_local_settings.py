@@ -812,6 +812,60 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertIn(b"dist/", content)
         self.assertIn(b"\n.private/\n", content)
 
+    def test_short_write_retries_until_complete_and_post_open_concurrent_append_survives(self):
+        import unittest.mock
+        import forge
+
+        target = self.root / "short_write_proj"
+        target.mkdir()
+        ig = target / ".gitignore"
+        real_write = forge.os.write
+        real_open = forge._open_regular_append
+        first_call = [True]
+
+        def interleaved_open(path, *, exclusive):
+            fd = real_open(path, exclusive=exclusive)
+            if exclusive and first_call[0]:
+                first_call[0] = False
+                # Second process appends AFTER first process exclusively created the file
+                other_fd = real_open(path, exclusive=False)
+                try:
+                    real_write(other_fd, b"other/\n")
+                finally:
+                    os.close(other_fd)
+            return fd
+
+        def short_write(fd, buf):
+            # Return 2 bytes at a time to prove _write_all completes the entire rule
+            return real_write(fd, bytes(buf[:2]))
+
+        with unittest.mock.patch.object(forge, "_open_regular_append", side_effect=interleaved_open), \
+             unittest.mock.patch.object(forge.os, "write", side_effect=short_write):
+            forge._append_gitignore_rule(ig, b".private/\n", creating=True)
+        content = ig.read_bytes()
+        self.assertIn(b"other/\n", content)
+        self.assertTrue(forge._gitignore_bytes_end_with_rule(content, b".private/"))
+
+    def test_git_worktree_prefix_preserves_leading_space_in_monorepo_dir(self):
+        import unittest.mock
+        import forge
+
+        rev_out = subprocess.CompletedProcess(["git"], 0, stdout=" client/\n", stderr="")
+        ls_out = subprocess.CompletedProcess(["git"], 0, stdout="", stderr="")
+        chk_out = subprocess.CompletedProcess(
+            ["git"], 0, stdout=b" client/.gitignore\x001\x00.private/\x00.private/\x00", stderr=b""
+        )
+        with unittest.mock.patch.object(forge.shutil, "which", return_value="git"), \
+             unittest.mock.patch.object(forge.subprocess, "run", side_effect=[rev_out, ls_out, chk_out]):
+            self.assertTrue(
+                forge._git_repo_ignores(
+                    self.root,
+                    ".private/",
+                    allowed_sources=(".gitignore",),
+                    require_patterns=(".private/",),
+                )
+            )
+
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock
         import forge

@@ -1714,7 +1714,7 @@ def _git_worktree_prefix(target_root: Path) -> str | None:
         if "not a git repository" in detail.lower():
             return None
         raise ValueError(f"git rev-parse failed in {target_root} (exit {proc.returncode}): {detail}")
-    return (proc.stdout or "").strip().replace("\\", "/")
+    return (proc.stdout or "").rstrip("\r\n").replace("\\", "/")
 
 
 def _check_untracked_in_git(target_root: Path, rel_paths: tuple[str, ...]) -> str | None:
@@ -1805,28 +1805,65 @@ def _gitignore_bytes_end_with_rule(raw: bytes, canonical_rule: bytes) -> bool:
     return last_rule == canonical_rule
 
 
-def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> None:
-    """Append `rule_line` to `path` without overwriting any concurrent edit: uses exclusive creation (`O_CREAT |
-    O_EXCL`) for a new file and kernel-level `O_APPEND` for an existing file (leading with `b'\\n'` so a concurrent
-    edit without a trailing newline stays intact; Git ignores blank lines)."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _write_all(fd: int, payload: bytes) -> None:
+    """Write every byte of `payload` to `fd`, retrying partial writes and raising OSError on zero-byte progress."""
+    view = memoryview(payload)
+    written = 0
+    while written < len(payload):
+        n = os.write(fd, view[written:])
+        if n <= 0:
+            raise OSError(f"short write while updating ignore file ({written} of {len(payload)} bytes)")
+        written += n
+
+
+def _open_regular_append(path: Path, *, exclusive: bool) -> int:
+    """Open `path` for append-only writes without following symlinks and verifying a regular file handle."""
     binary = getattr(os, "O_BINARY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | binary | nofollow
+    if exclusive:
+        flags |= os.O_EXCL
+    if _is_link(path):
+        raise ValueError(f"Refusing to modify symlinked {path}; add ignore rules manually")
+    try:
+        fd = os.open(path, flags, 0o666)
+    except OSError as exc:
+        if exclusive and isinstance(exc, FileExistsError):
+            raise
+        if nofollow and getattr(exc, "errno", None) == getattr(os, "ELOOP", 40):
+            raise ValueError(f"Refusing to modify symlinked {path}; add ignore rules manually") from None
+        raise
+    try:
+        if _is_link(path) or not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f"Refusing non-regular or symlinked {path}; add ignore rules manually")
+    except Exception:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> None:
+    """Append `rule_line` to `path` without overwriting any concurrent edit: uses `O_APPEND | O_CREAT | O_EXCL`
+    for new files and kernel-level `O_APPEND` (`b'\\n' + rule_line`) for existing files, enforces regular-file
+    non-symlink handles, retries short writes, and verifies the canonical rule is present at `path` after close."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canonical = rule_line.rstrip(b"\r\n")
+    fd: int | None = None
+    payload = rule_line
     if creating:
         try:
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | binary, 0o666)
+            fd = _open_regular_append(path, exclusive=True)
         except FileExistsError:
-            pass
-        else:
-            try:
-                os.write(fd, rule_line)
-            finally:
-                os.close(fd)
-            return
-    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | binary, 0o666)
+            fd = None
+    if fd is None:
+        fd = _open_regular_append(path, exclusive=False)
+        payload = b"\n" + rule_line
     try:
-        os.write(fd, b"\n" + rule_line)
+        _write_all(fd, payload)
     finally:
         os.close(fd)
+    if _is_link(path) or not path.is_file() or not _gitignore_bytes_end_with_rule(path.read_bytes(), canonical):
+        raise ValueError(f"{path} was replaced or truncated concurrently before {canonical.decode()} landed; retry")
 
 
 def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
