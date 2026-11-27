@@ -98,7 +98,11 @@ The todo kit's Antigravity copies of `process-plan`, `process-phase` and `proces
 
 ## 3. Reviewer pin accepts Neon with an effort
 
+> **Started:** 2026-11-27T00:16Z
+
 `review_pin.py` refuses an effort on an Orchestrator writer because Orchestrator rejects `--effort`. Neon takes an effort like the other writers, so the check keys on the model, not on `agy`.
+
+**Corrected 2026-11-27 (validation):** In `kits/reviewer/templates/scripts/review_pin.py`, `check_agy_effort` (`:487`) already keys scheduled-effort refusal on `is_agy_orchestrator(model)`, whereas `check_reviewer_effort` (`:146-155`) still refuses `effort` on every `cli == "agy"` reviewer and `EFFORTS` (`:64`) omits `"agy"` (`agy --help` accepts `low|medium|high|xhigh|max`). Updating `check_reviewer_effort` to refuse `effort` only when `is_agy_orchestrator(model)` also affects `tests/fixtures/check-pin/pins/refused-agy-effort.toml` (which previously used `gemini-4-argon-high` to test the blanket `cli == "agy"` refusal) and `kits/reviewer/templates/scripts/tests/test_review_dispatch.py:459-460`, so both are updated to test the Orchestrator reviewer-level `effort` refusal. Because `tests/test_check_pin_contract.py` runs `tests/fixtures/check-pin/pins/` and `tests/test_forge.py` enforces `self-sync` parity (and `scripts.tests.test_review_pin` imports the synced `scripts/review_pin.py`), §3 runs `python forge.py self-sync` and verifies `scripts.tests.test_review_pin`, `scripts.tests.test_review_dispatch`, and `tests.test_check_pin_contract`.
 
 **Phase:** 10
 **Needs:** none
@@ -106,14 +110,15 @@ The todo kit's Antigravity copies of `process-plan`, `process-phase` and `proces
 
 **Build order:**
 
-1. Make the effort refusal apply only to an Orchestrator model. Done when: a Neon pin with an effort validates and an Orchestrator pin with one is still refused.
+1. Add `"agy": ("low", "medium", "high", "xhigh", "max")` to `EFFORTS` and update `check_reviewer_effort` (and its `faults()` guard) in `kits/reviewer/templates/scripts/review_pin.py` so `effort` on an `agy` reviewer is refused only when `is_agy_orchestrator(model)` (or when the effort value is outside `EFFORTS["agy"]`), keeping `check_agy_effort` for scheduled efforts. Done when: a Neon pin with `effort = "medium"` validates, an invalid effort on Neon is refused, and an Orchestrator pin with `effort` on the reviewer entry or in `[schedule]` is refused.
+2. Add `tests/fixtures/check-pin/pins/valid-agy-neon-effort.toml`, update `tests/fixtures/check-pin/pins/refused-agy-effort.toml` (to `gemini-pro-orchestrator`), update `tests/fixtures/check-pin/pins/expected.json` (keeping both `refused-agy-orchestrator-*` fixtures), add unit tests in `kits/reviewer/templates/scripts/tests/test_review_pin.py`, update `kits/reviewer/templates/scripts/tests/test_review_dispatch.py:459-460`, update `kits/reviewer/README.md`, and run `python forge.py self-sync`. Done when: `python -m unittest scripts.tests.test_review_pin scripts.tests.test_review_dispatch tests.test_check_pin_contract` and `python -m unittest tests.test_forge -k the_sdk_uses_the_agent_setup -k markdown_table` pass.
 
-- [ ] Change the effort check in `kits/reviewer/templates/scripts/review_pin.py` to refuse an effort only when the `agy` writer's model is `gemini-pro-orchestrator` or a variant. Done when: the function accepts a Neon pin with `effort = "medium"`. Cheaper substitute: dropping the check, which lets an Orchestrator pin fail at launch.
-- [ ] Add `tests/fixtures/check-pin/pins/valid-agy-neon-effort.toml` and its line in `tests/fixtures/check-pin/pins/expected.json`, keeping the two `refused-agy-orchestrator-*` fixtures. Done when: `python -m unittest scripts.tests.test_review_pin` passes.
-- [ ] Update `kits/reviewer/README.md` to name Neon as the Antigravity writer. Done when: it names no Carbon handoff.
+- [ ] Add `"agy": ("low", "medium", "high", "xhigh", "max")` to `EFFORTS` and change `check_reviewer_effort` (plus its `faults()` call guard) in `kits/reviewer/templates/scripts/review_pin.py` to refuse an effort on `cli == "agy"` only when `is_agy_orchestrator(model)` (or when the effort value is not in `EFFORTS["agy"]`), keeping `check_agy_effort` for scheduled efforts. Done when: `review_pin.py` accepts a Neon pin (`gemini-4-neon-medium`) with `effort = "medium"`, refuses an unknown effort on Neon, and refuses `effort` on `gemini-pro-orchestrator` and `gemini-pro-orchestrator-*` in both `load_pin` and `faults`. Cheaper substitute: dropping the check, which lets an Orchestrator pin fail at launch. **Corrected 2026-11-27 (validation):** named `EFFORTS["agy"]`, `check_reviewer_effort`, and `faults()`.
+- [ ] Add `tests/fixtures/check-pin/pins/valid-agy-neon-effort.toml`, update `tests/fixtures/check-pin/pins/refused-agy-effort.toml` to use `gemini-pro-orchestrator`, update `tests/fixtures/check-pin/pins/expected.json` (keeping both `refused-agy-orchestrator-*` fixtures), add Neon/Orchestrator reviewer-effort tests in `kits/reviewer/templates/scripts/tests/test_review_pin.py`, and update `kits/reviewer/templates/scripts/tests/test_review_dispatch.py:459-460`. Done when: after `python forge.py self-sync`, `python -m unittest scripts.tests.test_review_pin scripts.tests.test_review_dispatch tests.test_check_pin_contract` passes and fails when `valid-agy-neon-effort.toml`'s expected result is flipped to refused. **Corrected 2026-11-27 (validation):** included `refused-agy-effort.toml`, `test_review_dispatch.py:459-460`, `self-sync`, and `tests.test_check_pin_contract`.
+- [ ] Update `kits/reviewer/README.md` to name Gemini 4 Neon as the Antigravity writer (replacing `Carbon` writer shortcut references and noting explicit `effort` support on Neon while Orchestrator remains effort-free). Done when: it names no Carbon handoff or Carbon writer shortcut.
 - [ ] Commit: `reviewer: the pin accepts Gemini 4 Neon with an effort (D00 T04 §3)`
 
-**Test checkpoint:** `python -m unittest scripts.tests.test_review_pin` ends `OK`, and fails when the Neon fixture's expected result is set to refused.
+**Test checkpoint:** `python -m unittest scripts.tests.test_review_pin tests.test_check_pin_contract` ends `OK`, and fails when the Neon fixture's expected result is set to refused. **Corrected 2026-11-27 (validation):** added `tests.test_check_pin_contract` which executes `tests/fixtures/check-pin/pins/expected.json`.
 
 ## 4. Unattended profile runs Neon with its effort
 
