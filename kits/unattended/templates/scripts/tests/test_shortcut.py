@@ -342,7 +342,7 @@ class ShortcutFixture(unittest.TestCase):
     PROFILE = {"schema_version": 1, "name": "demo", "agent": "claude", "model": "opus", "effort": "medium",
                "prompt_file": "docs/unattended-prompt.md", "branch": "main", "skip_permissions": True, "tools": [],
                "min_disk_gb": 1, "min_ram_gb": 1, "tick_seconds": 300, "idle_minutes": 45, "stall_hours": 6,
-               "preflight": [], "runners": {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"}}}
+               "preflight": [], "runners": {"agy": {"model": "gemini-4-neon-medium", "effort": "medium"}}}
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -1948,8 +1948,8 @@ class CampaignTitleTest(ShortcutFixture):
         claude = self.desk / "My Proj's Claude campaign.lnk"
         odd = self.desk / "Work.123.tmp.lnk"
         claude.rename(odd)
-        carbon = self.desk / "My Proj's Gemini campaign.lnk"
-        subprocess.run(["attrib", "+h", str(carbon)], check=True, capture_output=True, creationflags=windowless())
+        gemini_link = self.desk / "My Proj's Gemini campaign.lnk"
+        subprocess.run(["attrib", "+h", str(gemini_link)], check=True, capture_output=True, creationflags=windowless())
         done = self.shortcut("-Remove")
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertEqual((sorted(p.name for p in self.desk.iterdir()), list(self.icons.glob("*.ico"))), ([], []))

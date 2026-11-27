@@ -187,9 +187,13 @@ class LoadProfileTest(unittest.TestCase):
     def test_orchestrator_models_require_null_effort_and_non_orchestrators_refuse_it(self):
         for good in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-preview"):
             self.assertTrue(unattended.is_agy_orchestrator(good), good)
-        for bad in ("gemini-4-carbon-medium", "gemini-pro-orchestrator-", " gemini-pro-orchestrator",
+        for bad in ("gemini-4-neon-medium", "gemini-pro-orchestrator-", " gemini-pro-orchestrator",
                     "gemini-pro-orchestrator\0", None, 1):
             self.assertFalse(unattended.is_agy_orchestrator(bad), repr(bad))
+        self.write(self.with_(agent="agy", model="gemini-4-neon-medium", effort="high"))
+        loaded_neon = unattended.load_profile(self.root)
+        self.assertEqual((loaded_neon["agent"], loaded_neon["model"], loaded_neon["effort"]),
+                         ("agy", "gemini-4-neon-medium", "high"))
         for model in ("gemini-pro-orchestrator", "gemini-pro-orchestrator-2026"):
             self.write(self.with_(agent="agy", model=model, effort=None))
             loaded = unattended.load_profile(self.root)
@@ -198,7 +202,7 @@ class LoadProfileTest(unittest.TestCase):
                 with self.subTest(model=model, effort=bad_effort):
                     self.assertIn("manages its own effort and rejects --effort",
                                   self.refused("effort", self.with_(agent="agy", model=model, effort=bad_effort)))
-        for case in ({"agent": "agy", "model": "gemini-4-carbon-medium", "effort": None},
+        for case in ({"agent": "agy", "model": "gemini-4-neon-medium", "effort": None},
                      {"agent": "claude", "model": "gemini-pro-orchestrator", "effort": None},
                      {"agent": "codex", "model": "gpt-6.2-astra", "effort": None}):
             with self.subTest(case=case):
@@ -278,7 +282,7 @@ posix_only = unittest.skipUnless(os.name == "posix", "the launch lock is fcntl.f
 class RunnersTest(unittest.TestCase):
     """D02 T02 §10: one profile, several runners (`start --agent`), each with its own model and effort."""
 
-    RUNNERS = {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"},
+    RUNNERS = {"agy": {"model": "gemini-4-neon-medium", "effort": "medium"},
                "codex": {"model": "gpt-6.2-astra", "effort": "minimal"}}
 
     def setUp(self):
@@ -297,7 +301,7 @@ class RunnersTest(unittest.TestCase):
     def test_a_runner_runs_with_its_own_model_and_effort(self):
         profile = self.load(self.RUNNERS)
         self.assertEqual({k: unattended.runner(profile, "agy")[k] for k in ("agent", "model", "effort")},
-                         {"agent": "agy", "model": "gemini-4-carbon-medium", "effort": "medium"})
+                         {"agent": "agy", "model": "gemini-4-neon-medium", "effort": "medium"})
         self.assertIs(unattended.runner(profile, None), profile)
         self.assertIs(unattended.runner(profile, "claude"), profile)
         with self.assertRaisesRegex(unattended.ProfileError, "runners.agy: the profile names no runner for agy"):
@@ -339,7 +343,7 @@ class RunnersTest(unittest.TestCase):
                 {"agy": {"model": "gemini-pro-orchestrator"}},
                 "runners.agy: needs exactly model and effort"),
             "null effort on non-orchestrator agy": (
-                {"agy": {"model": "gemini-4-carbon-medium", "effort": None}},
+                {"agy": {"model": "gemini-4-neon-medium", "effort": None}},
                 "runners.agy.effort"),
             "dangling hyphen orchestrator model": (
                 {"agy": {"model": "gemini-pro-orchestrator-", "effort": None}},

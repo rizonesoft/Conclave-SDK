@@ -148,19 +148,20 @@ class CommandTest(unittest.TestCase):
 
     def test_the_antigravity_command_from_the_profile(self):
         run = load_run_module()
-        agy = {**PROFILE, "agent": "agy", "model": "gemini-4-argon", "effort": "max"}
-        for skip in (True, False):
-            with self.subTest(skip_permissions=skip):
-                profile = {**agy, "skip_permissions": skip}
-                bypass = ["--dangerously-skip-permissions"] if skip else []
-                self.assertEqual(run.agent_command(self.root, profile, "tag-1", None),
-                                 ["agy", "--model=gemini-4-argon", "--effort=max", *bypass,
-                                  f"--prompt-interactive={PROMPT}"])
-                self.assertEqual(run.agent_command(self.root, profile, "tag-1", "conv-7"),
-                                 ["agy", "--model=gemini-4-argon", "--effort=max", "--conversation=conv-7", *bypass,
-                                  f"--prompt-interactive={run.RESUME_PROMPT}"])
-                argv = run.agent_command(self.root, profile, "tag-1", None)
-                self.assertFalse([a for a in argv if a in ("--session-id", "--resume", "--disallowedTools")], argv)
+        for model, effort in (("gemini-4-neon-medium", "high"), ("gemini-4-argon", "max")):
+            agy = {**PROFILE, "agent": "agy", "model": model, "effort": effort}
+            for skip in (True, False):
+                with self.subTest(model=model, effort=effort, skip_permissions=skip):
+                    profile = {**agy, "skip_permissions": skip}
+                    bypass = ["--dangerously-skip-permissions"] if skip else []
+                    self.assertEqual(run.agent_command(self.root, profile, "tag-1", None),
+                                     ["agy", f"--model={model}", f"--effort={effort}", *bypass,
+                                      f"--prompt-interactive={PROMPT}"])
+                    self.assertEqual(run.agent_command(self.root, profile, "tag-1", "conv-7"),
+                                     ["agy", f"--model={model}", f"--effort={effort}", "--conversation=conv-7", *bypass,
+                                      f"--prompt-interactive={run.RESUME_PROMPT}"])
+                    argv = run.agent_command(self.root, profile, "tag-1", None)
+                    self.assertFalse([a for a in argv if a in ("--session-id", "--resume", "--disallowedTools")], argv)
 
     def test_the_antigravity_orchestrator_command_omits_effort_and_guards_invalid_efforts(self):
         run = load_run_module()
@@ -927,7 +928,7 @@ class RunTest(unittest.TestCase):
             self.assertIsNotNone(shutil.which(tool), tool)
 
     def with_runners(self):
-        self.write_profile(runners={"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"},
+        self.write_profile(runners={"agy": {"model": "gemini-4-neon-medium", "effort": "medium"},
                                     "codex": {"model": "gpt-6.2-astra", "effort": "xhigh"}})
         for folder in (".agents", ".codex"):
             (self.root / folder).mkdir(exist_ok=True)
@@ -945,7 +946,7 @@ class RunTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertIn("PASS version agy", done.stdout)
         call = self.calls(1)[0]
-        self.assertEqual((call["cli"], call["argv"][:2]), ("agy", ["--model=gemini-4-carbon-medium", "--effort=medium"]))
+        self.assertEqual((call["cli"], call["argv"][:2]), ("agy", ["--model=gemini-4-neon-medium", "--effort=medium"]))
         self.assertEqual(self.marker()["agent"], "agy")
         self.assert_stopped()
         done = self.launcher("start", "--agent", "codex")
@@ -2419,7 +2420,7 @@ class DesktopEntryTest(unittest.TestCase):
         (self.project / "docs").mkdir()
         (self.project / "docs" / "unattended-prompt.md").write_text(PROMPT, encoding="utf-8")
         (self.project / ".conclave" / "unattended.json").write_text(json.dumps(
-            {**PROFILE, "runners": {"agy": {"model": "gemini-4-carbon-medium", "effort": "medium"}}}), encoding="utf-8")
+            {**PROFILE, "runners": {"agy": {"model": "gemini-4-neon-medium", "effort": "medium"}}}), encoding="utf-8")
         self.apps = base / "applications"
         self.report = base / "report.json"
         self.run = load_run_module()

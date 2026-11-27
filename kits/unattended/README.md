@@ -44,7 +44,7 @@ Codex, a fresh start (`codex [OPTIONS] [PROMPT]`) and a resume (`codex resume [O
 
 Codex has no flag that sets a new session's id, so a fresh start names none; the run's guard records the id Codex chose (with the run's tag), and a resume uses it.
 
-Antigravity (`agy`, flags as `--name=value`):
+Antigravity (`agy`, flags as `--name=value`; Gemini 4 Neon runs with `"model": "gemini-4-neon-medium"` and an explicit `"effort"` such as `"medium"`, passing `--effort=<effort>` on both fresh start and `--conversation` resume):
 
 | Use | Flag | `agy --help` |
 | --- | ---- | ------------ |
@@ -54,6 +54,6 @@ Antigravity (`agy`, flags as `--name=value`):
 | Resume | `--conversation=<id>` | "Resume a previous conversation by ID" |
 | Prompt | `--prompt-interactive=<p>` | "Run an initial prompt interactively and continue the session" |
 
-Antigravity Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) manage reasoning effort across phases internally and reject `--effort`: both top-level `agent: "agy"` profiles and `runners.agy` entries in `.conclave/unattended.json` must keep `"effort": null` for those models, and the launcher omits `--effort` on both fresh start and `--conversation` resume.
+Compatibility: Antigravity Orchestrator models (`gemini-pro-orchestrator` and `gemini-pro-orchestrator-*`) manage reasoning effort across phases internally and reject `--effort`: both top-level `agent: "agy"` profiles and `runners.agy` entries in `.conclave/unattended.json` must keep `"effort": null` for those models, and the launcher omits `--effort` on both fresh start and `--conversation` resume.
 
 Claude Code: `--model`, `--effort`, `--session-id` (the run's tag), `--resume <id>`, `--disallowedTools AskUserQuestion,EnterPlanMode,ExitPlanMode`, `--dangerously-skip-permissions`, then `--` and the prompt (`--disallowedTools` takes a list, which would otherwise swallow the prompt).
