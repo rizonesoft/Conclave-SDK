@@ -146,7 +146,7 @@ class LocalSettingsReaderTests(unittest.TestCase):
             self.ls.read_local_settings(self.root)
 
     @unittest.skipUnless(os.name == "nt", "Windows directory junctions are Windows-only")
-    def test_forge_refuses_windows_junction_settings_dir_before_writing(self):
+    def test_forge_refuses_windows_junction_settings_dir_and_root_before_writing(self):
         import forge
 
         target = self.root / "junction_target"
@@ -155,9 +155,36 @@ class LocalSettingsReaderTests(unittest.TestCase):
         shared.mkdir()
         junction = target / ".conclave"
         subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(shared)], check=True, capture_output=True)
+        before_entries = sorted(p.name for p in target.iterdir())
         with self.assertRaisesRegex(ValueError, r"unsafe parent"):
             forge.apply_kit(target, "automations")
+        self.assertEqual(sorted(p.name for p in target.iterdir()), before_entries)
         self.assertEqual(list(shared.iterdir()), [], "refusal must happen before writing into the junction target")
+
+        # Root-level Windows junction is refused by both apply_kit and update_project
+        real_root = self.root / "real_root_proj"
+        real_root.mkdir()
+        root_junction = self.root / "root_junction_proj"
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(root_junction), str(real_root)], check=True, capture_output=True)
+        with self.assertRaisesRegex(ValueError, r"non-symlink directory"):
+            forge.apply_kit(root_junction, "automations")
+        with self.assertRaisesRegex(ValueError, r"Target must be|link"):
+            forge.update_project(root_junction)
+        self.assertEqual(list(real_root.iterdir()), [])
+
+    def test_hard_linked_gitignore_is_refused_without_modifying_original(self):
+        import forge
+
+        other = self.root / "other_project"
+        other.mkdir()
+        other_ig = _write(other, ".gitignore", "build/\n")
+        target = self.root / "hardlink_target"
+        target.mkdir()
+        os.link(other_ig, target / ".gitignore")
+        with self.assertRaisesRegex(ValueError, r"Refusing hard-linked"):
+            forge.apply_kit(target, "base")
+        self.assertEqual(other_ig.read_bytes(), b"build/\n", "original hard-linked .gitignore must stay untouched")
+        self.assertFalse((target / ".conclave").exists())
 
     def test_working_file_symlink_override_is_accepted(self):
         target = _write(self.root, "external.toml", '[vault]\ncli = "custom-op"\n')

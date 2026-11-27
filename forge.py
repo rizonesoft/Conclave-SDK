@@ -759,7 +759,7 @@ def apply_kit(
     """
     agent = normalize_agent(agent)
     target_root = Path(target_root)
-    if not target_root.exists() or not target_root.is_dir() or target_root.is_symlink():
+    if not target_root.exists() or not target_root.is_dir() or _is_link(target_root):
         raise ValueError(f"Target must be an existing non-symlink directory: {target_root}")
     target_root = target_root.resolve()
 
@@ -1783,6 +1783,10 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
             raise ValueError(f"Refusing to modify symlinked {rel} in {target_root}; add ignore rules manually")
         if path.exists() and not path.is_file():
             raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
+        if path.exists():
+            st = os.lstat(path)
+            if st.st_nlink > 1:
+                raise ValueError(f"Refusing hard-linked {rel} in {target_root} (st_nlink={st.st_nlink}); add ignore rules manually")
     prefix = _check_untracked_in_git(target_root, (".private/", LOCAL))
     if prefix is not None:
         own_sources = (f"{prefix}.gitignore", f"{prefix}.conclave/.gitignore")
@@ -1915,8 +1919,11 @@ def _open_regular_append(path: Path, *, exclusive: bool) -> int:
             raise ValueError(f"Refusing non-regular FIFO {path}; add ignore rules manually") from None
         raise
     try:
-        if _is_link(path) or not stat.S_ISREG(os.fstat(fd).st_mode):
+        st = os.fstat(fd)
+        if _is_link(path) or not stat.S_ISREG(st.st_mode):
             raise ValueError(f"Refusing non-regular or symlinked {path}; add ignore rules manually")
+        if st.st_nlink > 1:
+            raise ValueError(f"Refusing hard-linked {path} (st_nlink={st.st_nlink}); add ignore rules manually")
     except Exception:
         os.close(fd)
         raise
