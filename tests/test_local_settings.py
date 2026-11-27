@@ -581,6 +581,101 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertIn("windows", out)
         self.assertIn(".private/local.toml", out)
 
+    def test_negated_local_toml_in_conclave_gitignore_is_fixed(self):
+        import forge
+
+        target = self.root / "neg_local_toml"
+        target.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
+        _write(target, ".conclave/.gitignore", "local.toml\n!local.toml\n")
+        res = forge.apply_kit(target, "automations")
+        self.assertEqual(res.get("local_gitignore"), "added")
+        chk = subprocess.run(
+            ["git", "check-ignore", "-v", "--", ".conclave/local.toml"],
+            cwd=str(target),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(chk.returncode, 0, chk.stderr)
+        pattern = chk.stdout.splitlines()[0].split(":", 2)[2].split("\t", 1)[0]
+        self.assertFalse(pattern.startswith("!"), chk.stdout)
+
+    def test_selective_only_update_creates_missing_conclave_gitignore(self):
+        import forge
+
+        target = self.root / "selective_missing_ig"
+        target.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
+        forge.apply_kit(target, "automations")
+        (target / ".conclave/.gitignore").unlink()
+        (target / ".conclave/local_settings.py").unlink()
+        rec_path = target / ".conclave/kits.json"
+        rec = json.loads(rec_path.read_text(encoding="utf-8"))
+        rec["files"].pop(".conclave/local_settings.py", None)
+        rec["files"].pop(".conclave/.gitignore", None)
+        rec_path.write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8", newline="\n")
+        res = forge.update_project(target, only=[".conclave/local_settings.py"])
+        self.assertEqual(res.get("local_gitignore"), "created")
+        chk = subprocess.run(
+            ["git", "check-ignore", "-q", "--", ".conclave/local.toml"],
+            cwd=str(target),
+            capture_output=True,
+            timeout=15,
+        )
+        self.assertEqual(chk.returncode, 0)
+
+    def test_verify_design_rules_fleet_validates_all_entries_and_alias_type(self):
+        import contextlib
+        import io
+
+        vdr = _load("test_vdr_all_entries", VERIFY_DESIGN_PATH)
+        run_file = _write(self.root, "run.md", "# empty\n")
+        # Non-Resolute-SDK entry missing windows
+        _write(
+            self.root,
+            ".private/local.toml",
+            '[[projects]]\nname = "Resolute-SDK"\nwindows = "C:\\\\work\\\\rsdk"\n'
+            '[[projects]]\nname = "Second"\n',
+        )
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = vdr.run_fleet_mode(self.root, run_file, check_clean=False, negative_test=False)
+        self.assertEqual(rc, 1)
+        self.assertIn("Second", buf.getvalue())
+        self.assertIn("windows", buf.getvalue())
+
+        # Non-string alias
+        _write(
+            self.root,
+            ".private/local.toml",
+            '[[projects]]\nname = "Resolute-SDK"\nalias = ["bad"]\nwindows = "C:\\\\work\\\\rsdk"\n',
+        )
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            rc2 = vdr.run_fleet_mode(self.root, run_file, check_clean=False, negative_test=False)
+        self.assertEqual(rc2, 1)
+        self.assertIn("alias", buf2.getvalue())
+
+    def test_wp_site_reads_each_settings_file_only_once(self):
+        import unittest.mock
+
+        wp_site = _load("test_wp_site_once", WP_SITE_PATH)
+        ls = wp_site._local_settings()
+        _write(self.root, ".private/local.toml", '[vault]\ncli = "ov-op"\nname = "OvVault"\n')
+        _write(self.root, ".conclave/local.toml", '[vault]\nname = "LocalVault"\n')
+        calls = []
+        real_read = ls.read_toml_file
+
+        def counting_read(p, *, label=None):
+            calls.append(label or str(p))
+            return real_read(p, label=label)
+
+        with unittest.mock.patch.object(wp_site, "_local_settings", return_value=ls), \
+             unittest.mock.patch.object(ls, "read_toml_file", side_effect=counting_read):
+            self.assertEqual(wp_site.vault_settings(root=self.root), ("ov-op", "LocalVault"))
+        self.assertEqual(len(calls), 2, f"expected 2 reads (overlay + override), got {calls}")
+
     def test_minimal_override_preserves_overlay_alert_settings(self):
         alert = _load("test_sdk_alert_min", ALERT_PATH)
         _write(

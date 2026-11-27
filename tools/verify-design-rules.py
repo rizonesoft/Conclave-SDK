@@ -368,17 +368,21 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
         if not isinstance(proj, dict) or not isinstance(proj.get("name"), str) or not proj["name"].strip():
             print(f"FAIL fleet settings invalid ({sources}): projects[{idx}] missing non-empty name")
             return 1
-        alias = proj.get("alias") or proj["name"]
+        raw_alias = proj.get("alias")
+        if raw_alias is not None and (not isinstance(raw_alias, str) or not raw_alias.strip()):
+            print(f"FAIL fleet settings invalid ({sources}): projects[{idx}] ({proj['name']}) alias must be a non-empty string")
+            return 1
+        raw_win = proj.get("windows")
+        if not isinstance(raw_win, str) or not raw_win.strip():
+            print(f"FAIL fleet settings invalid ({sources}): projects[{idx}] ({proj['name']}) missing non-empty windows path")
+            return 1
+        alias = raw_alias or proj["name"]
         proj_map[alias] = proj
 
     if "Resolute-SDK" not in proj_map:
         print(f"FAIL fleet settings missing Resolute-SDK entry under [[projects]] in {sources}")
         return 1
-    rsdk_win = proj_map["Resolute-SDK"].get("windows")
-    if not isinstance(rsdk_win, str) or not rsdk_win.strip():
-        print(f"FAIL fleet settings invalid ({sources}): Resolute-SDK entry missing non-empty windows path")
-        return 1
-    rsdk_root = pathlib.Path(rsdk_win)
+    rsdk_root = pathlib.Path(proj_map["Resolute-SDK"]["windows"])
     table_rows = parse_fleet_table(run_file)
     seen_aliases = [r[0] for r in table_rows]
     if len(seen_aliases) != len(set(seen_aliases)):

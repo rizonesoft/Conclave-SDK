@@ -1715,7 +1715,13 @@ def _git_repo_ignores(target_root: Path, rel_path: str, *, allowed_sources: tupl
     if proc.returncode != 0:
         return None
     line = (proc.stdout or "").splitlines()[0] if proc.stdout else ""
-    source = line.split(":", 1)[0].replace("\\", "/")
+    parts = line.split(":", 2)
+    if len(parts) < 3:
+        return False
+    source = parts[0].replace("\\", "/")
+    pattern = parts[2].split("\t", 1)[0]
+    if pattern.startswith("!"):
+        return False
     return source in allowed_sources
 
 
@@ -1769,7 +1775,12 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
         return "already_present"
     conclave_ig = target_root / ".conclave" / ".gitignore"
     if not conclave_ig.exists():
-        return "already_present"  # kit_plan installs `.conclave/.gitignore` when absent
+        if dry_run:
+            return "would_create"
+        atomic_write(conclave_ig, b"local.toml\n")
+        if _git_repo_ignores(target_root, LOCAL, allowed_sources=allowed) is False:
+            raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
+        return "created"
     raw = conclave_ig.read_bytes()
     text = raw.decode("utf-8", errors="surrogateescape")
     if git_ignored is None:

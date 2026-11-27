@@ -44,6 +44,7 @@ def vault_settings(path=None, *, root=ROOT):
     ls = _local_settings()
     if path is not None:
         source = str(path)
+        origins = {}
         try:
             data = ls.read_toml_file(path)
         except FileNotFoundError:
@@ -52,18 +53,10 @@ def vault_settings(path=None, *, root=ROOT):
             raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
     else:
         try:
-            data, loaded = ls.load_local_settings(root)
+            data, loaded, origins = ls.load_local_settings_with_origins(root)
         except ls.LocalSettingsError as error:
             raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
-        source = " / ".join(loaded) if loaded else f"{ls.LOCAL} / {ls.OVERLAY}"
-        # When both files loaded, attribute a bad [vault] table or key to the winning file that set it.
-        if len(loaded) == 2:
-            try:
-                override_data = ls.read_toml_file(Path(root) / ls.LOCAL, label=ls.LOCAL)
-            except (FileNotFoundError, ls.LocalSettingsError):
-                override_data = {}
-            if "vault" in override_data and not isinstance(override_data["vault"], dict):
-                source = ls.LOCAL
+        source = origins.get("vault") or (" / ".join(loaded) if loaded else f"{ls.LOCAL} / {ls.OVERLAY}")
     table = data.get("vault", {})
     if not isinstance(table, dict):
         raise ValueError(f"{source}: [vault] must be a table")
@@ -71,12 +64,7 @@ def vault_settings(path=None, *, root=ROOT):
     for key, default in (("cli", "conclave-op"), ("name", "Conclave")):
         value = table.get(key, default)
         if not isinstance(value, str) or not value.strip() or any(char in value for char in "\r\n\0"):
-            key_source = source
-            if path is None and len(loaded) == 2:
-                if isinstance(override_data.get("vault"), dict) and key in override_data["vault"]:
-                    key_source = ls.LOCAL
-                else:
-                    key_source = ls.OVERLAY
+            key_source = origins.get(f"vault.{key}") or source
             raise ValueError(f"{key_source}: vault.{key} must be a non-empty string")
         found.append(value)
     return tuple(found)
