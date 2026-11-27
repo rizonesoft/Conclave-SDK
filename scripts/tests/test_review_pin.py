@@ -441,9 +441,15 @@ class ThreePass(Cases):
         # A step with no effort is allowed even when the reviewer entry sets a default effort.
         omitted_step = neon.replace('[schedule.completion]\neffort = "medium"\n', '[schedule.completion]\n')
         self.assertNotIn("effort", load(omitted_step)["schedule"]["completion"])
-        # Invalid effort values on an Antigravity reviewer are refused.
+        # Invalid effort values on an Antigravity reviewer are refused, even alongside a malformed model.
         self.refuses(neon.replace('effort = "high"', 'effort = "ultra"'),
                      "reviewer 'astra' needs effort = one of low, medium, high, xhigh, max")
+        both_bad = neon.replace('model = "gemini-4-neon-medium"', 'model = "?"').replace('effort = "high"', 'effort = "ultra"')
+        self.assertEqual(
+            review_pin.faults(data=both_bad.encode("utf-8")),
+            ["reviewer 'astra' has a malformed model",
+             "reviewer 'astra' needs effort = one of low, medium, high, xhigh, max"],
+        )
         # A rotation pin with an Antigravity reviewer accepts reviewer-level and step efforts.
         rot = ROTATION.replace('cli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"',
                                'cli = "agy"\nmodel = "gemini-4-neon-medium"\neffort = "medium"')

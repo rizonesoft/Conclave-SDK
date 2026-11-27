@@ -267,7 +267,7 @@ def faults(path=PIN, data=None):
             # Each field on its own; the effort only when the cli it depends on is sound.
             sound_fields = [holds(check_reviewer_keys, name, entry), holds(check_reviewer_cli, name, entry),
                             holds(check_reviewer_model, name, entry)]
-            if sound_fields[1] and (entry["cli"] != "agy" or sound_fields[2]):
+            if sound_fields[1]:
                 sound_fields.append(holds(check_reviewer_effort, name, entry))
             if sound_fields[1] and sound_fields[2]:  # the family rests on both the cli and the model
                 sound_fields.append(holds(check_reviewer_family, name, entry))

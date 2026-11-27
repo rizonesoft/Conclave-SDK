@@ -321,9 +321,9 @@ class DoctorCheck(unittest.TestCase):
         pin.write_text(pin.read_text(encoding="utf-8").replace(
             "[routes]", '[reviewers.argon]\ncli = "agy"\nmodel = "gemini-4-argon-medium"\n\n[routes]', 1), encoding="utf-8")
         calls = []
-        real = forge._agy_flags_check
+        real = forge._probe_agy_cli
         with self.path_with_only_the_stub(), \
-                mock.patch.object(forge, "_agy_flags_check", lambda *a, **kw: calls.append(a[1]) or real(*a, **kw)):
+                mock.patch.object(forge, "_probe_agy_cli", lambda *a, **kw: calls.append(a[1]) or real(*a, **kw)):
             checks = {c["name"]: c["status"] for c in forge.doctor_repo(project, "reviewer")["checks"]}
         self.assertEqual((checks["reviewer-flags:carbon"], checks["reviewer-flags:argon"]), ("ok", "ok"))
         self.assertEqual(len(calls), 1)
@@ -518,6 +518,72 @@ class DoctorCheck(unittest.TestCase):
             self.assertEqual(code, 0, payload)
             self.assertEqual(checks["reviewer-flags:orchestrator"]["status"], "ok")
             self.assertNotIn("--effort", checks["reviewer-flags:orchestrator"]["detail"])
+
+        # Schedule-only Neon pin (no reviewer-level effort) still requires --effort in agy --help.
+        schedule_only = (ROOT / "tests/fixtures/check-pin/pins/valid-agy-neon-effort.toml").read_text(
+            encoding="utf-8").replace('effort = "medium"\n', "", 1)
+        (project / ".conclave/reviewers.toml").write_text(schedule_only, encoding="utf-8")
+        (self.dir / "help.txt").write_text(without_effort, encoding="utf-8")
+        with self.path_with_only_the_stub():
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-flags:neon"]["status"], "unexpected")
+            self.assertIn("explicit-effort Antigravity reviews", checks["reviewer-flags:neon"]["detail"])
+
+        # Unrouted Neon reviewer does not require --effort even when another routed reviewer uses a schedule.
+        unrouted_pin = (
+            'schema_version = 1\n\n'
+            '[reviewers.astra]\ncli = "codex"\nmodel = "gpt-6.2-astra"\neffort = "medium"\n\n'
+            '[reviewers.neon]\ncli = "agy"\nmodel = "gemini-4-neon-medium"\n\n'
+            '[routes]\nclaude = ["astra"]\n\n'
+            '[schedule]\npolicy = "three-pass"\npass_cap = 33\nblocking = ["P1", "P2"]\n\n'
+            '[schedule.plan]\neffort = "medium"\nlenses = ["plan"]\n\n'
+            '[[schedule.rounds]]\neffort = "medium"\nlenses = ["adversarial", "integration"]\n\n'
+            '[schedule.completion]\neffort = "low"\nlenses = ["plan-delivery", "record"]\n\n'
+            '[schedule.reconciliation]\neffort = "low"\nlenses = ["adversarial", "integration", "plan-delivery", "record"]\n'
+        )
+        (project / ".conclave/reviewers.toml").write_text(unrouted_pin, encoding="utf-8")
+        (self.dir / "help.txt").write_text(without_effort, encoding="utf-8")
+        with self.path_with_only_the_stub():
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 0, payload)
+            self.assertEqual(checks["reviewer-flags:neon"]["status"], "ok")
+            self.assertNotIn("reviewer-kit-effort", checks)
+
+        # Two routed reviewers on one agy executable (one explicit-effort, one effort-free) probe the CLI once.
+        mixed_pin = (
+            'schema_version = 1\n\n'
+            '[reviewers.neon]\ncli = "agy"\nmodel = "gemini-4-neon-medium"\neffort = "high"\n\n'
+            '[reviewers.orch]\ncli = "agy"\nmodel = "gemini-pro-orchestrator"\n\n'
+            '[routes]\nclaude = ["neon"]\ncodex = ["orch"]\n'
+        )
+        (project / ".conclave/reviewers.toml").write_text(mixed_pin, encoding="utf-8")
+        (self.dir / "help.txt").write_text(without_effort, encoding="utf-8")
+        probe_calls = []
+        real_probe = forge._probe_agy_cli
+        with self.path_with_only_the_stub(), \
+                mock.patch.object(forge, "_probe_agy_cli", lambda *a, **kw: probe_calls.append(a[1]) or real_probe(*a, **kw)):
+            checks = {c["name"]: c for c in forge.doctor_repo(project, "reviewer")["checks"]}
+        self.assertEqual(len(probe_calls), 1)
+        self.assertEqual(checks["reviewer-flags:neon"]["status"], "unexpected")
+        self.assertEqual(checks["reviewer-flags:orch"]["status"], "ok")
+
+        # Stale installed reviewer scripts that refuse explicit agy effort are flagged by doctor.
+        (project / ".conclave/reviewers.toml").write_bytes(
+            (ROOT / "tests/fixtures/check-pin/pins/valid-agy-neon-effort.toml").read_bytes())
+        (self.dir / "help.txt").write_text(HELP, encoding="utf-8")
+        (project / "scripts/review_pin.py").write_text(
+            'raise Refused("Antigravity carries the effort in the model name, so set no effort")\n',
+            encoding="utf-8",
+        )
+        with self.path_with_only_the_stub():
+            code, payload = self._run_doctor_cli(project, strict=True)
+            checks = {c["name"]: c for c in payload["checks"]}
+            self.assertEqual(code, 3, payload)
+            self.assertEqual(checks["reviewer-kit-effort"]["status"], "unexpected")
+            self.assertIn("forge.py update", checks["reviewer-kit-effort"]["detail"])
 
 
 if __name__ == "__main__":

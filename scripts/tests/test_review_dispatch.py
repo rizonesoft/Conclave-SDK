@@ -1159,7 +1159,7 @@ def bad_pins(good):
     mini = '\n[reviewers.mini]\ncli = "codex"\nmodel = "gpt-6-mini"\neffort = "low"\n'
     return (good.replace('effort = "xhigh"', 'effort = "extreme"'),
             good.replace('cli = "codex"', 'cli = "bash"'),
-            # Antigravity takes no effort, and Claude Code cannot review its own family's work.
+            # Antigravity requires a Google model (not gpt-*), and Claude Code cannot review its own family's work.
             good.replace('cli = "codex"', 'cli = "agy"'),
             good.replace('cli = "codex"', 'cli = "claude"'),
             good.replace('claude = ["sol"]', 'claude = ["opus"]'),

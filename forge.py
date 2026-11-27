@@ -2128,18 +2128,19 @@ def _probe(argv: list, timeout: float | None = None) -> tuple[int | None, str, s
     return proc.returncode, out.decode("utf-8", "replace"), ""
 
 
-def _agy_flags_check(dispatch, executable: str, *, need_effort: bool = False) -> tuple[str, str]:
-    """(status, detail) for one Antigravity reviewer: every flag the dispatcher passes is in the installed CLI's
-    --help, and the CLI accepts the dispatcher's session settings. A probe that failed is never `ok`."""
+def _probe_agy_cli(dispatch, executable: str) -> dict:
+    """Run the three read-only Antigravity CLI probes once per executable so multiple reviewers sharing a CLI never
+    repeat subprocess launches."""
     code, text, problem = _probe([executable, "--help"])
     if code is None:
-        return "setup_required", f"{executable} --help: {problem}"
+        return {"error": ("setup_required", f"{executable} --help: {problem}")}
     if code != 0:
-        return "unexpected", f"{executable} --help exited {code}"
-    missing = dispatch.agy_flags_missing(text, need_effort=need_effort)
-    if missing:
-        return "unexpected", (f"{executable} no longer lists {', '.join(missing)}, which the dispatcher passes: every "
-                              f"Antigravity review would return no review")
+        return {"error": ("unexpected", f"{executable} --help exited {code}")}
+    help_text = text
+    # If core non-effort flags are already missing, skip the remaining probes.
+    core_missing = dispatch.agy_flags_missing(help_text, need_effort=False)
+    if core_missing:
+        return {"help_text": help_text}
     fd, name = tempfile.mkstemp(prefix="forge-agy-settings-", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -2148,22 +2149,64 @@ def _agy_flags_check(dispatch, executable: str, *, need_effort: bool = False) ->
     finally:
         Path(name).unlink(missing_ok=True)
     if code is None:
-        return "setup_required", f"{executable} --settings: {problem}"
+        return {"help_text": help_text, "error": ("setup_required", f"{executable} --settings: {problem}")}
     said = next((line.strip() for line in text.splitlines() if "--settings:" in line), "")
     if said:
-        return "unexpected", f"{executable} refuses the dispatcher's settings: {said}"
+        return {"help_text": help_text, "error": ("unexpected", f"{executable} refuses the dispatcher's settings: {said}")}
     if code != 0:
         # Not a refusal of the settings: the CLI failed for a reason of its own (it cannot start, it is not signed in).
         first = next((line.strip() for line in text.splitlines() if line.strip()), "no output")
-        return "unexpected", f"{executable} --settings <file> agents exited {code}: {first[:200]}"
+        return {"help_text": help_text, "error": ("unexpected", f"{executable} --settings <file> agents exited {code}: {first[:200]}")}
     code, text, problem = _probe([executable, "--version"])
     if code is None:
-        return "setup_required", f"{executable} --version: {problem}"
+        return {"help_text": help_text, "error": ("setup_required", f"{executable} --version: {problem}")}
     if code != 0 or not text.strip():
-        return "unexpected", f"{executable} --version exited {code} and named no version"
-    version = text.strip().splitlines()[0]
+        return {"help_text": help_text, "error": ("unexpected", f"{executable} --version exited {code} and named no version")}
+    return {"help_text": help_text, "version": text.strip().splitlines()[0]}
+
+
+def _evaluate_agy_flags(dispatch, executable: str, probe: dict, *, need_effort: bool = False) -> tuple[str, str]:
+    """Evaluate cached CLI probe output for one Antigravity reviewer with or without explicit `--effort`."""
+    if "help_text" not in probe:
+        return probe["error"]
+    missing = dispatch.agy_flags_missing(probe["help_text"], need_effort=need_effort)
+    if missing:
+        if missing == [dispatch.AGY_EFFORT_FLAG]:
+            return "unexpected", (f"{executable} no longer lists {dispatch.AGY_EFFORT_FLAG}, which the dispatcher "
+                                  f"passes for explicit-effort Antigravity reviews: those reviews would fail")
+        return "unexpected", (f"{executable} no longer lists {', '.join(missing)}, which the dispatcher passes: every "
+                              f"Antigravity review would return no review")
+    if "error" in probe:
+        return probe["error"]
     checked_flags = dispatch.AGY_FLAGS + ((dispatch.AGY_EFFORT_FLAG,) if need_effort else ())
-    return "ok", f"{executable} {version} lists {', '.join(checked_flags)} and accepts the review settings"
+    return "ok", f"{executable} {probe['version']} lists {', '.join(checked_flags)} and accepts the review settings"
+
+
+def _agy_flags_check(dispatch, executable: str, *, need_effort: bool = False) -> tuple[str, str]:
+    """(status, detail) for one Antigravity reviewer: every flag the dispatcher passes is in the installed CLI's
+    --help, and the CLI accepts the dispatcher's session settings. A probe that failed is never `ok`."""
+    return _evaluate_agy_flags(dispatch, executable, _probe_agy_cli(dispatch, executable), need_effort=need_effort)
+
+
+def _installed_reviewer_supports_agy_effort(target_root: Path) -> tuple[bool, str]:
+    """Read-only check that the target project's installed reviewer scripts support explicit Antigravity `--effort`."""
+    dispatch_path = target_root / "scripts/review-dispatch.py"
+    pin_path = target_root / "scripts/review_pin.py"
+    if not dispatch_path.is_file():
+        return False, "scripts/review-dispatch.py is missing"
+    try:
+        dispatch_text = dispatch_path.read_text(encoding="utf-8", errors="replace")
+        pin_text = pin_path.read_text(encoding="utf-8", errors="replace") if pin_path.is_file() else ""
+    except OSError as exc:
+        return False, f"could not read installed reviewer scripts: {exc}"
+    legacy_msg = "Antigravity carries the effort in the model name"
+    if legacy_msg in dispatch_text or legacy_msg in pin_text:
+        return False, ("installed reviewer scripts still refuse explicit Antigravity effort; "
+                       "update with `python forge.py update <project> reviewer`")
+    if "AGY_EFFORT_FLAG" not in dispatch_text:
+        return False, ("installed scripts/review-dispatch.py predates explicit Antigravity --effort dispatch; "
+                       "update with `python forge.py update <project> reviewer`")
+    return True, "scripts/review-dispatch.py supports explicit Antigravity --effort"
 
 
 def _doctor_reviewer(target_root: Path, add_check) -> None:
@@ -2187,7 +2230,20 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
     if pin:
         schedule = pin.get("schedule")
         scheduled_efforts = bool(module.review_pin.schedule_efforts(schedule)) if schedule else False
-        flags_checked: dict = {}
+        routed_reviewers = {chain[0] for chain in pin["routes"].values() if isinstance(chain, list) and chain}
+        uses_agy_effort = any(
+            reviewer["cli"] == "agy"
+            and not module.review_pin.is_agy_orchestrator(reviewer["model"])
+            and (
+                bool(reviewer.get("effort"))
+                or (name in routed_reviewers and scheduled_efforts)
+            )
+            for name, reviewer in pin["reviewers"].items()
+        )
+        if uses_agy_effort and (target_root / "scripts/review-dispatch.py").is_file():
+            supported, detail = _installed_reviewer_supports_agy_effort(target_root)
+            add_check("reviewer-kit-effort", "ok" if supported else "unexpected", detail)
+        probed: dict[str, dict] = {}
         for name, reviewer in pin["reviewers"].items():
             # The dispatcher's own lookup, so doctor probes the executable a review would run: on Windows
             # shutil.which looks in the working directory first, and the dispatcher never does.
@@ -2196,13 +2252,13 @@ def _doctor_reviewer(target_root: Path, add_check) -> None:
                       f"{reviewer['model']} via {found}" if found else f"{reviewer['cli']} CLI not installed; a round routed to this reviewer has no review")
             if found and reviewer["cli"] == "agy":
                 need_effort = (
-                    not module.review_pin.is_agy_orchestrator(reviewer["model"])
+                    name in routed_reviewers
+                    and not module.review_pin.is_agy_orchestrator(reviewer["model"])
                     and (scheduled_efforts if schedule else bool(reviewer.get("effort")))
                 )
-                key = (found, need_effort)
-                if key not in flags_checked:  # one set of probes per executable and effort requirement
-                    flags_checked[key] = _agy_flags_check(module, found, need_effort=need_effort)
-                add_check(f"reviewer-flags:{name}", *flags_checked[key])
+                if found not in probed:  # one set of subprocess probes per executable
+                    probed[found] = _probe_agy_cli(module, found)
+                add_check(f"reviewer-flags:{name}", *_evaluate_agy_flags(module, found, probed[found], need_effort=need_effort))
 
 
 def _doctor_unattended(target_root: Path, add_check, system: str | None = None) -> None:
