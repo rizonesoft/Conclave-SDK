@@ -36,7 +36,7 @@ title: "TODO-04 -- Gemini 4 Neon replaces Orchestrator (Carbon)"
 | 1 | §1 | Base kit guidance names Gemini 4 Neon | -- | [x] |
 | 2 | §2 | Antigravity TODO skills without Carbon handoffs | §1 | [x] |
 | 3 | §3 | Reviewer pin accepts Neon with an effort | -- | [x] |
-| 4 | §4 | Unattended profile runs Neon with its effort | -- | [ ] |
+| 4 | §4 | Unattended profile runs Neon with its effort | -- | [x] |
 | 5 | §5 | SDK copies, documents and tests follow the kits | §1, §2, §3, §4 | [ ] |
 
 ## 1. Base kit guidance names Gemini 4 Neon
@@ -146,9 +146,12 @@ The unattended kit allows `"effort": null` for an Orchestrator profile and docum
 - [x] Verify `kits/unattended/templates/scripts/unattended-run.py` passes `--model=gemini-4-neon-medium --effort=<effort>` for Neon (and omits `--effort` for Orchestrator): update `kits/unattended/templates/scripts/tests/test_run.py` and `test_shortcut.py` fixtures from `gemini-4-carbon-medium` to `gemini-4-neon-medium` (renaming `carbon` at `test_shortcut.py:1951`), and add a portable fresh-start and `--conversation` resume case in `test_run.py` with `model = "gemini-4-neon-medium"` and `effort = "high"` asserting `--effort=high` on both. Done when: the portable Neon test passes on Windows and fails when `--effort={effort}` is dropped from `unattended-run.py:240`. **Corrected 2026-11-27 (plan review):** added suffix-divergent `effort = "high"` portable fresh-start/resume witness so Windows mutation exercises Neon directly.
 - [x] Rewrite the Antigravity parts of `kits/unattended/README.md` and `kits/unattended/templates/docs/unattended-run.md` to name Gemini 4 Neon (`gemini-4-neon-medium`, `"effort": "medium"`) as the Antigravity writer while keeping the Orchestrator (`gemini-pro-orchestrator`, `"effort": null`) compatibility note. Done when: positive read-back of both files confirms both the Neon explicit-effort example and the Orchestrator `"effort": null` rule, and `git grep -n -i "carbon\|hydrogen" -- kits/unattended/` prints nothing. **Corrected 2026-11-27 (plan review):** added positive read-back requirement for both documents.
 - [x] Run `python forge.py check-all --only kit-unattended` once on Windows, run the focused portable Neon `--effort` drop mutation check, and run `python -m unittest tests.test_forge -k markdown_table` (citing CI green for `tests/test_unattended_installed.py` and shortcut shards at stamp). Done when: the suite and format check pass and the mutation fails. **Corrected 2026-11-27 (plan review):** one Windows kit run, focused mutation witness, and installed-kit CI evidence.
-- [ ] Commit: `unattended: Antigravity profiles run Gemini 4 Neon with their effort (D00 T04 §4)`
+- [x] Commit: `unattended: Antigravity profiles run Gemini 4 Neon with their effort (D00 T04 §4)`
 
 **Test checkpoint:** `python forge.py check-all --only kit-unattended` passes on Windows, and the portable Neon fresh-start/resume test in `kits/unattended/templates/scripts/tests/test_run.py` fails when `--effort={effort}` is dropped from `kits/unattended/templates/scripts/unattended-run.py`. **Corrected 2026-11-27 (plan review):** named the portable Neon test as the Windows mutation witness.
+
+> **Verified:** 2026-11-27 | §4 | 28c2eae4950db4b41c92dff1f8ab771e8ccbdff7
+> **Review:** `docs/reviews/d00-t04-s4.json`
 
 ## 5. SDK copies, documents and tests follow the kits
 
