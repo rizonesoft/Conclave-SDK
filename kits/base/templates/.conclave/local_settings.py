@@ -22,8 +22,18 @@ class LocalSettingsError(ValueError):
 
 
 def _is_link(path: Path) -> bool:
-    """True for a symlink or a Windows directory junction."""
-    return path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction())
+    """True for a symlink or a Windows directory junction (including on Python 3.11 without Path.is_junction)."""
+    if path.is_symlink():
+        return True
+    if hasattr(path, "is_junction"):
+        return path.is_junction()
+    mount_tag = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", None)
+    if mount_tag is not None:
+        try:
+            return getattr(path.lstat(), "st_reparse_tag", 0) == mount_tag
+        except FileNotFoundError:
+            return False
+    return False
 
 
 def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
