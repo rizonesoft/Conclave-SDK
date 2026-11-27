@@ -1,0 +1,88 @@
+{
+  "ref": "D00 T04 \u00a73",
+  "title": "Reviewer pin accepts Neon with an effort",
+  "implementation_sha": "ba6f265ef247cc72a4f4a5423b58e43a5e0648c6",
+  "date": "2026-11-27",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T04-s3.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_reviewer_flags tests.test_check_pin_contract scripts.tests.test_review_pin scripts.tests.test_review_dispatch -> Ran 159 tests in 103.565s, OK (skipped=2); python -m unittest discover -s scripts/tests -p test_three_pass.py -> Ran 64 tests in 381.664s, OK (skipped=6); python -m unittest tests.test_forge -k the_sdk_uses_the_agent_setup -k markdown_table -> Ran 2 tests in 0.309s, OK; mutation check removing --effort from agy command -> rc=1 FAILED; CI tests.yml green 7/7 at ba6f265ef247cc72a4f4a5423b58e43a5e0648c6 https://github.com/rizonesoft/Conclave-SDK/actions/runs/45919330026"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T04-s3.md",
+    "verdict": "reconciled",
+    "candidate": "ba6f265ef247cc72a4f4a5423b58e43a5e0648c6",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": []
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T04-s3.md",
+    "candidate": "baad1b3c9d58542f8780080b273744bb1c7c3fd1",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "baad1b3c9d58542f8780080b273744bb1c7c3fd1",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 4,
+  "pass_cap": 33
+}

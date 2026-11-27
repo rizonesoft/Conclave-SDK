@@ -35,7 +35,7 @@ title: "TODO-04 -- Gemini 4 Neon replaces Orchestrator (Carbon)"
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Base kit guidance names Gemini 4 Neon | -- | [x] |
 | 2 | §2 | Antigravity TODO skills without Carbon handoffs | §1 | [x] |
-| 3 | §3 | Reviewer pin accepts Neon with an effort | -- | [ ] |
+| 3 | §3 | Reviewer pin accepts Neon with an effort | -- | [x] |
 | 4 | §4 | Unattended profile runs Neon with its effort | -- | [ ] |
 | 5 | §5 | SDK copies, documents and tests follow the kits | §1, §2, §3, §4 | [ ] |
 
@@ -118,9 +118,12 @@ The todo kit's Antigravity copies of `process-plan`, `process-phase` and `proces
 - [x] Update `kits/reviewer/templates/scripts/review-dispatch.py` (`command()`, `dispatch()`, `AGY_EFFORT_FLAG = "--effort"`, `agy_flags_missing(help_text, *, need_effort=False)`) and `forge.py` (`_agy_flags_check` / `_doctor_reviewer`) so non-Orchestrator `agy` passes `--effort=<effort>` and records that effort (including when effort differs from the model name suffix, e.g. `gemini-4-neon-medium` with `effort = "high"`), sends no `--effort` when omitted (including a step with no effort overriding a reviewer default) or for Orchestrator, and `forge.py doctor` requires `--effort` in `agy --help` only when the pin configures explicit `agy` effort. Done when: fake-CLI tests in `test_review_dispatch.py` / `test_three_pass.py` prove `--effort=high` reaches `agy` and is recorded, omitted effort and Orchestrator send no `--effort`, and `tests/test_reviewer_flags.py` proves missing `--effort` fails doctor on an explicit-effort pin while an effort-free pin still passes. **Corrected 2026-11-27 (plan review):** folded P1 dispatch/record gap and P2 doctor `--effort` capability check.
 - [x] Add `tests/fixtures/check-pin/pins/valid-agy-neon-effort.toml` (Neon with reviewer-level `effort` and mixed-effort three-pass schedule), update `tests/fixtures/check-pin/pins/refused-agy-effort.toml` to use `gemini-pro-orchestrator`, update `tests/fixtures/check-pin/pins/expected.json` (keeping both `refused-agy-orchestrator-*` fixtures), add unit tests in `kits/reviewer/templates/scripts/tests/test_review_pin.py`, and run `python forge.py self-sync`. Done when: `python -m unittest scripts.tests.test_review_pin scripts.tests.test_review_dispatch scripts.tests.test_three_pass tests.test_check_pin_contract tests.test_reviewer_flags` and `python -m unittest tests.test_forge -k the_sdk_uses_the_agent_setup -k markdown_table` pass. **Corrected 2026-11-27 (plan review):** removed redundant expected.json flip mutation in favor of the dispatch `--effort` regression.
 - [x] Update `kits/reviewer/README.md` to name Gemini 4 Neon as the Antigravity writer (replacing `Carbon` writer shortcut references) and rewrite the effort rules (`:61`, `:75`) to accurately state reviewer-level `effort`, scheduled override and omission, mixed-effort schedules on Neon, and Orchestrator refusal on both three-pass and rotation. Done when: it names no Carbon handoff or Carbon writer shortcut and has no contradictory effort or Orchestrator rule. **Corrected 2026-11-27 (plan review):** added explicit requirement to fix contradictory `:61` and `:75` guidance.
-- [ ] Commit: `reviewer: the pin accepts Gemini 4 Neon with an effort (D00 T04 §3)`
+- [x] Commit: `reviewer: the pin accepts Gemini 4 Neon with an effort (D00 T04 §3)`
 
 **Test checkpoint:** `python -m unittest scripts.tests.test_review_pin scripts.tests.test_review_dispatch scripts.tests.test_three_pass tests.test_check_pin_contract tests.test_reviewer_flags` ends `OK`, and fails when `--effort=<effort>` is removed from the `agy` command in `kits/reviewer/templates/scripts/review-dispatch.py`. **Corrected 2026-11-27 (plan review):** checkpoint verifies real dispatch `--effort` delivery rather than flipping `expected.json`.
+
+> **Verified:** 2026-11-27 | §3 | ba6f265ef247cc72a4f4a5423b58e43a5e0648c6
+> **Review:** `docs/reviews/d00-t04-s3.json`
 
 ## 4. Unattended profile runs Neon with its effort
 
