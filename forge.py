@@ -1764,14 +1764,37 @@ def _check_untracked_in_git(target_root: Path, rel_paths: tuple[str, ...]) -> st
 
 def _preflight_settings_gitignores(target_root: Path) -> None:
     """Refuse symlinked or non-file `.gitignore` / `.conclave/.gitignore`, unavailable Git in an existing checkout,
-    or already-tracked `.private/` / `.conclave/local.toml` before any kit file is written."""
+    an enclosing-repo ignore rule that excludes `target_root` itself, or already-tracked `.private/` /
+    `.conclave/local.toml` before any kit file is written (and identically on `--dry-run`)."""
     for rel in (".gitignore", ".conclave/.gitignore"):
         path = target_root / rel
         if _is_link(path):
             raise ValueError(f"Refusing to modify symlinked {rel} in {target_root}; add ignore rules manually")
         if path.exists() and not path.is_file():
             raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
-    _check_untracked_in_git(target_root, (".private/", LOCAL))
+    prefix = _check_untracked_in_git(target_root, (".private/", LOCAL))
+    if prefix:
+        proc = subprocess.run(
+            ["git", "check-ignore", "-v", "-z", "--stdin"],
+            cwd=str(target_root),
+            env=_clean_git_env(),
+            input=b".\0",
+            capture_output=True,
+            timeout=15,
+        )
+        if proc.returncode == 0:
+            fields = (proc.stdout or b"").split(b"\0")
+            if len(fields) >= 4:
+                source = fields[0].decode("utf-8", errors="surrogateescape").replace("\\", "/")
+                pattern = fields[2].decode("utf-8", errors="surrogateescape")
+                if not pattern.startswith("!"):
+                    raise ValueError(
+                        f"Target directory {target_root} is excluded by an enclosing Git ignore rule "
+                        f"({source}: {pattern}); unignore it or initialize its own repository first"
+                    )
+        elif proc.returncode != 1:
+            detail = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
+            raise ValueError(f"git check-ignore failed in {target_root} (exit {proc.returncode}): {detail}")
 
 
 def _git_repo_ignores(

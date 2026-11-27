@@ -1068,6 +1068,20 @@ class ConsumerIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, r"already tracked in git"):
                 forge._check_untracked_in_git(repo, (".private/", forge.LOCAL))
 
+    def test_ignored_monorepo_subdirectory_refuses_in_dry_run_and_apply_before_writing(self):
+        import forge
+
+        mono = self.root / "ignored_mono"
+        sub = mono / "scratch" / "example"
+        sub.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(mono), check=True, timeout=15)
+        _write(mono, ".gitignore", "scratch/\n")
+        for dry in (True, False):
+            with self.subTest(dry_run=dry):
+                with self.assertRaisesRegex(ValueError, r"excluded by an enclosing Git ignore rule"):
+                    forge.apply_kit(sub, "automations", dry_run=dry)
+        self.assertFalse((sub / ".conclave").exists(), "refusal must happen before any kit file is written")
+
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock
         import forge
