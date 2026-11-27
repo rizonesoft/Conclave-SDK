@@ -155,7 +155,11 @@ The unattended kit allows `"effort": null` for an Orchestrator profile and docum
 
 ## 5. SDK copies, documents and tests follow the kits
 
+> **Started:** 2026-11-27T02:37Z
+
 The SDK runs its own installed copy of the base, todo and reviewer kits, so the change reaches its own agents only after `self-sync`, and its own documents still describe Carbon.
+
+**Corrected 2026-11-27 (validation):** `python forge.py self-sync` already synced `.agents/`, `scripts/`, and `docs/agent-skills-and-rules-structure.md` during §1-§3, and `tests/test_forge.py` / `tests/test_kit_install.py` were updated there so `main` stayed green. Remaining Carbon references in §5 scope are `README.md:234` (`Gemini 4 Carbon`), `assets/brand/README.md:26` (`blue Carbon sparkle`), `tests/fixtures/agy-stop-payload.json:11` (`gemini-4-carbon-medium`), and `tests/test_reviewer_flags.py:121,124,131,135` (`gemini-4-carbon-medium`; line `:407` stays on `valid-three-routes.toml` as a historical check-pin fixture). Item 3 also adds a regression assertion in `tests/test_forge.py` verifying `README.md`, `assets/brand/README.md`, `docs/agent-skills-and-rules-structure.md`, and `tests/fixtures/agy-stop-payload.json` name Gemini 4 Neon / Gemini sparkle and not Carbon. Historical record decision: stamped sections, `docs/reviews/`, and `docs/phase-runs/` are intentionally left as written.
 
 **Phase:** 10
 **Needs:** none
@@ -163,12 +167,12 @@ The SDK runs its own installed copy of the base, todo and reviewer kits, so the 
 
 **Build order:**
 
-1. Refresh the installed copy and the SDK's documents. Done when: `python forge.py self-sync` reports no difference and `git grep -nE "Carbon|Hydrogen|gemini-pro-orchestrator" -- README.md docs/agent-skills-and-rules-structure.md assets/brand/README.md .agents scripts` prints only compatibility notes.
+1. Run `python forge.py self-sync`, update `README.md:234`, `assets/brand/README.md:26`, `tests/fixtures/agy-stop-payload.json:11`, and `tests/test_reviewer_flags.py:121-135` to Gemini 4 Neon, and add the doc/fixture regression assertion in `tests/test_forge.py`. Done when: `python forge.py self-sync` reports no difference, `git grep -nE "Carbon|Hydrogen|gemini-pro-orchestrator" -- README.md docs/agent-skills-and-rules-structure.md assets/brand/README.md .agents scripts` prints only compatibility/test notes, and `python -m unittest tests.test_forge tests.test_kit_install tests.test_reviewer_flags tests.test_campaign_guard` passes.
 
-- [ ] Run `python forge.py self-sync`. Done when: the self-sync test passes.
-- [ ] Update `README.md`, `docs/agent-skills-and-rules-structure.md` and `assets/brand/README.md` (the runner badge is Gemini's, not Carbon's) to name Neon. Done when: none names Carbon outside a compatibility note.
-- [ ] Update `tests/test_forge.py`, `tests/test_kit_install.py`, `tests/test_reviewer_flags.py` and `tests/fixtures/agy-stop-payload.json` where they assert Carbon text or the Orchestrator default. Done when: each passes and still fails if the default reverts.
-- [ ] Leave stamped sections, `docs/reviews/` and `docs/phase-runs/` as written. Done when: the decision is noted under this section.
+- [ ] Run `python forge.py self-sync`. Done when: it reports zero updates and `tests.test_forge -k the_sdk_uses_the_agent_setup` passes.
+- [ ] Update `README.md:234` (`Gemini 4 Neon`, `gemini-4-neon-medium` at `-Effort`), confirm `docs/agent-skills-and-rules-structure.md` is already Neon-current, and update `assets/brand/README.md:26` (`blue Gemini sparkle`, not Carbon's). Done when: none names Carbon outside a compatibility note and `git grep -nE "Carbon|Hydrogen|gemini-pro-orchestrator" -- README.md docs/agent-skills-and-rules-structure.md assets/brand/README.md` prints nothing.
+- [ ] Update `tests/fixtures/agy-stop-payload.json:11` and `tests/test_reviewer_flags.py:121,124,131,135` to `gemini-4-neon-medium`, confirm `tests/test_kit_install.py` and `tests/test_forge.py` assert Neon, and add a regression assertion in `tests/test_forge.py` covering `README.md`, `assets/brand/README.md`, `docs/agent-skills-and-rules-structure.md`, and `tests/fixtures/agy-stop-payload.json`. Done when: `tests.test_forge`, `tests.test_kit_install`, `tests.test_reviewer_flags`, and `tests.test_campaign_guard` pass and fail if `README.md` or `agy-stop-payload.json` reverts to Carbon.
+- [ ] Leave stamped sections, `docs/reviews/` and `docs/phase-runs/` as written. Done when: the decision is noted under this section (recorded in the validation note above).
 - [ ] Commit: `sdk: own copies, documents and tests follow Gemini 4 Neon (D00 T04 §5)`
 
 **Test checkpoint:** `python -m unittest tests.test_forge` ends `OK`, and CI is green on the commit.
