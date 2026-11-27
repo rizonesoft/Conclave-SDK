@@ -772,28 +772,77 @@ class ConsumerIntegrationTests(unittest.TestCase):
         sub = mono / "apps" / "web"
         sub.mkdir(parents=True)
         subprocess.run(["git", "init", "-q"], cwd=str(mono), check=True, timeout=15)
+        # Track .conclave/local.toml BEFORE apply_kit: preflight must refuse with zero kit files written
+        _write(sub, ".conclave/local.toml", '[paths]\nscratch = "x"\n')
+        subprocess.run(["git", "add", "-f", "apps/web/.conclave/local.toml"], cwd=str(mono), check=True, timeout=15)
+        with self.assertRaisesRegex(ValueError, r"already tracked in git"):
+            forge.apply_kit(sub, "automations")
+        self.assertFalse((sub / ".conclave/local_settings.py").exists(), "apply_kit must refuse before writing")
+
+        # Untrack it, apply kit, then track it again and verify update_project also refuses before writing
+        subprocess.run(["git", "rm", "-q", "--cached", "apps/web/.conclave/local.toml"], cwd=str(mono), check=True, timeout=15)
         res = forge.apply_kit(sub, "automations")
         self.assertEqual(res["private_gitignore"], "created")
         self.assertTrue(forge._git_repo_ignores(sub, ".private/", allowed_sources=(".gitignore",),
                                                 require_patterns=(".private/",)))
-        # Now track .conclave/local.toml in the enclosing repo; ignore check must refuse
-        _write(sub, ".conclave/local.toml", '[paths]\nscratch = "x"\n')
+        (sub / ".conclave/local_settings.py").unlink()
         subprocess.run(["git", "add", "-f", "apps/web/.conclave/local.toml"], cwd=str(mono), check=True, timeout=15)
         with self.assertRaisesRegex(ValueError, r"already tracked in git"):
-            forge._ensure_local_toml_gitignore(sub)
+            forge.update_project(sub)
+        self.assertFalse((sub / ".conclave/local_settings.py").exists(), "update_project must refuse before writing")
 
-    def test_concurrent_gitignore_edit_is_not_silently_overwritten(self):
+    def test_concurrent_gitignore_edit_is_preserved_by_kernel_append(self):
+        import unittest.mock
         import forge
 
         target = self.root / "concurrent_ig"
         target.mkdir()
         ig = _write(target, ".gitignore", "build/\n")
-        orig = ig.read_bytes()
-        # Simulate another process saving a new rule after Forge read `orig`
-        ig.write_bytes(b"build/\ndist/\n")
-        with self.assertRaisesRegex(ValueError, r"changed concurrently"):
-            forge._append_gitignore_checked(ig, b".private/\n", orig)
-        self.assertIn(b"dist/", ig.read_bytes())
+        real_append = forge._append_gitignore_rule
+
+        def racing_append(path, rule_line, *, creating):
+            # Simulate an editor saving a new rule AFTER Forge read the file and right before appending
+            path.write_bytes(b"build/\ndist/")
+            return real_append(path, rule_line, creating=creating)
+
+        with unittest.mock.patch.object(forge, "_append_gitignore_rule", side_effect=racing_append):
+            res = forge._ensure_private_gitignore(target)
+        self.assertEqual(res, "added")
+        content = ig.read_bytes()
+        self.assertIn(b"dist/", content)
+        self.assertIn(b"\n.private/\n", content)
+
+    def test_missing_git_binary_in_existing_checkout_is_refused(self):
+        import unittest.mock
+        import forge
+
+        mono = self.root / "no_git_bin_repo"
+        sub = mono / "sub"
+        sub.mkdir(parents=True)
+        (mono / ".git").mkdir()
+        with unittest.mock.patch.object(forge.shutil, "which", return_value=None):
+            with self.assertRaisesRegex(ValueError, r"git is not on PATH"):
+                forge._ensure_private_gitignore(sub)
+
+    def test_check_ignore_nul_parser_handles_colon_in_monorepo_path(self):
+        import unittest.mock
+        import forge
+
+        fake_out = b"clients/acme:west/.gitignore\x001\x00.private/\x00.private/\x00"
+        with unittest.mock.patch.object(forge, "_check_untracked_in_git", return_value="clients/acme:west/"), \
+             unittest.mock.patch.object(
+                 forge.subprocess,
+                 "run",
+                 return_value=subprocess.CompletedProcess(["git"], 0, stdout=fake_out, stderr=b""),
+             ):
+            self.assertTrue(
+                forge._git_repo_ignores(
+                    self.root,
+                    ".private/",
+                    allowed_sources=(".gitignore",),
+                    require_patterns=(".private/",),
+                )
+            )
 
     def test_cr_only_gitignore_before_git_init_appends_lf_canonical_rule(self):
         import forge
