@@ -1918,11 +1918,11 @@ _POSIX_BRACKET_CLASSES: dict[bytes, bytes] = {
 }
 
 
-def _parse_gitignore_bracket(seg: bytes, start: int) -> tuple[bytes, int] | None:
-    """Parse a gitignore `[...]` bracket expression starting at `start` (`seg[start] == '['`).
-    Returns `(regex_atom, next_idx)` or None if unclosed. Preserves exact case and backslash-escaped literals
-    (so `[\\t]` is literal `t`, not tab), expands standard POSIX classes (`[:digit:]`, `[:alpha:]`, etc.) to
-    their exact ASCII ranges, and replaces unknown collating/equivalence classes (`[....]`, `[=...]`) with `.`."""
+def _parse_gitignore_bracket(seg: bytes, start: int, *, casefold: bool) -> tuple[bytes, int] | None:
+    """Parse a gitignore `[...]` bracket expression starting at `start` (`seg[start] == '['`) matching Git's
+    `wildmatch.c` semantics. When `casefold=True` (`WM_CASEFOLD`, matched against `target.lower()`), single literal
+    members stay raw (so `[L]` does not match `l` and `[!O]` matches `o`), ranges `lo-hi` also match any lowercase
+    letter whose uppercase falls in `lo..hi` (so `[A-Z]` matches `l`), and `[:upper:]` matches `A-Za-z`."""
     length = len(seg)
     idx = start + 1
     if idx >= length:
@@ -1947,8 +1947,9 @@ def _parse_gitignore_bracket(seg: bytes, start: int) -> tuple[bytes, int] | None
             close = seg.find(marker, idx + 2)
             if close == -1:
                 return None
-            if kind == b":" and seg[idx + 2:close] in _POSIX_BRACKET_CLASSES:
-                items.append(_POSIX_BRACKET_CLASSES[seg[idx + 2:close]])
+            name = seg[idx + 2:close]
+            if kind == b":" and name in _POSIX_BRACKET_CLASSES:
+                items.append(b"A-Za-z" if (casefold and name == b"upper") else _POSIX_BRACKET_CLASSES[name])
             else:
                 has_unknown_posix = True
             idx = close + 2
@@ -1971,18 +1972,22 @@ def _parse_gitignore_bracket(seg: bytes, start: int) -> tuple[bytes, int] | None
             else:
                 hi = seg[idx:idx + 1]
                 idx += 1
-            items.append(re.escape(atom) + b"-" + re.escape(hi))
+            if atom[0] <= hi[0]:
+                items.append(re.escape(atom) + b"-" + re.escape(hi))
+                if casefold:
+                    folded = b"".join(
+                        bytes([b]) for b in range(ord("a"), ord("z") + 1) if atom[0] <= (b - 32) <= hi[0]
+                    )
+                    if folded:
+                        items.append(re.escape(folded))
         else:
             items.append(re.escape(atom))
     return None
 
 
-def _seg_may_match(seg: bytes, target: bytes) -> bool:
-    """Conservative single-segment gitignore match against `target` under case-sensitive, case-insensitive, and
-    Git `WM_CASEFOLD` (case-insensitive literals with raw bracket ranges) modes, used only when Git or a temporary
-    directory is unavailable. Within a single path segment, `**` is just two `*` wildcards."""
+def _seg_matches_mode(seg: bytes, target: bytes, *, casefold: bool) -> bool:
+    """Single-segment Git `wildmatch` matcher for one case mode (`casefold=False` or `casefold=True`)."""
     parts: list[bytes] = []
-    mixed_parts: list[bytes] = []
     idx = 0
     length = len(seg)
     while idx < length:
@@ -1990,40 +1995,34 @@ def _seg_may_match(seg: bytes, target: bytes) -> bool:
         if ch == b"\\":
             if idx + 1 >= length:
                 return True
-            esc = re.escape(seg[idx + 1:idx + 2])
-            parts.append(esc)
-            mixed_parts.append(b"(?i:" + esc + b")")
+            lit = seg[idx + 1:idx + 2]
+            parts.append(re.escape(lit.lower() if casefold else lit))
             idx += 2
         elif ch == b"*":
             parts.append(b".*")
-            mixed_parts.append(b".*")
             idx += 1
         elif ch == b"?":
             parts.append(b".")
-            mixed_parts.append(b".")
             idx += 1
         elif ch == b"[":
-            parsed = _parse_gitignore_bracket(seg, idx)
+            parsed = _parse_gitignore_bracket(seg, idx, casefold=casefold)
             if parsed is None:
                 return True
             atom, idx = parsed
             parts.append(atom)
-            mixed_parts.append(atom)
         else:
-            esc = re.escape(ch)
-            parts.append(esc)
-            mixed_parts.append(b"(?i:" + esc + b")")
+            parts.append(re.escape(ch.lower() if casefold else ch))
             idx += 1
-    pattern = b"".join(parts)
-    mixed_pattern = b"".join(mixed_parts)
     try:
-        return (
-            re.fullmatch(pattern, target, re.DOTALL) is not None
-            or re.fullmatch(pattern, target, re.DOTALL | re.IGNORECASE) is not None
-            or re.fullmatch(mixed_pattern, target, re.DOTALL) is not None
-        )
+        return re.fullmatch(b"".join(parts), target.lower() if casefold else target, re.DOTALL) is not None
     except re.error:
         return True
+
+
+def _seg_may_match(seg: bytes, target: bytes) -> bool:
+    """Single-segment Git `wildmatch` check under both `core.ignorecase=false` and `core.ignorecase=true`
+    (used only when Git or a temporary directory is unavailable)."""
+    return _seg_matches_mode(seg, target, casefold=False) or _seg_matches_mode(seg, target, casefold=True)
 
 
 def _git_check_ignore_bytes(raw: bytes, probe: str, *, require_patterns: tuple[str, ...] | None = None) -> bool | None:

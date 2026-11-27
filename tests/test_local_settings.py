@@ -254,21 +254,27 @@ class LocalSettingsReaderTests(unittest.TestCase):
             self.assertEqual(good_root_src.read_bytes(), root_body.encode())
             self.assertEqual(good_sub_src.read_bytes(), sub_body.encode())
 
-        # 5. Fallback matcher (when native Git evaluation is unavailable) preserves exact-case, case-insensitive,
-        #    and Git WM_CASEFOLD bracket semantics, backslash escapes, POSIX classes, and intra-segment **.
+        # 5. Fallback matcher (when native Git evaluation is unavailable) matches Git's own wildmatch behavior
+        #    across both core.ignorecase=false and core.ignorecase=true on bracket members, ranges, escapes,
+        #    POSIX classes, and intra-segment **.
+        differential_cases = (
+            b"![A-Z][!O]cal*", b"![L]ocal*", b"!L[!O]cal*", b"![!A-Z]*",
+            b"!local.[\\t]oml", b"![[:digit:]]ocal.toml", b"![[:alpha:]]ocal.toml",
+            b"![[:upper:]]ocal.toml", b"![[:lower:]]ocal.toml", b"!docs[[:digit:]].md",
+            b"!docs**.md", b"!README\\ notes.md", b"!**/[Rr]EADME.md", b"!**/local.toml",
+            b"![a-z][!o]cal*", b"![!a-z]*", b"![l]ocal*", b"![A-M]ocal*", b"![M-Z]ocal*",
+        )
+        for pat in differential_cases:
+            raw_bytes = b"local.toml\n" + pat + b"\n"
+            expected = forge._git_check_ignore_bytes(raw_bytes, "local.toml")
+            self.assertIsNotNone(expected, "git must be available in the test environment")
+            with unittest.mock.patch("forge._git_check_ignore_bytes", return_value=None):
+                actual = forge._gitignore_bytes_have_unnegated_rule(raw_bytes, b"local.toml")
+            self.assertEqual(actual, expected, f"fallback disagreed with git on {pat!r}")
         with unittest.mock.patch("forge._git_check_ignore_bytes", return_value=None):
-            fn = forge._gitignore_bytes_have_unnegated_rule
-            self.assertFalse(fn(b"local.toml\n![[:alpha:]]ocal.toml\n", b"local.toml"))
-            self.assertFalse(fn(b"local.toml\n![!A-Z]*\n", b"local.toml"))
-            self.assertFalse(fn(b"local.toml\n!L[!O]cal*\n", b"local.toml"))
-            self.assertFalse(fn(b"local.toml\n!local.[\\t]oml\n", b"local.toml"))
-            self.assertFalse(fn(b"local.toml\n!**/local.toml\n", b"local.toml"))
-            self.assertFalse(fn(b".private/\n!\\.private/\n", forge.PRIVATE_GITIGNORE_RULES_BYTES))
-            self.assertTrue(fn(b"local.toml\n![[:digit:]]ocal.toml\n", b"local.toml"))
-            self.assertTrue(fn(b"local.toml\n!docs**.md\n", b"local.toml"))
-            self.assertTrue(fn(b"local.toml\n!docs[[:digit:]].md\n", b"local.toml"))
-            self.assertTrue(fn(b"local.toml\n!README\\ notes.md\n", b"local.toml"))
-            self.assertTrue(fn(b"local.toml\n!**/[Rr]EADME.md\n", b"local.toml"))
+            self.assertFalse(
+                forge._gitignore_bytes_have_unnegated_rule(b".private/\n!\\.private/\n", forge.PRIVATE_GITIGNORE_RULES_BYTES)
+            )
 
         # 6. Opened-handle guard in _open_regular_append directly refuses a hard-linked file.
         direct_a = _write(other, "direct_a.gitignore", "x\n")
