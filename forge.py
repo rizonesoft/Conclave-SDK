@@ -1902,11 +1902,27 @@ def _strip_gitignore_trailing_spaces(pat: bytes) -> bytes:
     return pat[:end]
 
 
+_POSIX_BRACKET_CLASSES: dict[bytes, bytes] = {
+    b"alnum": b"0-9A-Za-z",
+    b"alpha": b"A-Za-z",
+    b"blank": b" \t",
+    b"cntrl": b"\\x00-\\x1f\\x7f",
+    b"digit": b"0-9",
+    b"graph": b"\\x21-\\x7e",
+    b"lower": b"a-z",
+    b"print": b"\\x20-\\x7e",
+    b"punct": b"!\"#$%&'()*+,\\-./:;<=>?@\\[\\\\\\]^_`{|}~",
+    b"space": b" \t\n\r\\x0b\\x0c",
+    b"upper": b"A-Z",
+    b"xdigit": b"0-9A-Fa-f",
+}
+
+
 def _parse_gitignore_bracket(seg: bytes, start: int) -> tuple[bytes, int] | None:
     """Parse a gitignore `[...]` bracket expression starting at `start` (`seg[start] == '['`).
     Returns `(regex_atom, next_idx)` or None if unclosed. Preserves exact case and backslash-escaped literals
-    (so `[\\t]` is literal `t`, not tab), and replaces any bracket containing a POSIX class (`[:...:]`, `[....]`,
-    `[=...=]`) with `.` (any single byte) while preserving surrounding prefix/suffix bytes."""
+    (so `[\\t]` is literal `t`, not tab), expands standard POSIX classes (`[:digit:]`, `[:alpha:]`, etc.) to
+    their exact ASCII ranges, and replaces unknown collating/equivalence classes (`[....]`, `[=...]`) with `.`."""
     length = len(seg)
     idx = start + 1
     if idx >= length:
@@ -1916,21 +1932,25 @@ def _parse_gitignore_bracket(seg: bytes, start: int) -> tuple[bytes, int] | None
         neg = b"^"
         idx += 1
     items: list[bytes] = []
-    has_posix = False
+    has_unknown_posix = False
     first = True
     while idx < length:
         ch = seg[idx:idx + 1]
         if ch == b"]" and not first:
-            if has_posix:
+            if has_unknown_posix:
                 return (b".", idx + 1)
             return (b"[" + neg + b"".join(items) + b"]", idx + 1)
         first = False
         if ch == b"[" and idx + 1 < length and seg[idx + 1:idx + 2] in (b":", b".", b"="):
-            marker = seg[idx + 1:idx + 2] + b"]"
+            kind = seg[idx + 1:idx + 2]
+            marker = kind + b"]"
             close = seg.find(marker, idx + 2)
             if close == -1:
                 return None
-            has_posix = True
+            if kind == b":" and seg[idx + 2:close] in _POSIX_BRACKET_CLASSES:
+                items.append(_POSIX_BRACKET_CLASSES[seg[idx + 2:close]])
+            else:
+                has_unknown_posix = True
             idx = close + 2
             continue
         if ch == b"\\":
@@ -1958,11 +1978,11 @@ def _parse_gitignore_bracket(seg: bytes, start: int) -> tuple[bytes, int] | None
 
 
 def _seg_may_match(seg: bytes, target: bytes) -> bool:
-    """Conservative single-segment gitignore match against `target` under both case-sensitive and case-insensitive
-    Git modes (used only when Git or a temporary directory is unavailable)."""
-    if b"**" in seg:
-        return True
+    """Conservative single-segment gitignore match against `target` under case-sensitive, case-insensitive, and
+    Git `WM_CASEFOLD` (case-insensitive literals with raw bracket ranges) modes, used only when Git or a temporary
+    directory is unavailable. Within a single path segment, `**` is just two `*` wildcards."""
     parts: list[bytes] = []
+    mixed_parts: list[bytes] = []
     idx = 0
     length = len(seg)
     while idx < length:
@@ -1970,13 +1990,17 @@ def _seg_may_match(seg: bytes, target: bytes) -> bool:
         if ch == b"\\":
             if idx + 1 >= length:
                 return True
-            parts.append(re.escape(seg[idx + 1:idx + 2]))
+            esc = re.escape(seg[idx + 1:idx + 2])
+            parts.append(esc)
+            mixed_parts.append(b"(?i:" + esc + b")")
             idx += 2
         elif ch == b"*":
             parts.append(b".*")
+            mixed_parts.append(b".*")
             idx += 1
         elif ch == b"?":
             parts.append(b".")
+            mixed_parts.append(b".")
             idx += 1
         elif ch == b"[":
             parsed = _parse_gitignore_bracket(seg, idx)
@@ -1984,14 +2008,19 @@ def _seg_may_match(seg: bytes, target: bytes) -> bool:
                 return True
             atom, idx = parsed
             parts.append(atom)
+            mixed_parts.append(atom)
         else:
-            parts.append(re.escape(ch))
+            esc = re.escape(ch)
+            parts.append(esc)
+            mixed_parts.append(b"(?i:" + esc + b")")
             idx += 1
     pattern = b"".join(parts)
+    mixed_pattern = b"".join(mixed_parts)
     try:
         return (
             re.fullmatch(pattern, target, re.DOTALL) is not None
             or re.fullmatch(pattern, target, re.DOTALL | re.IGNORECASE) is not None
+            or re.fullmatch(mixed_pattern, target, re.DOTALL) is not None
         )
     except re.error:
         return True
