@@ -211,24 +211,25 @@ class LocalSettingsReaderTests(unittest.TestCase):
         self.assertFalse((target_neg / ".conclave").exists())
 
         # 4. Hard-linked .gitignore and .conclave/.gitignore that already ignore .private/ and local.toml
-        #    (even when followed by unrelated rules like .aider*) are accepted as no-ops in apply_kit and update_project.
-        good_root_src = _write(other, "good_root.gitignore", "build/\n.private/\n.aider*\n")
-        good_sub_src = _write(other, "good_sub.gitignore", ".env\nlocal.toml\n*.bak\n")
-        target_ok = self.root / "hardlink_noop_target"
-        (target_ok / ".conclave").mkdir(parents=True, exist_ok=True)
-        os.link(good_root_src, target_ok / ".gitignore")
-        os.link(good_sub_src, target_ok / ".conclave" / ".gitignore")
-        res = forge.apply_kit(target_ok, "base")
-        self.assertEqual(res["private_gitignore"], "already_present")
-        self.assertNotIn("local_gitignore", res)
-        upd_dry = forge.update_project(target_ok, dry_run=True)
-        self.assertEqual(upd_dry["private_gitignore"], "already_present")
-        self.assertNotIn("local_gitignore", upd_dry)
-        upd_live = forge.update_project(target_ok, dry_run=False)
-        self.assertEqual(upd_live["private_gitignore"], "already_present")
-        self.assertNotIn("local_gitignore", upd_live)
-        self.assertEqual(good_root_src.read_bytes(), b"build/\n.private/\n.aider*\n")
-        self.assertEqual(good_sub_src.read_bytes(), b".env\nlocal.toml\n*.bak\n")
+        #    (including anchored /.private/ and /local.toml followed by unrelated rules like .aider*) are accepted.
+        for idx, (root_rule, sub_rule) in enumerate(((".private/", "local.toml"), ("/.private/", "/local.toml"), (".private", "local.toml"))):
+            good_root_src = _write(other, f"good_root_{idx}.gitignore", f"build/\n{root_rule}\n.aider*\n")
+            good_sub_src = _write(other, f"good_sub_{idx}.gitignore", f".env\n{sub_rule}\n*.bak\n")
+            target_ok = self.root / f"hardlink_noop_target_{idx}"
+            (target_ok / ".conclave").mkdir(parents=True, exist_ok=True)
+            os.link(good_root_src, target_ok / ".gitignore")
+            os.link(good_sub_src, target_ok / ".conclave" / ".gitignore")
+            res = forge.apply_kit(target_ok, "base")
+            self.assertEqual(res["private_gitignore"], "already_present")
+            self.assertNotIn("local_gitignore", res)
+            upd_dry = forge.update_project(target_ok, dry_run=True)
+            self.assertEqual(upd_dry["private_gitignore"], "already_present")
+            self.assertNotIn("local_gitignore", upd_dry)
+            upd_live = forge.update_project(target_ok, dry_run=False)
+            self.assertEqual(upd_live["private_gitignore"], "already_present")
+            self.assertNotIn("local_gitignore", upd_live)
+            self.assertEqual(good_root_src.read_bytes(), f"build/\n{root_rule}\n.aider*\n".encode())
+            self.assertEqual(good_sub_src.read_bytes(), f".env\n{sub_rule}\n*.bak\n".encode())
 
         # 5. Opened-handle guard in _open_regular_append directly refuses a hard-linked file.
         direct_a = _write(other, "direct_a.gitignore", "x\n")
@@ -237,6 +238,21 @@ class LocalSettingsReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"Refusing hard-linked"):
             forge._open_regular_append(direct_b, exclusive=False)
         self.assertEqual(direct_a.read_bytes(), b"x\n")
+
+        # 6. Concurrent unrelated append after os.write does not cause a false failure in _append_gitignore_rule.
+        conc_ig = _write(other, "conc.gitignore", "build/\n")
+        real_close = os.close
+        appended_once = {"done": False}
+        def close_with_concurrent_append(fd):
+            real_close(fd)
+            if not appended_once["done"]:
+                appended_once["done"] = True
+                with conc_ig.open("ab") as fh:
+                    fh.write(b".aider*\n")
+        with unittest.mock.patch("forge.os.close", side_effect=close_with_concurrent_append):
+            forge._append_gitignore_rule(conc_ig, b".private/\n", creating=False)
+        self.assertIn(b".private/\n", conc_ig.read_bytes())
+        self.assertIn(b".aider*\n", conc_ig.read_bytes())
 
     def test_working_file_symlink_override_is_accepted(self):
         target = _write(self.root, "external.toml", '[vault]\ncli = "custom-op"\n')
@@ -964,7 +980,7 @@ class ConsumerIntegrationTests(unittest.TestCase):
             forge._append_gitignore_rule(ig, b".private/\n", creating=True)
         content = ig.read_bytes()
         self.assertIn(b"other/\n.private/\n", content)
-        self.assertTrue(forge._gitignore_bytes_end_with_rule(content, b".private/"))
+        self.assertTrue(forge._gitignore_bytes_have_unnegated_rule(content, b".private/"))
 
         # Short write must fail immediately after one os.write call, roll back partial bytes, and leave retry clean
         ig2 = target / ".gitignore2"

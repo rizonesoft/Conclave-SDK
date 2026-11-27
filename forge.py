@@ -1773,6 +1773,11 @@ def _check_untracked_in_git(target_root: Path, rel_paths: tuple[str, ...]) -> st
     return prefix
 
 
+PRIVATE_GITIGNORE_RULES = (".private/", "/.private/", ".private", "/.private")
+PRIVATE_GITIGNORE_RULES_BYTES = tuple(rule.encode("ascii") for rule in PRIVATE_GITIGNORE_RULES)
+LOCAL_TOML_GITIGNORE_RULES_BYTES = (b"local.toml", b"/local.toml")
+
+
 def _preflight_settings_gitignores(target_root: Path) -> None:
     """Refuse symlinked or non-file `.gitignore` / `.conclave/.gitignore`, hard-linked ignore files that require
     an append, unavailable Git in an existing checkout, an enclosing-repo ignore rule that excludes `target_root`
@@ -1814,10 +1819,12 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
     if root_ig.exists():
         st = os.lstat(root_ig)
         if st.st_nlink > 1:
-            dir_rules = (".private/", "/.private/", ".private", "/.private")
-            git_ignored = _git_repo_ignores(target_root, ".private/", allowed_sources=(".gitignore",), require_patterns=dir_rules)
+            git_ignored = _git_repo_ignores(
+                target_root, ".private/", allowed_sources=(".gitignore",), require_patterns=PRIVATE_GITIGNORE_RULES
+            )
             already = (git_ignored is True) or (
-                git_ignored is None and _gitignore_bytes_have_unnegated_rule(_read_regular_file_bytes(root_ig), b".private/")
+                git_ignored is None
+                and _gitignore_bytes_have_unnegated_rule(_read_regular_file_bytes(root_ig), PRIVATE_GITIGNORE_RULES_BYTES)
             )
             if not already:
                 raise ValueError(
@@ -1829,7 +1836,8 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
         if st.st_nlink > 1:
             git_ignored = _git_repo_ignores(target_root, LOCAL, allowed_sources=(".gitignore", ".conclave/.gitignore"))
             already = (git_ignored is True) or (
-                git_ignored is None and _gitignore_bytes_have_unnegated_rule(_read_regular_file_bytes(conclave_ig), b"local.toml")
+                git_ignored is None
+                and _gitignore_bytes_have_unnegated_rule(_read_regular_file_bytes(conclave_ig), LOCAL_TOML_GITIGNORE_RULES_BYTES)
             )
             if not already:
                 raise ValueError(
@@ -1879,29 +1887,17 @@ def _git_repo_ignores(
     return True
 
 
-def _gitignore_bytes_end_with_rule(raw: bytes, canonical_rule: bytes) -> bool:
-    """Conservative LF-byte-level check used to verify that an appended rule landed as the final rule.
-    Splits strictly on LF (`b'\\n'`, never `splitlines()`), strips at most one trailing CR, and returns True only
-    when the final non-empty, non-comment LF-delimited line is exactly `canonical_rule` with no embedded CR."""
-    last_rule: bytes | None = None
-    for part in raw.split(b"\n"):
-        line = part[:-1] if part.endswith(b"\r") else part
-        if not line or line.startswith(b"#"):
-            continue
-        last_rule = line
-    return last_rule == canonical_rule
-
-
-def _gitignore_bytes_have_unnegated_rule(raw: bytes, canonical_rule: bytes) -> bool:
-    """Conservative LF-byte-level check used when the target is not a Git repository yet.
-    Returns True when `canonical_rule` appears as an exact LF-delimited rule (stripping at most one trailing CR)
-    and no subsequent negation rule (`!...`) follows it; unrelated non-negation rules after it are allowed."""
+def _gitignore_bytes_have_unnegated_rule(raw: bytes, accepted_rules: bytes | tuple[bytes, ...]) -> bool:
+    """Conservative LF-byte-level check used when the target is not a Git repository yet or after an append.
+    Returns True when any rule in `accepted_rules` appears as an exact LF-delimited rule (stripping at most one
+    trailing CR) and no subsequent negation rule (`!...`) follows it; unrelated non-negation rules are allowed."""
+    rules = (accepted_rules,) if isinstance(accepted_rules, bytes) else accepted_rules
     matched = False
     for part in raw.split(b"\n"):
         line = part[:-1] if part.endswith(b"\r") else part
         if not line or line.startswith(b"#"):
             continue
-        if line == canonical_rule:
+        if line in rules:
             matched = True
         elif matched and line.startswith(b"!"):
             matched = False
@@ -1994,7 +1990,7 @@ def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> N
             raise OSError(f"short write while updating ignore file ({written} of {len(payload)} bytes)")
     finally:
         os.close(fd)
-    if not _gitignore_bytes_end_with_rule(_read_regular_file_bytes(path), canonical):
+    if not _gitignore_bytes_have_unnegated_rule(_read_regular_file_bytes(path), canonical):
         raise ValueError(f"{path} was replaced or truncated concurrently before {canonical.decode()} landed; retry")
 
 
@@ -2005,24 +2001,25 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
     _preflight_settings_gitignores(target_root)
     gitignore = target_root / ".gitignore"
     probe = ".private/"
-    dir_rules = (".private/", "/.private/", ".private", "/.private")
-    git_ignored = _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules)
+    git_ignored = _git_repo_ignores(
+        target_root, probe, allowed_sources=(".gitignore",), require_patterns=PRIVATE_GITIGNORE_RULES
+    )
     if git_ignored is True:
         return "already_present"
     if not gitignore.exists():
         if dry_run:
             return "would_create"
         _append_gitignore_rule(gitignore, b".private/\n", creating=True)
-        if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
+        if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=PRIVATE_GITIGNORE_RULES) is False:
             raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
         return "created"
     raw = _read_regular_file_bytes(gitignore)
-    if git_ignored is None and _gitignore_bytes_have_unnegated_rule(raw, b".private/"):
+    if git_ignored is None and _gitignore_bytes_have_unnegated_rule(raw, PRIVATE_GITIGNORE_RULES_BYTES):
         return "already_present"
     if dry_run:
         return "would_add"
     _append_gitignore_rule(gitignore, b".private/\n", creating=False)
-    if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
+    if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=PRIVATE_GITIGNORE_RULES) is False:
         raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
     return "added"
 
@@ -2044,7 +2041,7 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
             raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
         return "created"
     raw = _read_regular_file_bytes(conclave_ig)
-    if git_ignored is None and _gitignore_bytes_have_unnegated_rule(raw, b"local.toml"):
+    if git_ignored is None and _gitignore_bytes_have_unnegated_rule(raw, LOCAL_TOML_GITIGNORE_RULES_BYTES):
         return "already_present"
     if dry_run:
         return "would_add"
