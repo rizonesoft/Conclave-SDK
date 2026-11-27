@@ -120,6 +120,14 @@ class LocalSettingsReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.conclave/local\.toml.*broken symlink"):
             self.ls.read_local_settings(self.root)
 
+    def test_broken_symlink_settings_directory_beside_valid_overlay_is_refused(self):
+        _write(self.root, ".private/local.toml", '[alert]\nsender = "ov@example.com"\n')
+        dir_link = self.root / ".conclave"
+        if not _try_symlink(dir_link, self.root / "missing-settings-dir"):
+            self.skipTest("symlinks require privilege on this host")
+        with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.conclave/local\.toml.*broken symlink"):
+            self.ls.read_local_settings(self.root)
+
     def test_working_file_symlink_override_is_accepted(self):
         target = _write(self.root, "external.toml", '[vault]\ncli = "custom-op"\n')
         link = self.root / ".conclave" / "local.toml"
@@ -1097,17 +1105,26 @@ class ConsumerIntegrationTests(unittest.TestCase):
                 forge.apply_kit(root_repo, "automations", dry_run=dry)
         self.assertFalse((root_repo / ".conclave").exists())
 
-        # Existing tracked monorepo subproject where enclosing rule now excludes .conclave/
+        # Existing tracked monorepo subproject with a pending kit update where enclosing rule now excludes .conclave/
         tracked_mono = self.root / "tracked_mono"
         tracked_sub = tracked_mono / "apps" / "web"
         tracked_sub.mkdir(parents=True)
         subprocess.run(["git", "init", "-q"], cwd=str(tracked_mono), check=True, timeout=15)
         forge.apply_kit(tracked_sub, "automations")
+        alert_file = tracked_sub / ".conclave/automations/alert.py"
+        alert_file.write_bytes(b"# old alert\n")
+        rec_path = tracked_sub / ".conclave/kits.json"
+        rec = json.loads(rec_path.read_text(encoding="utf-8"))
+        rec["files"][".conclave/automations/alert.py"]["sha256"] = forge.file_digest(b"# old alert\n")
+        rec_bytes = (json.dumps(rec, indent=2) + "\n").encode("utf-8")
+        rec_path.write_bytes(rec_bytes)
         subprocess.run(["git", "add", "apps/web/.conclave/local_settings.py"], cwd=str(tracked_mono), check=True, timeout=15)
         _write(tracked_mono, ".gitignore", ".conclave/\n")
         for dry in (True, False):
             with self.assertRaisesRegex(ValueError, r"excluded by an enclosing Git ignore rule"):
                 forge.update_project(tracked_sub, dry_run=dry)
+        self.assertEqual(alert_file.read_bytes(), b"# old alert\n", "refusal must precede update writes")
+        self.assertEqual(rec_path.read_bytes(), rec_bytes, "refusal must precede kits.json writes")
 
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock

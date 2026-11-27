@@ -29,7 +29,7 @@ def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
     shown = label if label is not None else str(target)
     try:
         is_link = target.is_symlink()
-        if is_link and not target.exists():
+        if (is_link and not target.exists()) or (target.parent.is_symlink() and not target.parent.exists()):
             raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)")
     except LocalSettingsError:
         raise
@@ -40,7 +40,7 @@ def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
         fd = os.open(target, flags)
     except FileNotFoundError:
         try:
-            if target.is_symlink():
+            if target.is_symlink() or (target.parent.is_symlink() and not target.parent.exists()):
                 raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)") from None
         except LocalSettingsError:
             raise
