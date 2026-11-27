@@ -1704,9 +1704,11 @@ def _git_worktree_prefix(target_root: Path) -> str | None:
         if _has_enclosing_git(target_root):
             raise ValueError(f"git is not on PATH; cannot verify ignore rules or tracked status in {target_root}")
         return None
+    git_env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
     proc = subprocess.run(
         ["git", "rev-parse", "--show-prefix"],
         cwd=str(target_root),
+        env=git_env,
         capture_output=True,
         timeout=15,
     )

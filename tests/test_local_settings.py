@@ -105,6 +105,13 @@ class LocalSettingsReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.conclave/local\.toml"):
             self.ls.read_local_settings(self.root)
 
+    def test_permission_error_on_metadata_probe_raises_local_settings_error(self):
+        import unittest.mock
+
+        with unittest.mock.patch.object(Path, "is_symlink", side_effect=PermissionError(13, "Permission denied")):
+            with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.private/local\.toml.*Permission denied"):
+                self.ls.read_local_settings(self.root)
+
     def test_broken_symlink_override_beside_valid_overlay_is_refused(self):
         _write(self.root, ".private/local.toml", '[alert]\nsender = "ov@example.com"\n')
         link = self.root / ".conclave" / "local.toml"
@@ -1024,6 +1031,22 @@ class ConsumerIntegrationTests(unittest.TestCase):
                             require_patterns=(".private/",),
                         )
                     )
+
+    def test_git_worktree_prefix_forces_c_locale_for_non_repo_detection(self):
+        import unittest.mock
+        import forge
+
+        seen_env = {}
+
+        def fake_run(cmd, **kw):
+            seen_env.update(kw.get("env") or {})
+            return subprocess.CompletedProcess(cmd, 128, stdout=b"", stderr=b"fatal: not a git repository")
+
+        with unittest.mock.patch.object(forge.shutil, "which", return_value="git"), \
+             unittest.mock.patch.object(forge.subprocess, "run", side_effect=fake_run):
+            self.assertIsNone(forge._git_worktree_prefix(self.root))
+        self.assertEqual(seen_env.get("LC_ALL"), "C")
+        self.assertEqual(seen_env.get("LANG"), "C")
 
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock

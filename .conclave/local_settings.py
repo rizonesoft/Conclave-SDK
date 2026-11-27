@@ -27,14 +27,25 @@ def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
     Follows working symlinks to regular files while using O_NONBLOCK + fstat so a FIFO never hangs."""
     target = Path(path)
     shown = label if label is not None else str(target)
-    if target.is_symlink() and not target.exists():
-        raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)")
+    try:
+        is_link = target.is_symlink()
+        if is_link and not target.exists():
+            raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)")
+    except LocalSettingsError:
+        raise
+    except OSError as exc:
+        raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(target, flags)
     except FileNotFoundError:
-        if target.is_symlink():
-            raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)") from None
+        try:
+            if target.is_symlink():
+                raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)") from None
+        except LocalSettingsError:
+            raise
+        except OSError as exc:
+            raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
         raise
     except OSError as exc:
         raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
