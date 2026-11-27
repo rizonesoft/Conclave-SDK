@@ -103,8 +103,19 @@ def list_kits() -> list[str]:
 
 
 def _is_link(path: Path) -> bool:
-    """A symlink, or on Windows a junction: either leads a write somewhere other than where its path says."""
-    return path.is_symlink() or getattr(path, "is_junction", lambda: False)()
+    """A symlink, or on Windows a junction (including on Python 3.11 without Path.is_junction): either leads a
+    write somewhere other than where its path says."""
+    if path.is_symlink():
+        return True
+    if hasattr(path, "is_junction"):
+        return path.is_junction()
+    mount_tag = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", None)
+    if mount_tag is not None:
+        try:
+            return getattr(path.lstat(), "st_reparse_tag", 0) == mount_tag
+        except FileNotFoundError:
+            return False
+    return False
 
 
 def _has_unsafe_parent(target_root: Path, rel_path: str) -> bool:

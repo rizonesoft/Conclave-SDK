@@ -57,6 +57,8 @@ def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
         try:
             if _is_link(target) or (_is_link(target.parent) and not target.parent.exists()):
                 raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)") from None
+            if target.parent.exists() and not target.parent.is_dir():
+                raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (parent is not a directory)") from None
         except LocalSettingsError:
             raise
         except OSError as exc:

@@ -139,6 +139,26 @@ class LocalSettingsReaderTests(unittest.TestCase):
         with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.conclave/local\.toml.*broken symlink"):
             self.ls.read_local_settings(self.root)
 
+    def test_regular_file_at_settings_parent_directory_is_refused_not_fallback(self):
+        _write(self.root, ".private/local.toml", '[alert]\nsender = "ov@example.com"\n')
+        (self.root / ".conclave").write_text("not a directory\n", encoding="utf-8", newline="\n")
+        with self.assertRaisesRegex(self.ls.LocalSettingsError, r"\.conclave/local\.toml"):
+            self.ls.read_local_settings(self.root)
+
+    @unittest.skipUnless(os.name == "nt", "Windows directory junctions are Windows-only")
+    def test_forge_refuses_windows_junction_settings_dir_before_writing(self):
+        import forge
+
+        target = self.root / "junction_target"
+        target.mkdir()
+        shared = self.root / "shared_conclave"
+        shared.mkdir()
+        junction = target / ".conclave"
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(junction), str(shared)], check=True, capture_output=True)
+        with self.assertRaisesRegex(ValueError, r"unsafe parent"):
+            forge.apply_kit(target, "automations")
+        self.assertEqual(list(shared.iterdir()), [], "refusal must happen before writing into the junction target")
+
     def test_working_file_symlink_override_is_accepted(self):
         target = _write(self.root, "external.toml", '[vault]\ncli = "custom-op"\n')
         link = self.root / ".conclave" / "local.toml"
