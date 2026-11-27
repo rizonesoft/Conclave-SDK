@@ -1134,17 +1134,17 @@ class ForgeProvisionTests(unittest.TestCase):
     def test_neon_sdk_docs_name_neon_launch_and_gemini_badge(self):
         readme = (FORGE_ROOT / "README.md").read_text(encoding="utf-8")
         unattended_section = readme.split("## Running the SDK's own plan unattended\n\n", 1)[1].split("\n\n## ", 1)[0]
-        agy_clause = unattended_section.split("`-Runner agy`", 1)[1].split(". ", 1)[0]
-        self.assertIn("Gemini 4 Neon", agy_clause)
-        self.assertIn("gemini-4-neon-medium", agy_clause)
-        self.assertIn("-Effort", agy_clause)
+        agy_passage = unattended_section.split("`-Runner agy`", 1)[1].split("`pwsh scripts/start-run.ps1 -InstallShortcut`", 1)[0]
+        self.assertIn("Gemini 4 Neon", agy_passage)
+        self.assertRegex(agy_passage, r"(?<![\w-])gemini-4-neon-medium(?![\w-])")
+        self.assertRegex(agy_passage, r"(?<![\w-])-Effort(?![\w-])")
         self.assertNotIn("Carbon", unattended_section)
         brand = (FORGE_ROOT / "assets/brand/README.md").read_text(encoding="utf-8")
         launcher_section = brand.split("## Launcher icons\n\n", 1)[1].split("\n\n## ", 1)[0]
         self.assertIn("Antigravity's blue Gemini sparkle", launcher_section)
         self.assertNotIn("Carbon", launcher_section)
         structure = (FORGE_ROOT / "docs/agent-skills-and-rules-structure.md").read_text(encoding="utf-8")
-        self.assertIn("gemini-4-neon-medium", structure)
+        self.assertRegex(structure, r"(?<![\w-])gemini-4-neon-medium(?![\w-])")
         self.assertNotIn("Carbon", structure)
 
     def test_markdown_table_descriptions_within_88_chars_and_rows_do_not_wrap(self):
