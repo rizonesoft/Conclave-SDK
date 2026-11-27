@@ -1071,16 +1071,20 @@ class ConsumerIntegrationTests(unittest.TestCase):
     def test_ignored_monorepo_subdirectory_refuses_in_dry_run_and_apply_before_writing(self):
         import forge
 
-        mono = self.root / "ignored_mono"
-        sub = mono / "scratch" / "example"
-        sub.mkdir(parents=True)
-        subprocess.run(["git", "init", "-q"], cwd=str(mono), check=True, timeout=15)
-        _write(mono, ".gitignore", "scratch/\n")
-        for dry in (True, False):
-            with self.subTest(dry_run=dry):
-                with self.assertRaisesRegex(ValueError, r"excluded by an enclosing Git ignore rule"):
-                    forge.apply_kit(sub, "automations", dry_run=dry)
-        self.assertFalse((sub / ".conclave").exists(), "refusal must happen before any kit file is written")
+        for label, rule, sub_rel in (
+            ("excluded_target", "scratch/\n", "scratch/example"),
+            ("excluded_conclave", ".conclave/\n", "apps/example"),
+        ):
+            with self.subTest(case=label):
+                mono = self.root / f"ignored_mono_{label}"
+                sub = mono / sub_rel
+                sub.mkdir(parents=True)
+                subprocess.run(["git", "init", "-q"], cwd=str(mono), check=True, timeout=15)
+                _write(mono, ".gitignore", rule)
+                for dry in (True, False):
+                    with self.assertRaisesRegex(ValueError, r"excluded by an enclosing Git ignore rule"):
+                        forge.apply_kit(sub, "automations", dry_run=dry)
+                self.assertFalse((sub / ".conclave").exists(), "refusal must happen before any kit file is written")
 
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock

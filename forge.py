@@ -1774,27 +1774,29 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
             raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
     prefix = _check_untracked_in_git(target_root, (".private/", LOCAL))
     if prefix:
-        proc = subprocess.run(
-            ["git", "check-ignore", "-v", "-z", "--stdin"],
-            cwd=str(target_root),
-            env=_clean_git_env(),
-            input=b".\0",
-            capture_output=True,
-            timeout=15,
-        )
-        if proc.returncode == 0:
-            fields = (proc.stdout or b"").split(b"\0")
-            if len(fields) >= 4:
-                source = fields[0].decode("utf-8", errors="surrogateescape").replace("\\", "/")
-                pattern = fields[2].decode("utf-8", errors="surrogateescape")
-                if not pattern.startswith("!"):
-                    raise ValueError(
-                        f"Target directory {target_root} is excluded by an enclosing Git ignore rule "
-                        f"({source}: {pattern}); unignore it or initialize its own repository first"
-                    )
-        elif proc.returncode != 1:
-            detail = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
-            raise ValueError(f"git check-ignore failed in {target_root} (exit {proc.returncode}): {detail}")
+        own_sources = (f"{prefix}.gitignore", f"{prefix}.conclave/.gitignore")
+        for probe_dir in (".", ".conclave/"):
+            proc = subprocess.run(
+                ["git", "check-ignore", "-v", "-z", "--stdin"],
+                cwd=str(target_root),
+                env=_clean_git_env(),
+                input=probe_dir.encode("utf-8") + b"\0",
+                capture_output=True,
+                timeout=15,
+            )
+            if proc.returncode == 0:
+                fields = (proc.stdout or b"").split(b"\0")
+                if len(fields) >= 4:
+                    source = fields[0].decode("utf-8", errors="surrogateescape").replace("\\", "/")
+                    pattern = fields[2].decode("utf-8", errors="surrogateescape")
+                    if not pattern.startswith("!") and source not in own_sources:
+                        raise ValueError(
+                            f"Target path {probe_dir} under {target_root} is excluded by an enclosing Git ignore rule "
+                            f"({source}: {pattern}); unignore it or initialize its own repository first"
+                        )
+            elif proc.returncode != 1:
+                detail = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
+                raise ValueError(f"git check-ignore failed in {target_root} (exit {proc.returncode}): {detail}")
 
 
 def _git_repo_ignores(
