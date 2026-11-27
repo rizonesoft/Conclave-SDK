@@ -841,20 +841,24 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertIn(b"other/\n.private/\n", content)
         self.assertTrue(forge._gitignore_bytes_end_with_rule(content, b".private/"))
 
-        # Short write must fail immediately after one os.write call (never split across two writes)
+        # Short write must fail immediately after one os.write call, roll back partial bytes, and leave retry clean
         ig2 = target / ".gitignore2"
+        ig2.write_bytes(b"build/\n")
         write_calls = [0]
 
         def short_write(fd, buf):
             write_calls[0] += 1
-            return real_write(fd, bytes(buf[:2]))
+            return real_write(fd, bytes(buf[:6]))
 
         with unittest.mock.patch.object(forge.os, "write", side_effect=short_write):
             with self.assertRaisesRegex(OSError, r"short write"):
-                forge._append_gitignore_rule(ig2, b".private/\n", creating=True)
+                forge._append_gitignore_rule(ig2, b"local.toml\n", creating=False)
         self.assertEqual(write_calls[0], 1)
+        self.assertEqual(ig2.read_bytes(), b"build/\n", "partial bytes must be rolled back")
+        forge._append_gitignore_rule(ig2, b"local.toml\n", creating=False)
+        self.assertEqual(ig2.read_bytes(), b"build/\n\nlocal.toml\n")
 
-    def test_fifo_is_refused_without_blocking_on_both_read_and_write_paths(self):
+    def test_fifo_is_refused_without_blocking_across_all_ignore_and_settings_paths(self):
         import stat as stat_mod
         import types
         import unittest.mock
@@ -862,21 +866,52 @@ class ConsumerIntegrationTests(unittest.TestCase):
 
         target = self.root / "fifo_proj"
         target.mkdir()
+        ls = _load("test_ls_fifo", KIT_LS)
         if hasattr(os, "mkfifo"):
             fifo = target / ".gitignore"
             os.mkfifo(fifo)
             with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                forge._read_regular_file_bytes(fifo)
+                forge._ensure_private_gitignore(target)
+            (target / ".conclave").mkdir(exist_ok=True)
+            cfifo = target / ".conclave" / ".gitignore"
+            os.mkfifo(cfifo)
             with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                forge._open_regular_append(fifo, exclusive=False)
+                forge._ensure_local_toml_gitignore(target)
+            sfifo = target / ".conclave" / "local.toml"
+            os.mkfifo(sfifo)
+            with self.assertRaisesRegex(ls.LocalSettingsError, r"\.conclave/local\.toml.*not a regular file"):
+                ls.read_local_settings(target)
         else:
-            ig = _write(target, ".gitignore", "build/\n")
+            _write(target, ".gitignore", "build/\n")
+            _write(target, ".conclave/.gitignore", "cache/\n")
+            _write(target, ".conclave/local.toml", '[paths]\nscratch = "x"\n')
             fake_stat = types.SimpleNamespace(st_mode=stat_mod.S_IFIFO | 0o600)
             with unittest.mock.patch.object(forge.os, "fstat", return_value=fake_stat):
                 with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                    forge._read_regular_file_bytes(ig)
+                    forge._ensure_private_gitignore(target)
                 with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
-                    forge._open_regular_append(ig, exclusive=False)
+                    forge._ensure_local_toml_gitignore(target)
+            with unittest.mock.patch.object(ls.os, "fstat", return_value=fake_stat):
+                with self.assertRaisesRegex(ls.LocalSettingsError, r"\.conclave/local\.toml.*not a regular file"):
+                    ls.read_local_settings(target)
+            # Post-close read path also refuses a FIFO
+            real_close = forge.os.close
+            ig3 = _write(target, ".gitignore3", "build/\n")
+            switched = [False]
+
+            def flip_to_fifo_on_close(fd):
+                real_close(fd)
+                switched[0] = True
+
+            real_fstat = os.fstat
+
+            def fstat_fifo_after_close(fd):
+                return fake_stat if switched[0] else real_fstat(fd)
+
+            with unittest.mock.patch.object(forge.os, "close", side_effect=flip_to_fifo_on_close), \
+                 unittest.mock.patch.object(forge.os, "fstat", side_effect=fstat_fifo_after_close):
+                with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                    forge._append_gitignore_rule(ig3, b".private/\n", creating=False)
 
     def test_replace_on_save_during_append_is_refused(self):
         import unittest.mock

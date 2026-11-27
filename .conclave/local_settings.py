@@ -8,7 +8,9 @@ symlink, directory, unreadable file, or invalid TOML is always refused naming th
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import stat
 import tomllib
 
 LOCAL = ".conclave/local.toml"
@@ -21,19 +23,37 @@ class LocalSettingsError(ValueError):
 
 def read_toml_file(path: Path | str, *, label: str | None = None) -> dict:
     """Read and parse one UTF-8 TOML file. Raises FileNotFoundError only when the path is genuinely absent
-    (not a broken symlink); raises LocalSettingsError for a broken symlink, directory, I/O error, or bad TOML."""
+    (not a broken symlink); raises LocalSettingsError for a broken symlink, directory, FIFO, I/O error, or bad TOML.
+    Follows working symlinks to regular files while using O_NONBLOCK + fstat so a FIFO never hangs."""
     target = Path(path)
     shown = label if label is not None else str(target)
     if target.is_symlink() and not target.exists():
         raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
-        raw = target.read_bytes()
+        fd = os.open(target, flags)
     except FileNotFoundError:
         if target.is_symlink():
             raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (broken symlink)") from None
         raise
     except OSError as exc:
         raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML (not a regular file)")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        raw = b"".join(chunks)
+    except LocalSettingsError:
+        raise
+    except OSError as exc:
+        raise LocalSettingsError(f"{shown}: not readable as UTF-8 TOML ({exc})") from None
+    finally:
+        os.close(fd)
     try:
         return tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:

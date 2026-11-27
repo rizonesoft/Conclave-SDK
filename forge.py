@@ -1879,8 +1879,11 @@ def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> N
     if fd is None:
         fd = _open_regular_append(path, exclusive=False)
     try:
+        size_before = os.fstat(fd).st_size
         written = os.write(fd, payload)
         if written != len(payload):
+            if written > 0 and os.fstat(fd).st_size == size_before + written:
+                os.ftruncate(fd, size_before)
             raise OSError(f"short write while updating ignore file ({written} of {len(payload)} bytes)")
     finally:
         os.close(fd)
