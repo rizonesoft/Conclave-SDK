@@ -1048,15 +1048,24 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertEqual(seen_env.get("LC_ALL"), "C")
         self.assertEqual(seen_env.get("LANG"), "C")
 
-    def test_broken_git_dir_inside_existing_checkout_is_refused(self):
+    def test_inherited_git_index_and_git_dir_do_not_bypass_tracked_settings_check(self):
         import unittest.mock
         import forge
 
-        repo = self.root / "broken_git_dir_repo"
+        repo = self.root / "inherited_env_repo"
         repo.mkdir()
         subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True, timeout=15)
+        _write(repo, ".conclave/local.toml", '[paths]\nscratch = "x"\n')
+        subprocess.run(["git", "add", "-f", ".conclave/local.toml"], cwd=str(repo), check=True, timeout=15)
+        # Alternate index that does NOT track .conclave/local.toml
+        alt_index = self.root / "empty.index"
+        with unittest.mock.patch.dict(os.environ, {"GIT_INDEX_FILE": str(alt_index)}):
+            with self.assertRaisesRegex(ValueError, r"already tracked in git"):
+                forge.apply_kit(repo, "automations")
+            self.assertFalse((repo / ".conclave/local_settings.py").exists())
+        # Inherited broken GIT_DIR still inspects the target's real repo and refuses the tracked file
         with unittest.mock.patch.dict(os.environ, {"GIT_DIR": "missing-git-directory"}):
-            with self.assertRaisesRegex(ValueError, r"git rev-parse failed"):
+            with self.assertRaisesRegex(ValueError, r"already tracked in git"):
                 forge._check_untracked_in_git(repo, (".private/", forge.LOCAL))
 
     def test_missing_git_binary_in_existing_checkout_is_refused(self):

@@ -1696,6 +1696,25 @@ def _has_enclosing_git(target_root: Path) -> bool:
     return any((parent / ".git").exists() for parent in (resolved, *resolved.parents))
 
 
+def _clean_git_env() -> dict[str, str]:
+    """Subprocess environment for inspecting a target checkout's own Git state: strips inherited repo-override
+    variables (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_COMMON_DIR`, `GIT_OBJECT_DIRECTORY`,
+    `GIT_ALTERNATE_OBJECT_DIRECTORIES`) and forces C locale so every check uses the target's own repository and
+    ordinary index with English diagnostics."""
+    strip = {
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_COMMON_DIR",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    }
+    env = {k: v for k, v in os.environ.items() if k not in strip}
+    env["LC_ALL"] = "C"
+    env["LANG"] = "C"
+    return env
+
+
 def _git_worktree_prefix(target_root: Path) -> str | None:
     """Return the POSIX prefix of `target_root` inside its enclosing Git worktree (`""` at the repo root, `"sub/"`
     in a subdirectory), or `None` when `target_root` is not inside any Git worktree. Raises `ValueError` when
@@ -1704,11 +1723,10 @@ def _git_worktree_prefix(target_root: Path) -> str | None:
         if _has_enclosing_git(target_root):
             raise ValueError(f"git is not on PATH; cannot verify ignore rules or tracked status in {target_root}")
         return None
-    git_env = {**os.environ, "LC_ALL": "C", "LANG": "C"}
     proc = subprocess.run(
         ["git", "rev-parse", "--show-prefix"],
         cwd=str(target_root),
-        env=git_env,
+        env=_clean_git_env(),
         capture_output=True,
         timeout=15,
     )
@@ -1726,10 +1744,12 @@ def _check_untracked_in_git(target_root: Path, rel_paths: tuple[str, ...]) -> st
     prefix = _git_worktree_prefix(target_root)
     if prefix is None:
         return None
+    git_env = _clean_git_env()
     for rel_path in rel_paths:
         tracked = subprocess.run(
             ["git", "ls-files", "--", rel_path],
             cwd=str(target_root),
+            env=git_env,
             capture_output=True,
             text=True,
             timeout=15,
@@ -1771,6 +1791,7 @@ def _git_repo_ignores(
     proc = subprocess.run(
         ["git", "check-ignore", "-v", "-z", "--stdin"],
         cwd=str(target_root),
+        env=_clean_git_env(),
         input=rel_path.encode("utf-8") + b"\0",
         capture_output=True,
         timeout=15,
