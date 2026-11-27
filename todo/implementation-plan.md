@@ -219,7 +219,7 @@ Sections: 16 | Checklist items: 94
 | Status | Reference   | Deliverable                                                  | Needs | Items |
 | ------ | ----------- | ------------------------------------------------------------ | ----- | ----- |
 | [x]    | D00 T04 §1  | Base kit guidance names Gemini 4 Neon                        | none  | 6     |
-| [ ]    | D00 T04 §2  | Antigravity TODO skills without Carbon handoffs              | none  | 5     |
+| [x]    | D00 T04 §2  | Antigravity TODO skills without Carbon handoffs              | none  | 5     |
 | [ ]    | D00 T04 §3  | Reviewer pin accepts Neon with an effort                     | none  | 4     |
 | [ ]    | D00 T04 §4  | Unattended profile runs Neon with its effort                 | none  | 5     |
 | [ ]    | D00 T04 §5  | SDK copies, documents and tests follow the kits              | none  | 5     |
@@ -246,6 +246,6 @@ Sections: 4 | Checklist items: 33
 | [x]    | D06 T01 §3 | Retired GitHub repositories deleted      | attended | 9     |
 | [ ]    | D07 T02 §7 | Live proof on a staging site             | operator | 6     |
 
-Progress: 135/156 verified sections, 4 ready to run now.
+Progress: 136/156 verified sections, 3 ready to run now.
 
-Checklist: 1064/1179 items completed (includes Commit items).
+Checklist: 1065/1179 items completed (includes Commit items).

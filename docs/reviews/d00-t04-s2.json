@@ -1,0 +1,90 @@
+{
+  "ref": "D00 T04 \u00a72",
+  "title": "Antigravity TODO skills without Carbon handoffs",
+  "implementation_sha": "eb30b67f374667ed94cf311f900349d0612d0c97",
+  "date": "2026-11-27",
+  "reviews": [
+    {
+      "round": 1,
+      "report": "docs/reviews/00-reviewer/D00-T04-s2.md",
+      "verdict": "fixed"
+    }
+  ],
+  "checks": [
+    "python -m unittest tests.test_agy_agents -> Ran 15 tests in 18.968s, OK (skipped=3); python -m unittest tests.test_forge -k micro_todo_and_complete_plan -k the_sdk_uses_the_agent_setup -k markdown_table -> Ran 3 tests in 1.912s, OK; mutation check restoring Carbon in kits/todo/skill-patches/agents/process-plan/SKILL.md.json -> rc=1 FAILED; CI tests.yml green 7/7 at eb30b67f374667ed94cf311f900349d0612d0c97 https://github.com/rizonesoft/Conclave-SDK/actions/runs/45913280082"
+  ],
+  "completion": {
+    "report": "docs/reviews/00-reviewer/D00-T04-s2.md",
+    "verdict": "filed",
+    "candidate": "eb30b67f374667ed94cf311f900349d0612d0c97",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "filed": [
+      "D06 T04 \u00a71"
+    ]
+  },
+  "rounds_spent": 1,
+  "round_cap": 33,
+  "plan": {
+    "report": "docs/reviews/00-reviewer/D00-T04-s2.md",
+    "candidate": "8891815fc387aba6f3881ab5b20fdc247c1d2676",
+    "reviewer": "astra",
+    "model": "gpt-6.2-astra",
+    "effort": "medium",
+    "lenses": [
+      "plan",
+      "simplest"
+    ]
+  },
+  "schedule_sha": "8891815fc387aba6f3881ab5b20fdc247c1d2676",
+  "schedule": {
+    "policy": "three-pass",
+    "pass_cap": 33,
+    "blocking": [
+      "P1",
+      "P2"
+    ],
+    "lenses": {
+      "simplest": "What is the simplest design that meets this section in full, and which planned part could be cut?"
+    },
+    "plan": {
+      "effort": "medium",
+      "lenses": [
+        "plan",
+        "simplest"
+      ]
+    },
+    "rounds": [
+      {
+        "effort": "medium",
+        "lenses": [
+          "adversarial",
+          "integration",
+          "source-defect",
+          "consistency",
+          "quality",
+          "optimization",
+          "design"
+        ]
+      }
+    ],
+    "completion": {
+      "effort": "low",
+      "lenses": [
+        "plan-delivery",
+        "record"
+      ]
+    },
+    "reconciliation": {
+      "effort": "medium",
+      "lenses": [
+        "adversarial",
+        "integration",
+        "plan-delivery",
+        "record"
+      ]
+    }
+  },
+  "passes_spent": 3,
+  "pass_cap": 33
+}

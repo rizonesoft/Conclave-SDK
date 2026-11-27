@@ -34,7 +34,7 @@ title: "TODO-04 -- Gemini 4 Neon replaces Orchestrator (Carbon)"
 | Order | Section | Deliverable | Depends On | Status |
 | ----- | ------- | ----------- | ---------- | ------ |
 | 1 | §1 | Base kit guidance names Gemini 4 Neon | -- | [x] |
-| 2 | §2 | Antigravity TODO skills without Carbon handoffs | §1 | [ ] |
+| 2 | §2 | Antigravity TODO skills without Carbon handoffs | §1 | [x] |
 | 3 | §3 | Reviewer pin accepts Neon with an effort | -- | [ ] |
 | 4 | §4 | Unattended profile runs Neon with its effort | -- | [ ] |
 | 5 | §5 | SDK copies, documents and tests follow the kits | §1, §2, §3, §4 | [ ] |
@@ -89,9 +89,12 @@ The todo kit's Antigravity copies of `process-plan`, `process-phase` and `proces
 - [x] Delete the handoff-only replace entries from `kits/todo/skill-patches/agents/process-plan/SKILL.md.json`, `process-phase/SKILL.md.json` and `process-todo-section/SKILL.md.json` (not empty replacements), keeping every other declared difference so the Claude source supplies the working passages. Done when: each patch still applies cleanly and none contains Carbon, Hydrogen, `exit_plan_mode`, or `enter_plan_mode`. Cheaper substitute: editing the generated copies by hand or replacing with empty strings. **Corrected 2026-11-26 (plan review):** delete entries rather than emptying them.
 - [x] Clarify in Step 4 of `kits/todo/templates/.claude/skills/process-todo-section/SKILL.md` (filed non-blocking P3 from `D00 T03 §2` Completion review) that a section's `Commit:` checklist item stays `[ ]` until `todo-graph.py stamp` ticks it with the Implementation Order row. Done when: the exception sits in Step 4 beside the ticking instruction without conflicting with Step 7. **Corrected 2026-11-26 (plan review):** placed in Step 4.
 - [x] Run `python forge.py skill-copies` once and `python forge.py self-sync` once, then run `python forge.py skill-copies --check`, `python -m unittest tests.test_agy_agents`, and `python -m unittest tests.test_forge -k micro_todo_and_complete_plan -k the_sdk_uses_the_agent_setup -k markdown_table`. Done when: `skill-copies --check` exits 0 and all named tests pass. **Corrected 2026-11-26 (plan review):** single generation and self-sync pass after both source edits.
-- [ ] Commit: `todo: Antigravity skills follow the Claude steps under Gemini 4 Neon (D00 T04 §2)`
+- [x] Commit: `todo: Antigravity skills follow the Claude steps under Gemini 4 Neon (D00 T04 §2)`
 
 **Test checkpoint:** `python -m unittest tests.test_agy_agents` ends `OK`, and fails when a Carbon handoff line is restored in `kits/todo/skill-patches/agents/process-plan/SKILL.md.json`.
+
+> **Verified:** 2026-11-27 | §2 | eb30b67f374667ed94cf311f900349d0612d0c97
+> **Review:** `docs/reviews/d00-t04-s2.json`
 
 ## 3. Reviewer pin accepts Neon with an effort
 
