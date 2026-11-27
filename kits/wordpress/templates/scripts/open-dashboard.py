@@ -40,11 +40,15 @@ try:
 except (ValueError, OSError) as exc:
     site_ssh = None
     wp_site = None
-    _LOCAL_SETTINGS_ERROR = (
-        "the local settings file .private/local.toml is not valid"
-        if ".private/local.toml" in str(exc) or ".private\\local.toml" in str(exc)
-        else "the local settings file .conclave/local.toml is not valid"
-    )
+    msg = str(exc)
+    has_private = ".private/local.toml" in msg or ".private\\local.toml" in msg
+    has_local = ".conclave/local.toml" in msg or ".conclave\\local.toml" in msg
+    if has_private and has_local:
+        _LOCAL_SETTINGS_ERROR = "the local settings files (.conclave/local.toml / .private/local.toml) are not valid"
+    elif has_private:
+        _LOCAL_SETTINGS_ERROR = "the local settings file .private/local.toml is not valid"
+    else:
+        _LOCAL_SETTINGS_ERROR = "the local settings file .conclave/local.toml is not valid"
 
 QUERY = "conclave_ticket"
 OPTION = "conclave_login_ticket"

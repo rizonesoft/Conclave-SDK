@@ -56,6 +56,14 @@ def vault_settings(path=None, *, root=ROOT):
         except ls.LocalSettingsError as error:
             raise ValueError(str(error).replace("not readable as UTF-8 TOML", "not readable as TOML")) from None
         source = " / ".join(loaded) if loaded else f"{ls.LOCAL} / {ls.OVERLAY}"
+        # When both files loaded, attribute a bad [vault] table or key to the winning file that set it.
+        if len(loaded) == 2:
+            try:
+                override_data = ls.read_toml_file(Path(root) / ls.LOCAL, label=ls.LOCAL)
+            except (FileNotFoundError, ls.LocalSettingsError):
+                override_data = {}
+            if "vault" in override_data and not isinstance(override_data["vault"], dict):
+                source = ls.LOCAL
     table = data.get("vault", {})
     if not isinstance(table, dict):
         raise ValueError(f"{source}: [vault] must be a table")
@@ -63,7 +71,13 @@ def vault_settings(path=None, *, root=ROOT):
     for key, default in (("cli", "conclave-op"), ("name", "Conclave")):
         value = table.get(key, default)
         if not isinstance(value, str) or not value.strip() or any(char in value for char in "\r\n\0"):
-            raise ValueError(f"{source}: vault.{key} must be a non-empty string")
+            key_source = source
+            if path is None and len(loaded) == 2:
+                if isinstance(override_data.get("vault"), dict) and key in override_data["vault"]:
+                    key_source = ls.LOCAL
+                else:
+                    key_source = ls.OVERLAY
+            raise ValueError(f"{key_source}: vault.{key} must be a non-empty string")
         found.append(value)
     return tuple(found)
 

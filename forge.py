@@ -773,6 +773,8 @@ def apply_kit(
             continue
         if _has_unsafe_parent(target_root, rel):
             raise ValueError(f"Refusing destination with unsafe parent: {rel}")
+    if kit_name in ("base", "automations", "wordpress"):
+        _preflight_settings_gitignores(target_root)
 
     # The record is read, and its folder checked, before the first copy: a refusal here leaves nothing written.
     record = load_record(target_root) or {"schema_version": 1, "kits": {}, "files": {}}
@@ -833,6 +835,9 @@ def apply_kit(
     }
     if kit_name in ("base", "automations", "wordpress"):
         result["private_gitignore"] = _ensure_private_gitignore(target_root, dry_run=dry_run)
+        local_ig = _ensure_local_toml_gitignore(target_root, dry_run=dry_run)
+        if local_ig != "already_present":
+            result["local_gitignore"] = local_ig
     if kit_name == "todo" and ".codex/hooks.json" in installed and not dry_run:
         result["codex_hook"] = _approve_codex_hook(target_root)
     if kit_name == "todo" and not dry_run:
@@ -1488,6 +1493,19 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
     for item in known:
         if item["state"] == "unsafe" and chosen(item["path"]):
             raise ValueError(f"Refusing destination that is a link or under one: {item['path']}")
+    if any(k in first["kits"] for k in ("base", "automations", "wordpress")):
+        _preflight_settings_gitignores(target)
+    if paths:
+        consumers = {".conclave/automations/alert.py", "scripts/lib/wp_site.py"}
+        updating_consumer = any(
+            item["path"] in consumers and chosen(item["path"]) and item["state"] in ("missing", "kit-newer", "project-removed")
+            for item in known
+        )
+        reader_rel = ".conclave/local_settings.py"
+        if updating_consumer and not (target / reader_rel).is_file() and not chosen(reader_rel):
+            raise ValueError(
+                f"--only selection updates a settings consumer without {reader_rel}; include {reader_rel}"
+            )
 
     if not dry_run:
         _recover(target, load_record(target) or {"schema_version": 1, "kits": {}, "files": {}})
@@ -1515,6 +1533,7 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
             rel, state = item["path"], item["state"]
             if state == "identical" or not chosen(rel) or rel in seen_shared:
                 continue
+            seen_shared.add(rel)
             if plan.get(rel, False) is None:  # a generated entry has no source
                 left.append({"path": rel, "state": state, "hint": UPDATE_HINT_GENERATED})
                 continue
@@ -1539,7 +1558,6 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
             entry = record["files"].get(rel)
             expect[rel] = entry["sha256"] if state == "kit-newer" and entry else None
             copies.append((rel, target / rel, data))
-            seen_shared.add(rel)
         if dry_run:
             written.extend(rel for rel, _dst, _data in copies)
             continue
@@ -1552,6 +1570,9 @@ def update_project(target_root: Path, kit_name: str | None = None, *, only=(), d
               "written": written, "left": left}
     if any(k in report["kits"] for k in ("base", "automations", "wordpress")):
         result["private_gitignore"] = _ensure_private_gitignore(target, dry_run=dry_run)
+        local_ig = _ensure_local_toml_gitignore(target, dry_run=dry_run)
+        if local_ig != "already_present":
+            result["local_gitignore"] = local_ig
     # The links are written again when the update wrote what they run: for a project with a record, and for one whose
     # shortcut script the update replaced, which may have links from before the record (the script then names them,
     # with the command that writes them and the record again). Off Windows the result names the command to run there.
@@ -1667,41 +1688,52 @@ DRIFT_COUNTS = (
 DRIFT_SHOWN = 20
 
 
-def _git_ignores_private(target_root: Path) -> bool | None:
-    """Return True if Git effectively ignores `.private/local.toml`, False if not, or None if not a Git repo."""
+def _preflight_settings_gitignores(target_root: Path) -> None:
+    """Refuse symlinked or non-file `.gitignore` / `.conclave/.gitignore` before any kit file is written."""
+    for rel in (".gitignore", ".conclave/.gitignore"):
+        path = target_root / rel
+        if _is_link(path):
+            raise ValueError(f"Refusing to modify symlinked {rel} in {target_root}; add ignore rules manually")
+        if path.exists() and not path.is_file():
+            raise ValueError(f"Refusing non-file {rel} in {target_root}; add ignore rules manually")
+
+
+def _git_repo_ignores(target_root: Path, rel_path: str, *, allowed_sources: tuple[str, ...]) -> bool | None:
+    """Return True if Git ignores `rel_path` via one of `allowed_sources` (in-repo `.gitignore` files, never a
+    global `core.excludesFile` or `.git/info/exclude`), False if not, or None if `target_root` is not a Git repo."""
     if not (target_root / ".git").exists() or not shutil.which("git"):
         return None
     proc = subprocess.run(
-        ["git", "check-ignore", "-q", "--", ".private/local.toml"],
+        ["git", "check-ignore", "-v", "--", rel_path],
         cwd=str(target_root),
         capture_output=True,
+        text=True,
         timeout=15,
     )
-    if proc.returncode == 0:
-        return True
     if proc.returncode == 1:
         return False
-    return None
+    if proc.returncode != 0:
+        return None
+    line = (proc.stdout or "").splitlines()[0] if proc.stdout else ""
+    source = line.split(":", 1)[0].replace("\\", "/")
+    return source in allowed_sources
 
 
 def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
-    """Ensure `<target_root>/.gitignore` effectively ignores `.private/local.toml` without overwriting existing
-    rules. Refuses a symlinked or non-file `.gitignore`, and refuses if Git still does not ignore `.private/local.toml`
-    after appending `.private/`."""
+    """Ensure `<target_root>/.gitignore` effectively ignores the whole `.private/` directory (not merely a global
+    `local.toml` exclude) without overwriting existing rules."""
+    _preflight_settings_gitignores(target_root)
     gitignore = target_root / ".gitignore"
-    if _is_link(gitignore):
-        raise ValueError(f"Refusing to modify symlinked .gitignore in {target_root}; add .private/ manually")
-    if gitignore.exists() and not gitignore.is_file():
-        raise ValueError(f"Refusing non-file .gitignore in {target_root}; add .private/ manually")
-    git_ignored = _git_ignores_private(target_root)
-    if git_ignored is True:
+    probe = ".private/conclave-overlay-probe"
+    git_ignored = _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",))
+    if git_ignored is True and _git_repo_ignores(target_root, OVERLAY, allowed_sources=(".gitignore",)) is True:
         return "already_present"
     if not gitignore.exists():
         if dry_run:
             return "would_create"
         atomic_write(gitignore, b".private/\n")
-        if _git_ignores_private(target_root) is False:
-            raise ValueError(f".private/local.toml is still not ignored by git in {target_root}")
+        if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",)) is False:
+            raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
         return "created"
     raw = gitignore.read_bytes()
     text = raw.decode("utf-8", errors="surrogateescape")
@@ -1722,8 +1754,43 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
     sep = "" if (not text or text.endswith("\n")) else "\n"
     updated = (text + sep + ".private/\n").encode("utf-8", errors="surrogateescape")
     atomic_write(gitignore, updated)
-    if _git_ignores_private(target_root) is False:
-        raise ValueError(f".private/local.toml is still not ignored by git in {target_root}")
+    if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",)) is False:
+        raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
+    return "added"
+
+
+def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) -> str:
+    """Ensure `.conclave/local.toml` is ignored by `.conclave/.gitignore` (or root `.gitignore`) even when an
+    adopting project already had a custom `.conclave/.gitignore` that omitted `local.toml`."""
+    _preflight_settings_gitignores(target_root)
+    allowed = (".gitignore", ".conclave/.gitignore")
+    git_ignored = _git_repo_ignores(target_root, LOCAL, allowed_sources=allowed)
+    if git_ignored is True:
+        return "already_present"
+    conclave_ig = target_root / ".conclave" / ".gitignore"
+    if not conclave_ig.exists():
+        return "already_present"  # kit_plan installs `.conclave/.gitignore` when absent
+    raw = conclave_ig.read_bytes()
+    text = raw.decode("utf-8", errors="surrogateescape")
+    if git_ignored is None:
+        ignored = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if stripped in ("local.toml", "/local.toml"):
+                ignored = True
+            elif stripped.startswith("!"):
+                ignored = False
+        if ignored:
+            return "already_present"
+    if dry_run:
+        return "would_add"
+    sep = "" if (not text or text.endswith("\n")) else "\n"
+    updated = (text + sep + "local.toml\n").encode("utf-8", errors="surrogateescape")
+    atomic_write(conclave_ig, updated)
+    if _git_repo_ignores(target_root, LOCAL, allowed_sources=allowed) is False:
+        raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
     return "added"
 
 

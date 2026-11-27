@@ -358,15 +358,27 @@ def run_fleet_mode(sdk_root: pathlib.Path, run_file: pathlib.Path, check_clean: 
     if not loaded:
         print("FAIL fleet settings missing: configure [[projects]] in .conclave/local.toml or .private/local.toml")
         return 1
+    sources = " / ".join(loaded)
+    projects = cfg.get("projects", [])
+    if not isinstance(projects, list):
+        print(f"FAIL fleet settings invalid ({sources}): projects must be [[projects]] tables")
+        return 1
     proj_map: dict[str, dict] = {}
-    for proj in cfg.get("projects", []):
+    for idx, proj in enumerate(projects):
+        if not isinstance(proj, dict) or not isinstance(proj.get("name"), str) or not proj["name"].strip():
+            print(f"FAIL fleet settings invalid ({sources}): projects[{idx}] missing non-empty name")
+            return 1
         alias = proj.get("alias") or proj["name"]
         proj_map[alias] = proj
 
     if "Resolute-SDK" not in proj_map:
-        print("FAIL fleet settings missing Resolute-SDK entry under [[projects]] in .conclave/local.toml or .private/local.toml")
+        print(f"FAIL fleet settings missing Resolute-SDK entry under [[projects]] in {sources}")
         return 1
-    rsdk_root = pathlib.Path(proj_map["Resolute-SDK"]["windows"])
+    rsdk_win = proj_map["Resolute-SDK"].get("windows")
+    if not isinstance(rsdk_win, str) or not rsdk_win.strip():
+        print(f"FAIL fleet settings invalid ({sources}): Resolute-SDK entry missing non-empty windows path")
+        return 1
+    rsdk_root = pathlib.Path(rsdk_win)
     table_rows = parse_fleet_table(run_file)
     seen_aliases = [r[0] for r in table_rows]
     if len(seen_aliases) != len(set(seen_aliases)):

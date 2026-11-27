@@ -1,4 +1,4 @@
-"""Tests for the shared local/overlay settings reader (`scripts/lib/local_settings.py`) and all callers."""
+"""Tests for the shared local/overlay settings reader (`.conclave/local_settings.py`) and all callers."""
 
 from __future__ import annotations
 
@@ -483,6 +483,103 @@ class ConsumerIntegrationTests(unittest.TestCase):
         if _try_symlink(sym_target / ".gitignore", external):
             with self.assertRaisesRegex(ValueError, r"symlinked \.gitignore"):
                 forge.apply_kit(sym_target, "base")
+            self.assertFalse((sym_target / ".conclave").exists(), "refusal must happen before writing any kit file")
+
+    def test_global_excludes_for_local_toml_still_adds_project_private_gitignore(self):
+        import forge
+
+        target = self.root / "global_excl_proj"
+        target.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
+        global_excl = _write(self.root, "global.ignore", "local.toml\n")
+        subprocess.run(["git", "config", "core.excludesFile", str(global_excl)], cwd=str(target), check=True, timeout=15)
+        res = forge.apply_kit(target, "base")
+        self.assertEqual(res["private_gitignore"], "created")
+        chk = subprocess.run(
+            ["git", "check-ignore", "-v", "--", ".private/plugins/example.py"],
+            cwd=str(target),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(chk.returncode, 0, chk.stderr)
+        self.assertTrue(chk.stdout.startswith(".gitignore:"), chk.stdout)
+
+    def test_existing_conclave_gitignore_omitting_local_toml_gets_protected(self):
+        import forge
+
+        target = self.root / "existing_conclave_ig"
+        target.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(target), check=True, timeout=15)
+        _write(target, ".conclave/.gitignore", "cache/\n")
+        res = forge.apply_kit(target, "automations")
+        self.assertEqual(res.get("local_gitignore"), "added")
+        chk = subprocess.run(
+            ["git", "check-ignore", "-v", "--", ".conclave/local.toml"],
+            cwd=str(target),
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        self.assertEqual(chk.returncode, 0, chk.stderr)
+        self.assertIn("cache/", (target / ".conclave/.gitignore").read_text(encoding="utf-8"))
+
+    def test_selective_only_update_refuses_consumer_without_local_settings(self):
+        import forge
+
+        target = self.root / "selective_update"
+        target.mkdir()
+        forge.apply_kit(target, "automations")
+        (target / ".conclave/local_settings.py").unlink()
+        rec_path = target / ".conclave/kits.json"
+        rec = json.loads(rec_path.read_text(encoding="utf-8"))
+        rec["files"].pop(".conclave/local_settings.py", None)
+        rec["files"][".conclave/automations/alert.py"]["sha256"] = "0" * 64
+        rec_path.write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8", newline="\n")
+        (target / ".conclave/automations/alert.py").write_text("# old\n", encoding="utf-8", newline="\n")
+        rec["files"][".conclave/automations/alert.py"]["sha256"] = forge.file_digest(b"# old\n")
+        rec_path.write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8", newline="\n")
+        with self.assertRaisesRegex(ValueError, r"--only selection updates a settings consumer without \.conclave/local_settings\.py"):
+            forge.update_project(target, only=[".conclave/automations"])
+        self.assertEqual((target / ".conclave/automations/alert.py").read_text(encoding="utf-8"), "# old\n")
+
+    def test_open_dashboard_both_files_bad_override_blames_override(self):
+        import forge
+
+        target = self.root / "wp_both_bad_override"
+        target.mkdir()
+        forge.apply_kit(target, "wordpress")
+        _write(target, ".private/local.toml", '[vault]\ncli = "conclave-op"\nname = "Conclave"\n')
+        _write(target, ".conclave/local.toml", "vault = []\n")
+        orig_path = list(sys.path)
+        saved = {name: sys.modules.pop(name, None) for name in ("wp_site", "site_ssh")}
+        try:
+            mod = _load("test_open_dashboard_both_bad_ov", target / "scripts/open-dashboard.py")
+            with self.assertRaises(mod.Refusal) as caught:
+                mod._pin()
+        finally:
+            sys.path[:] = orig_path
+            for name, prev in saved.items():
+                if prev is not None:
+                    sys.modules[name] = prev
+                else:
+                    sys.modules.pop(name, None)
+        self.assertEqual(str(caught.exception), "the local settings file .conclave/local.toml is not valid")
+
+    def test_verify_design_rules_fleet_incomplete_entry_prints_controlled_failure(self):
+        import contextlib
+        import io
+
+        vdr = _load("test_vdr_incomplete", VERIFY_DESIGN_PATH)
+        _write(self.root, ".private/local.toml", '[[projects]]\nname = "Resolute-SDK"\n')
+        run_file = _write(self.root, "run.md", "# empty\n")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = vdr.run_fleet_mode(self.root, run_file, check_clean=False, negative_test=False)
+        self.assertEqual(rc, 1)
+        out = buf.getvalue()
+        self.assertIn("windows", out)
+        self.assertIn(".private/local.toml", out)
 
     def test_minimal_override_preserves_overlay_alert_settings(self):
         alert = _load("test_sdk_alert_min", ALERT_PATH)
