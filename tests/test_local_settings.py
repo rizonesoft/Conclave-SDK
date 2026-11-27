@@ -170,6 +170,8 @@ class LocalSettingsReaderTests(unittest.TestCase):
             forge.apply_kit(root_junction, "automations")
         with self.assertRaisesRegex(ValueError, r"Target must be|link"):
             forge.update_project(root_junction)
+        with self.assertRaisesRegex(ValueError, r"Target must be|link"):
+            forge.provision(root_junction)
         self.assertEqual(list(real_root.iterdir()), [])
 
     def test_hard_linked_gitignore_refuses_needed_append_and_accepts_effective_noop(self):
@@ -198,9 +200,20 @@ class LocalSettingsReaderTests(unittest.TestCase):
         self.assertEqual(other_sub.read_bytes(), b".env\n", "original hard-linked .conclave/.gitignore must stay untouched")
         self.assertFalse((target_sub / ".conclave" / "local_settings.py").exists())
 
-        # 3. Hard-linked .gitignore and .conclave/.gitignore that ALREADY ignore .private/ and local.toml are accepted.
-        good_root_src = _write(other, "good_root.gitignore", "build/\n.private/\n")
-        good_sub_src = _write(other, "good_sub.gitignore", ".env\nlocal.toml\n")
+        # 3. Hard-linked .gitignore with a later negation after .private/ is still refused before any writes.
+        neg_ig = _write(other, "neg.gitignore", ".private/\n!.private/README.md\n")
+        target_neg = self.root / "hardlink_neg_target"
+        target_neg.mkdir()
+        os.link(neg_ig, target_neg / ".gitignore")
+        with self.assertRaisesRegex(ValueError, r"Refusing hard-linked \.gitignore"):
+            forge.apply_kit(target_neg, "base")
+        self.assertEqual(neg_ig.read_bytes(), b".private/\n!.private/README.md\n")
+        self.assertFalse((target_neg / ".conclave").exists())
+
+        # 4. Hard-linked .gitignore and .conclave/.gitignore that already ignore .private/ and local.toml
+        #    (even when followed by unrelated rules like .aider*) are accepted as no-ops in apply_kit and update_project.
+        good_root_src = _write(other, "good_root.gitignore", "build/\n.private/\n.aider*\n")
+        good_sub_src = _write(other, "good_sub.gitignore", ".env\nlocal.toml\n*.bak\n")
         target_ok = self.root / "hardlink_noop_target"
         (target_ok / ".conclave").mkdir(parents=True, exist_ok=True)
         os.link(good_root_src, target_ok / ".gitignore")
@@ -208,13 +221,16 @@ class LocalSettingsReaderTests(unittest.TestCase):
         res = forge.apply_kit(target_ok, "base")
         self.assertEqual(res["private_gitignore"], "already_present")
         self.assertNotIn("local_gitignore", res)
-        upd = forge.update_project(target_ok, dry_run=True)
-        self.assertEqual(upd["private_gitignore"], "already_present")
-        self.assertNotIn("local_gitignore", upd)
-        self.assertEqual(good_root_src.read_bytes(), b"build/\n.private/\n")
-        self.assertEqual(good_sub_src.read_bytes(), b".env\nlocal.toml\n")
+        upd_dry = forge.update_project(target_ok, dry_run=True)
+        self.assertEqual(upd_dry["private_gitignore"], "already_present")
+        self.assertNotIn("local_gitignore", upd_dry)
+        upd_live = forge.update_project(target_ok, dry_run=False)
+        self.assertEqual(upd_live["private_gitignore"], "already_present")
+        self.assertNotIn("local_gitignore", upd_live)
+        self.assertEqual(good_root_src.read_bytes(), b"build/\n.private/\n.aider*\n")
+        self.assertEqual(good_sub_src.read_bytes(), b".env\nlocal.toml\n*.bak\n")
 
-        # 4. Opened-handle guard in _open_regular_append directly refuses a hard-linked file.
+        # 5. Opened-handle guard in _open_regular_append directly refuses a hard-linked file.
         direct_a = _write(other, "direct_a.gitignore", "x\n")
         direct_b = other / "direct_b.gitignore"
         os.link(direct_a, direct_b)

@@ -1817,7 +1817,7 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
             dir_rules = (".private/", "/.private/", ".private", "/.private")
             git_ignored = _git_repo_ignores(target_root, ".private/", allowed_sources=(".gitignore",), require_patterns=dir_rules)
             already = (git_ignored is True) or (
-                git_ignored is None and _gitignore_bytes_end_with_rule(_read_regular_file_bytes(root_ig), b".private/")
+                git_ignored is None and _gitignore_bytes_have_unnegated_rule(_read_regular_file_bytes(root_ig), b".private/")
             )
             if not already:
                 raise ValueError(
@@ -1829,7 +1829,7 @@ def _preflight_settings_gitignores(target_root: Path) -> None:
         if st.st_nlink > 1:
             git_ignored = _git_repo_ignores(target_root, LOCAL, allowed_sources=(".gitignore", ".conclave/.gitignore"))
             already = (git_ignored is True) or (
-                git_ignored is None and _gitignore_bytes_end_with_rule(_read_regular_file_bytes(conclave_ig), b"local.toml")
+                git_ignored is None and _gitignore_bytes_have_unnegated_rule(_read_regular_file_bytes(conclave_ig), b"local.toml")
             )
             if not already:
                 raise ValueError(
@@ -1880,7 +1880,7 @@ def _git_repo_ignores(
 
 
 def _gitignore_bytes_end_with_rule(raw: bytes, canonical_rule: bytes) -> bool:
-    """Conservative LF-byte-level check used when the target is not a Git repository yet.
+    """Conservative LF-byte-level check used to verify that an appended rule landed as the final rule.
     Splits strictly on LF (`b'\\n'`, never `splitlines()`), strips at most one trailing CR, and returns True only
     when the final non-empty, non-comment LF-delimited line is exactly `canonical_rule` with no embedded CR."""
     last_rule: bytes | None = None
@@ -1890,6 +1890,22 @@ def _gitignore_bytes_end_with_rule(raw: bytes, canonical_rule: bytes) -> bool:
             continue
         last_rule = line
     return last_rule == canonical_rule
+
+
+def _gitignore_bytes_have_unnegated_rule(raw: bytes, canonical_rule: bytes) -> bool:
+    """Conservative LF-byte-level check used when the target is not a Git repository yet.
+    Returns True when `canonical_rule` appears as an exact LF-delimited rule (stripping at most one trailing CR)
+    and no subsequent negation rule (`!...`) follows it; unrelated non-negation rules after it are allowed."""
+    matched = False
+    for part in raw.split(b"\n"):
+        line = part[:-1] if part.endswith(b"\r") else part
+        if not line or line.startswith(b"#"):
+            continue
+        if line == canonical_rule:
+            matched = True
+        elif matched and line.startswith(b"!"):
+            matched = False
+    return matched
 
 
 def _read_regular_file_bytes(path: Path) -> bytes:
@@ -2001,7 +2017,7 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
             raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
         return "created"
     raw = _read_regular_file_bytes(gitignore)
-    if git_ignored is None and _gitignore_bytes_end_with_rule(raw, b".private/"):
+    if git_ignored is None and _gitignore_bytes_have_unnegated_rule(raw, b".private/"):
         return "already_present"
     if dry_run:
         return "would_add"
@@ -2028,7 +2044,7 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
             raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
         return "created"
     raw = _read_regular_file_bytes(conclave_ig)
-    if git_ignored is None and _gitignore_bytes_end_with_rule(raw, b"local.toml"):
+    if git_ignored is None and _gitignore_bytes_have_unnegated_rule(raw, b"local.toml"):
         return "already_present"
     if dry_run:
         return "would_add"
@@ -3668,7 +3684,10 @@ def provision(
     _check_line("--goal", "goal", goal)   # a goal or a bar init would not write refuses before anything is
     _check_line("--acceptance", "bar", acceptance)
     agent = normalize_agent(agent)
-    target_root = Path(target_root).resolve()
+    raw_target = Path(target_root)
+    if _is_link(raw_target):
+        raise ValueError(f"Target must be a folder, or a path that does not exist yet: {raw_target}")
+    target_root = raw_target.resolve()
     # Checked on the resolved path, which is the one written to, so no link (dangling or retargeted before this run)
     # can lead into git's own data, or lead init over the kits' own source.
     if any(os.path.normcase(part) == ".git" for part in target_root.parts):
