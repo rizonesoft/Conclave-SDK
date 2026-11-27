@@ -1048,6 +1048,17 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertEqual(seen_env.get("LC_ALL"), "C")
         self.assertEqual(seen_env.get("LANG"), "C")
 
+    def test_broken_git_dir_inside_existing_checkout_is_refused(self):
+        import unittest.mock
+        import forge
+
+        repo = self.root / "broken_git_dir_repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True, timeout=15)
+        with unittest.mock.patch.dict(os.environ, {"GIT_DIR": "missing-git-directory"}):
+            with self.assertRaisesRegex(ValueError, r"git rev-parse failed"):
+                forge._check_untracked_in_git(repo, (".private/", forge.LOCAL))
+
     def test_missing_git_binary_in_existing_checkout_is_refused(self):
         import unittest.mock
         import forge

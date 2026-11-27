@@ -1714,7 +1714,7 @@ def _git_worktree_prefix(target_root: Path) -> str | None:
     )
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
-        if "not a git repository" in detail.lower():
+        if "not a git repository" in detail.lower() and not _has_enclosing_git(target_root):
             return None
         raise ValueError(f"git rev-parse failed in {target_root} (exit {proc.returncode}): {detail}")
     return (proc.stdout or b"").decode("utf-8", errors="surrogateescape").rstrip("\r\n").replace("\\", "/")
