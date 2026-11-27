@@ -23,7 +23,7 @@ The Conclave-SDK mark is the Conclave Agent OS mark in green: the same dark tile
 
 ## Launcher icons
 
-`pwsh scripts/start-run.ps1 -InstallShortcut` writes "Conclave-SDK Claude campaign" and "Conclave-SDK Gemini campaign" to the desktop, in the shape Office's and Isotone's campaign launchers have: the mark with the runner's badge in the bottom right (Claude Code's orange spark, Antigravity's blue Carbon sparkle). Their icons are rendered on the machine into `%LOCALAPPDATA%\Conclave-SDK` by `kits/launchers/templates/scripts/campaign-icon.py badge` (the launchers kit's renderer) and are never committed.
+`pwsh scripts/start-run.ps1 -InstallShortcut` writes "Conclave-SDK Claude campaign" and "Conclave-SDK Gemini campaign" to the desktop, in the shape Office's and Isotone's campaign launchers have: the mark with the runner's badge in the bottom right (Claude Code's orange spark, Antigravity's blue Gemini sparkle). Their icons are rendered on the machine into `%LOCALAPPDATA%\Conclave-SDK` by `kits/launchers/templates/scripts/campaign-icon.py badge` (the launchers kit's renderer) and are never committed.
 
 ## Rendering
 

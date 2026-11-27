@@ -118,21 +118,21 @@ class FlagList(unittest.TestCase):
             self.assertEqual(dispatch.agy_flags_missing(HELP), ["--read-only"])
 
     def test_the_command_is_built_from_the_flags(self):
-        argv, stdin = dispatch.command({"cli": "agy", "model": "gemini-4-carbon-medium"}, "/usr/bin/agy", "short",
+        argv, stdin = dispatch.command({"cli": "agy", "model": "gemini-4-neon-medium"}, "/usr/bin/agy", "short",
                                        Path("/p.md"), Path("/tmp/x/last-message.md"), 60)
         self.assertIsNone(stdin)
-        self.assertEqual(argv, ["/usr/bin/agy", "--model", "gemini-4-carbon-medium", "--sandbox", "--settings",
+        self.assertEqual(argv, ["/usr/bin/agy", "--model", "gemini-4-neon-medium", "--sandbox", "--settings",
                                 str(Path("/tmp/x/agy-settings.json")), "--print-timeout", "60s", "-p=short"])
         self.assertEqual([a.split("=")[0] for a in argv if a.startswith("-")], list(dispatch.AGY_FLAGS))
 
         custom_flags = ("--llm", "--box", "--cfg", "--wait", "--prompt")
         with mock.patch.object(dispatch, "AGY_FLAGS", custom_flags):
             rebound, rebound_stdin = dispatch.command(
-                {"cli": "agy", "model": "gemini-4-carbon-medium"}, "/usr/bin/agy", "short",
+                {"cli": "agy", "model": "gemini-4-neon-medium"}, "/usr/bin/agy", "short",
                 Path("/p.md"), Path("/tmp/x/last-message.md"), 45,
             )
         self.assertIsNone(rebound_stdin)
-        self.assertEqual(rebound, ["/usr/bin/agy", "--llm", "gemini-4-carbon-medium", "--box", "--cfg",
+        self.assertEqual(rebound, ["/usr/bin/agy", "--llm", "gemini-4-neon-medium", "--box", "--cfg",
                                    str(Path("/tmp/x/agy-settings.json")), "--wait", "45s", "--prompt=short"])
 
 
