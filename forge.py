@@ -1804,15 +1804,32 @@ def _gitignore_bytes_end_with_rule(raw: bytes, canonical_rule: bytes) -> bool:
     return last_rule == canonical_rule
 
 
-def _write_all(fd: int, payload: bytes) -> None:
-    """Write every byte of `payload` to `fd`, retrying partial writes and raising OSError on zero-byte progress."""
-    view = memoryview(payload)
-    written = 0
-    while written < len(payload):
-        n = os.write(fd, view[written:])
-        if n <= 0:
-            raise OSError(f"short write while updating ignore file ({written} of {len(payload)} bytes)")
-        written += n
+def _read_regular_file_bytes(path: Path) -> bytes:
+    """Read `path` without following symlinks or blocking on a FIFO, verifying a regular file handle before reading."""
+    binary = getattr(os, "O_BINARY", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    nonblock = getattr(os, "O_NONBLOCK", 0)
+    flags = os.O_RDONLY | binary | nofollow | nonblock
+    if _is_link(path):
+        raise ValueError(f"Refusing to read symlinked {path}; add ignore rules manually")
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        if nofollow and getattr(exc, "errno", None) == getattr(os, "ELOOP", 40):
+            raise ValueError(f"Refusing to read symlinked {path}; add ignore rules manually") from None
+        raise
+    try:
+        if _is_link(path) or not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError(f"Refusing non-regular or symlinked {path}; add ignore rules manually")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def _open_regular_append(path: Path, *, exclusive: bool) -> int:
@@ -1845,12 +1862,14 @@ def _open_regular_append(path: Path, *, exclusive: bool) -> int:
 
 
 def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> None:
-    """Append `rule_line` to `path` without overwriting any concurrent edit: uses `O_APPEND | O_CREAT | O_EXCL`
-    for new files and kernel-level `O_APPEND` for existing files, always prefixing `b'\\n'` so a concurrent
-    writer's unterminated rule is never merged with `rule_line`, enforces regular-file non-symlink non-blocking
-    handles, retries short writes, and verifies the canonical rule is present at `path` after close."""
+    """Append `rule_line` to `path` in one atomic `O_APPEND` write without overwriting any concurrent edit: uses
+    `O_APPEND | O_CREAT | O_EXCL` for new files and kernel-level `O_APPEND` for existing files, always prefixing
+    `b'\\n'` so a concurrent writer's unterminated rule is never merged with `rule_line`, refuses any short write
+    (never issuing a second write that could interleave), enforces regular-file non-symlink non-blocking handles
+    on both write and post-close read, and verifies the canonical rule is present at `path` after close."""
     path.parent.mkdir(parents=True, exist_ok=True)
     canonical = rule_line.rstrip(b"\r\n")
+    payload = b"\n" + rule_line
     fd: int | None = None
     if creating:
         try:
@@ -1860,10 +1879,12 @@ def _append_gitignore_rule(path: Path, rule_line: bytes, *, creating: bool) -> N
     if fd is None:
         fd = _open_regular_append(path, exclusive=False)
     try:
-        _write_all(fd, b"\n" + rule_line)
+        written = os.write(fd, payload)
+        if written != len(payload):
+            raise OSError(f"short write while updating ignore file ({written} of {len(payload)} bytes)")
     finally:
         os.close(fd)
-    if _is_link(path) or not path.is_file() or not _gitignore_bytes_end_with_rule(path.read_bytes(), canonical):
+    if not _gitignore_bytes_end_with_rule(_read_regular_file_bytes(path), canonical):
         raise ValueError(f"{path} was replaced or truncated concurrently before {canonical.decode()} landed; retry")
 
 
@@ -1885,7 +1906,7 @@ def _ensure_private_gitignore(target_root: Path, *, dry_run: bool = False) -> st
         if _git_repo_ignores(target_root, probe, allowed_sources=(".gitignore",), require_patterns=dir_rules) is False:
             raise ValueError(f".private/ is still not ignored by .gitignore in {target_root}")
         return "created"
-    raw = gitignore.read_bytes()
+    raw = _read_regular_file_bytes(gitignore)
     if git_ignored is None and _gitignore_bytes_end_with_rule(raw, b".private/"):
         return "already_present"
     if dry_run:
@@ -1912,7 +1933,7 @@ def _ensure_local_toml_gitignore(target_root: Path, *, dry_run: bool = False) ->
         if _git_repo_ignores(target_root, LOCAL, allowed_sources=allowed) is False:
             raise ValueError(f"{LOCAL} is still not ignored by {conclave_ig}")
         return "created"
-    raw = conclave_ig.read_bytes()
+    raw = _read_regular_file_bytes(conclave_ig)
     if git_ignored is None and _gitignore_bytes_end_with_rule(raw, b"local.toml"):
         return "already_present"
     if dry_run:

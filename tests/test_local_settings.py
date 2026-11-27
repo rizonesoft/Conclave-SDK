@@ -812,7 +812,7 @@ class ConsumerIntegrationTests(unittest.TestCase):
         self.assertIn(b"dist/", content)
         self.assertIn(b"\n.private/\n", content)
 
-    def test_short_write_retries_until_complete_and_post_open_concurrent_append_survives(self):
+    def test_short_write_refuses_without_second_write_and_post_open_concurrent_append_survives(self):
         import unittest.mock
         import forge
 
@@ -835,16 +835,48 @@ class ConsumerIntegrationTests(unittest.TestCase):
                     os.close(other_fd)
             return fd
 
-        def short_write(fd, buf):
-            # Return 2 bytes at a time to prove _write_all completes the entire rule
-            return real_write(fd, bytes(buf[:2]))
-
-        with unittest.mock.patch.object(forge, "_open_regular_append", side_effect=interleaved_open), \
-             unittest.mock.patch.object(forge.os, "write", side_effect=short_write):
+        with unittest.mock.patch.object(forge, "_open_regular_append", side_effect=interleaved_open):
             forge._append_gitignore_rule(ig, b".private/\n", creating=True)
         content = ig.read_bytes()
         self.assertIn(b"other/\n.private/\n", content)
         self.assertTrue(forge._gitignore_bytes_end_with_rule(content, b".private/"))
+
+        # Short write must fail immediately after one os.write call (never split across two writes)
+        ig2 = target / ".gitignore2"
+        write_calls = [0]
+
+        def short_write(fd, buf):
+            write_calls[0] += 1
+            return real_write(fd, bytes(buf[:2]))
+
+        with unittest.mock.patch.object(forge.os, "write", side_effect=short_write):
+            with self.assertRaisesRegex(OSError, r"short write"):
+                forge._append_gitignore_rule(ig2, b".private/\n", creating=True)
+        self.assertEqual(write_calls[0], 1)
+
+    def test_fifo_is_refused_without_blocking_on_both_read_and_write_paths(self):
+        import stat as stat_mod
+        import types
+        import unittest.mock
+        import forge
+
+        target = self.root / "fifo_proj"
+        target.mkdir()
+        if hasattr(os, "mkfifo"):
+            fifo = target / ".gitignore"
+            os.mkfifo(fifo)
+            with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                forge._read_regular_file_bytes(fifo)
+            with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                forge._open_regular_append(fifo, exclusive=False)
+        else:
+            ig = _write(target, ".gitignore", "build/\n")
+            fake_stat = types.SimpleNamespace(st_mode=stat_mod.S_IFIFO | 0o600)
+            with unittest.mock.patch.object(forge.os, "fstat", return_value=fake_stat):
+                with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                    forge._read_regular_file_bytes(ig)
+                with self.assertRaisesRegex(ValueError, r"Refusing non-regular"):
+                    forge._open_regular_append(ig, exclusive=False)
 
     def test_replace_on_save_during_append_is_refused(self):
         import unittest.mock
@@ -854,13 +886,16 @@ class ConsumerIntegrationTests(unittest.TestCase):
         target.mkdir()
         ig = _write(target, ".gitignore", "build/\n")
         real_close = forge.os.close
+        replaced = [False]
 
         def replace_on_close(fd):
             real_close(fd)
-            # Simulate an editor atomically replacing .gitignore with a version lacking .private/
-            tmp_new = target / ".gitignore.editor"
-            tmp_new.write_bytes(b"build/\ndist/\n")
-            os.replace(tmp_new, ig)
+            if not replaced[0]:
+                replaced[0] = True
+                # Simulate an editor atomically replacing .gitignore with a version lacking .private/
+                tmp_new = target / ".gitignore.editor"
+                tmp_new.write_bytes(b"build/\ndist/\n")
+                os.replace(tmp_new, ig)
 
         with unittest.mock.patch.object(forge.os, "close", side_effect=replace_on_close):
             with self.assertRaisesRegex(ValueError, r"replaced or truncated concurrently"):
