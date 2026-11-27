@@ -201,9 +201,9 @@ class LocalSettingsReaderTests(unittest.TestCase):
         self.assertEqual(other_sub.read_bytes(), b".env\n", "original hard-linked .conclave/.gitignore must stay untouched")
         self.assertFalse((target_sub / ".conclave" / "local_settings.py").exists())
 
-        # 3. Hard-linked ignore files with matching negations (including case-insensitive !.PRIVATE/ and
-        #    trailing-space !local.toml   ) are still refused before any writes.
-        for label, body in (("child", ".private/\n!.private/README.md\n"), ("case", ".private/\n!.PRIVATE/\n")):
+        # 3. Hard-linked ignore files with matching negations (including exact !.private/, case-insensitive
+        #    !.PRIVATE/, trailing-space !local.toml   , and recursive !**/local.toml) are refused before any writes.
+        for label, body in (("exact", ".private/\n!.private/\n"), ("case", ".private/\n!.PRIVATE/\n")):
             neg_ig = _write(other, f"neg_{label}.gitignore", body)
             target_neg = self.root / f"hardlink_neg_target_{label}"
             target_neg.mkdir()
@@ -225,8 +225,8 @@ class LocalSettingsReaderTests(unittest.TestCase):
 
         # 4. Hard-linked .gitignore and .conclave/.gitignore covering all accepted spellings
         #    (.private/, /.private/, .private, /.private; local.toml, /local.toml) followed by unrelated rules,
-        #    unrelated literal negations (!README.md, !.env.example), and unrelated wildcard negations
-        #    (!docs/**, !**/README.md) are accepted in apply_kit, preview, and live update.
+        #    unrelated literal negations (!README.md, !.env.example), and unrelated wildcard/bracket negations
+        #    (!docs/**, !**/README.md, !**/[Rr]EADME.md) are accepted in apply_kit, preview, and live update.
         spellings = (
             (".private/", "local.toml"),
             ("/.private/", "/local.toml"),
@@ -234,8 +234,8 @@ class LocalSettingsReaderTests(unittest.TestCase):
             ("/.private", "/local.toml"),
         )
         for idx, (root_rule, sub_rule) in enumerate(spellings):
-            root_body = f"build/\n{root_rule}\n.aider*\n!README.md\n!docs/**\n!**/README.md\n"
-            sub_body = f".env\n{sub_rule}\n*.bak\n!.env.example\n!docs/**\n!**/README.md\n"
+            root_body = f"build/\n{root_rule}\n.aider*\n!README.md\n!docs/**\n!**/[Rr]EADME.md\n"
+            sub_body = f".env\n{sub_rule}\n*.bak\n!.env.example\n!docs/**\n!**/[Rr]EADME.md\n"
             good_root_src = _write(other, f"good_root_{idx}.gitignore", root_body)
             good_sub_src = _write(other, f"good_sub_{idx}.gitignore", sub_body)
             target_ok = self.root / f"hardlink_noop_target_{idx}"

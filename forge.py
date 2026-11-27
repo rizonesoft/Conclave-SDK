@@ -1904,17 +1904,54 @@ def _strip_gitignore_trailing_spaces(pat: bytes) -> bytes:
 
 def _seg_may_match(seg: bytes, target_low: bytes) -> bool:
     """Conservative single-segment gitignore match against lowercase `target_low`."""
-    if b"\\" in seg or b"[" in seg or b"**" in seg:
+    if b"\\" in seg or b"**" in seg:
         return True
-    if b"*" in seg or b"?" in seg:
-        return fnmatch.fnmatchcase(target_low, seg)
+    if b"*" in seg or b"?" in seg or b"[" in seg:
+        return fnmatch.fnmatchcase(target_low, seg.replace(b"[^", b"[!"))
     return seg == target_low
 
 
+def _git_check_ignore_bytes(raw: bytes, probe: str, *, require_patterns: tuple[str, ...] | None = None) -> bool | None:
+    """Evaluate raw `.gitignore` bytes using Git itself in an ephemeral repository under both `core.ignorecase=true`
+    and `core.ignorecase=false`. Returns True if Git ignores `probe` without negation under both settings, False if
+    not, or None if Git or a temporary directory is unavailable."""
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            env = _clean_git_env()
+            init = subprocess.run(["git", "init", "-q"], cwd=tmp, env=env, capture_output=True, timeout=15)
+            if init.returncode != 0:
+                return None
+            (Path(tmp) / ".gitignore").write_bytes(raw)
+            for ignorecase in ("true", "false"):
+                proc = subprocess.run(
+                    ["git", "-c", f"core.ignorecase={ignorecase}", "check-ignore", "-v", "-z", "--stdin"],
+                    cwd=tmp,
+                    env=env,
+                    input=probe.encode("utf-8") + b"\0",
+                    capture_output=True,
+                    timeout=15,
+                )
+                if proc.returncode == 1:
+                    return False
+                if proc.returncode != 0:
+                    return None
+                fields = (proc.stdout or b"").split(b"\0")
+                if len(fields) < 4:
+                    return False
+                source = fields[0].decode("utf-8", errors="surrogateescape").replace("\\", "/")
+                pattern = fields[2].decode("utf-8", errors="surrogateescape")
+                if source != ".gitignore" or pattern.startswith("!"):
+                    return False
+                if require_patterns is not None and pattern not in require_patterns:
+                    return False
+            return True
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) -> bool:
-    """Conservative check whether a gitignore `!pattern` line could negate `target_name` (case-insensitively,
-    so Windows/macOS `core.ignorecase=true` negations are never missed, stripping unescaped trailing spaces, and
-    peeling leading `**/` prefixes before matching the depth-0 segment)."""
+    """Conservative fallback check when Git or a temp dir is unavailable: tests whether a gitignore `!pattern` line
+    could negate `target_name` (case-insensitively, stripping unescaped trailing spaces, and peeling `**/`)."""
     pat = _strip_gitignore_trailing_spaces(neg_line[1:])
     if pat.startswith(b"/"):
         pat = pat[1:]
@@ -1937,14 +1974,34 @@ def _negation_may_match(neg_line: bytes, target_name: bytes, *, is_dir: bool) ->
 
 
 def _gitignore_bytes_have_unnegated_rule(raw: bytes, accepted_rules: bytes | tuple[bytes, ...]) -> bool:
-    """Conservative LF-byte-level check used when the target is not a Git repository yet or after an append.
-    Returns True when any rule in `accepted_rules` appears as an exact LF-delimited rule (stripping at most one
-    trailing CR) and no subsequent negation rule (`!...`) that could match the protected target follows it;
-    unrelated rules and unrelated negations (such as `!README.md` or `!.env.example`) are allowed."""
+    """LF-byte-level check used when the target is not a Git repository yet or after an append.
+    Returns True when an exact accepted rule appears and no subsequent negation cancels it. When any `!` negation
+    follows the rule, evaluates `raw` natively via Git (`core.ignorecase=true` and `false`) when available, falling
+    back to `_negation_may_match` if Git or a temporary directory is unavailable."""
     rules = (accepted_rules,) if isinstance(accepted_rules, bytes) else accepted_rules
     first = rules[0]
     is_dir = first.endswith(b"/") or first.lstrip(b"/") == b".private"
     target_name = first.strip(b"/")
+    matched = False
+    has_post_negation = False
+    for part in raw.split(b"\n"):
+        line = part[:-1] if part.endswith(b"\r") else part
+        if not line or line.startswith(b"#"):
+            continue
+        if line in rules:
+            matched = True
+            has_post_negation = False
+        elif matched and line.startswith(b"!"):
+            has_post_negation = True
+    if not matched:
+        return False
+    if not has_post_negation:
+        return True
+    probe = f"{target_name.decode('ascii')}/" if is_dir else target_name.decode("ascii")
+    require = PRIVATE_GITIGNORE_RULES if is_dir and target_name == b".private" else None
+    git_result = _git_check_ignore_bytes(raw, probe, require_patterns=require)
+    if git_result is not None:
+        return git_result
     matched = False
     for part in raw.split(b"\n"):
         line = part[:-1] if part.endswith(b"\r") else part
