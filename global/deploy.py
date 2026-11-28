@@ -17,6 +17,7 @@ Targets (home is the running user's home directory, or --home):
   codex/rules/codex.md            -> <home>/.codex/AGENTS.md
   codex/rules/hooks.json          -> <home>/.codex/hooks.json        (template, placeholders filled in)
   codex/skills/<name>/SKILL.md    -> <home>/.agents/skills/<name>/
+  agy/rules/agy.md                -> <home>/.gemini/GEMINI.md
   ../plugins/agy/<name>/          -> <home>/.gemini/config/plugins/<name>/ (mirrored; hooks.json and DEPLOYED_FROM rendered)
 
 A file whose content is identical is left alone. A differing file is copied to
@@ -452,6 +453,7 @@ def render_agy_hook_script(script_text, agy_source_posix):
 
 
 def deploy_agy(dep):
+    dep.deploy_file(GLOBAL / "agy" / "rules" / "agy.md", dep.home / ".gemini" / "GEMINI.md")
     agy_root = GLOBAL.parent / "plugins" / "agy"
     if not agy_root.is_dir():
         return

@@ -4,6 +4,7 @@ import io
 import itertools
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -164,6 +165,8 @@ class DeployTest(unittest.TestCase):
                          (GLOBAL / "claude" / "rules" / "claude-code.md").read_bytes())
         self.assertEqual((self.home / ".codex" / "AGENTS.md").read_bytes(),
                          (GLOBAL / "codex" / "rules" / "codex.md").read_bytes())
+        self.assertEqual((self.home / ".gemini" / "GEMINI.md").read_bytes(),
+                         (GLOBAL / "agy" / "rules" / "agy.md").read_bytes())
         self.assertTrue((self.home / ".claude" / "skills" / "process-email" / "SKILL.md").is_file())
         self.assertTrue((self.home / ".agents" / "skills" / "file-to-ticktick" / "SKILL.md").is_file())
         self.assertTrue((self.home / ".gemini" / "config" / "plugins" / "powertools" / "plugin.json").is_file())
@@ -357,6 +360,42 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(code_chk_ok, 0, out_chk_ok)
         self.assertIn("in sync", out_chk_ok)
 
+    def test_agy_rules_deploy_and_drift_check(self):
+        rules_dest = self.home / ".gemini" / "GEMINI.md"
+        source_bytes = (GLOBAL / "agy" / "rules" / "agy.md").read_bytes()
+
+        code, out, _ = run("--home", str(self.home), "--agent", "agy")
+        self.assertEqual(code, 0, out)
+        self.assertTrue(rules_dest.is_file())
+        self.assertEqual(rules_dest.read_bytes(), source_bytes)
+        self.assertIn("created: ~/.gemini/GEMINI.md", out)
+
+        code_ok, out_ok, _ = run("--home", str(self.home), "--agent", "agy", "--check")
+        self.assertEqual(code_ok, 0, out_ok)
+        self.assertIn("unchanged: ~/.gemini/GEMINI.md", out_ok)
+        self.assertIn("in sync", out_ok)
+
+        rules_dest.write_bytes(b"drifted agy rules\n")
+        before_check = snapshot(self.home)
+        code_drift, out_drift, _ = run("--home", str(self.home), "--agent", "agy", "--check")
+        self.assertEqual(code_drift, 1, out_drift)
+        self.assertIn("updated: ~/.gemini/GEMINI.md", out_drift)
+        self.assertIn("drift detected", out_drift)
+        self.assertEqual(snapshot(self.home), before_check)
+
+        code_dry, out_dry, _ = run("--home", str(self.home), "--agent", "agy", "--dry-run")
+        self.assertEqual(code_dry, 0, out_dry)
+        self.assertIn("updated: ~/.gemini/GEMINI.md", out_dry)
+        self.assertEqual(snapshot(self.home), before_check)
+
+        code_fix, out_fix, _ = run("--home", str(self.home), "--agent", "agy")
+        self.assertEqual(code_fix, 0, out_fix)
+        self.assertIn("updated: ~/.gemini/GEMINI.md", out_fix)
+        self.assertEqual(rules_dest.read_bytes(), source_bytes)
+        backups = list((self.home / ".conclave" / "global-backups").glob("*/.gemini/GEMINI.md"))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), b"drifted agy rules\n")
+
 
 
 class CodexHookApprovalTest(unittest.TestCase):
@@ -488,10 +527,58 @@ class CodexHookApprovalTest(unittest.TestCase):
         self.assertEqual((ambient / "config.toml").read_text(encoding="utf-8"), "# the operator's own\n")
 
 
-# The bullets both agents' global rules must hold in section 11, byte for byte: the Codex rules lacked them until
+# The bullets all agents' global rules must hold in section 11, byte for byte: the Codex rules lacked them until
 # 2026-11-12 while Claude Code's had them (D06 T02 section 2).
 QUEUE_BULLETS = ("- **Heavy jobs queue.**", "- **A child process never outlives its test.**")
-RULE_FILES = {"Claude Code": GLOBAL / "claude/rules/claude-code.md", "Codex": GLOBAL / "codex/rules/codex.md"}
+RULE_FILES = {
+    "Claude Code": GLOBAL / "claude/rules/claude-code.md",
+    "Codex": GLOBAL / "codex/rules/codex.md",
+    "Antigravity": GLOBAL / "agy/rules/agy.md",
+}
+NUMBERED_HEADING = re.compile(r"^## (\d+)\.\s+(.+?)\s*$", re.M)
+
+
+def numbered_headings(text):
+    """Return a list of (number, title) pairs for every `## N. Title` heading in a rules file."""
+    return [(int(num), title) for num, title in NUMBERED_HEADING.findall(text)]
+
+
+def rule_heading_faults(texts):
+    """Verify numbered rule headings in Codex and Antigravity match Claude Code in number, title, and order.
+
+    Non-agent-specific headings must match Claude Code verbatim; `<Agent> specifics` headings must exist at the same
+    section number as `<Agent> specifics`. Extra or reordered numbered headings are also flagged.
+    """
+    faults = []
+    source_list = numbered_headings(texts["Claude Code"])
+    source = dict(source_list)
+    if len(source) != len(source_list):
+        faults.append("Claude Code: duplicate numbered rule heading")
+    for agent, text in texts.items():
+        if agent == "Claude Code":
+            continue
+        pairs = numbered_headings(text)
+        seen = {}
+        for num, title in pairs:
+            if num in seen:
+                faults.append(f"{agent}: duplicate heading for section {num}")
+            seen[num] = title
+        expected_pairs = [
+            (num, f"{agent} specifics" if src_title == "Claude Code specifics" else src_title)
+            for num, src_title in source_list
+        ]
+        for num, expected_title in expected_pairs:
+            actual = seen.get(num)
+            if actual is None:
+                faults.append(f"{agent}: missing heading '## {num}. {expected_title}'")
+            elif actual != expected_title:
+                faults.append(f"{agent}: section {num} heading is '{actual}', expected '{expected_title}'")
+        for num, title in pairs:
+            if num not in source:
+                faults.append(f"{agent}: unexpected extra heading '## {num}. {title}'")
+        if not any(f.startswith(f"{agent}:") for f in faults) and pairs != expected_pairs:
+            faults.append(f"{agent}: numbered headings are out of order")
+    return faults
 
 
 def section_11(text):
@@ -532,7 +619,8 @@ class QueueRuleParityTest(unittest.TestCase):
             (codex.replace(heavy + "\n", ""), ["Codex: section 11 holds - **Heavy jobs queue.** 0 times, not once"]),
             (codex.replace(child + "\n", ""),
              ["Codex: section 11 holds - **A child process never outlives its test.** 0 times, not once"]),
-            (codex.replace(heavy, heavy + " Also in WSL."), ["- **Heavy jobs queue.** differs between Claude Code and Codex"]),
+            (codex.replace(heavy, heavy + " Also in WSL."),
+             ["- **Heavy jobs queue.** differs between Claude Code and Codex and Antigravity"]),
             (codex.replace(heavy + "\n", heavy + "\n" + heavy + "\n"),
              ["Codex: section 11 holds - **Heavy jobs queue.** 2 times, not once"]),
             (codex.replace("\n## 11. ", "\n## 12. "),
@@ -543,6 +631,33 @@ class QueueRuleParityTest(unittest.TestCase):
             with self.subTest(faults=faults):
                 self.assertNotEqual(changed, codex)
                 self.assertEqual(queue_rule_faults(dict(texts, Codex=changed)), faults)
+
+
+class RuleHeadingParityTest(unittest.TestCase):
+    def test_rule_headings_match_claude_code(self):
+        texts = {agent: path.read_text(encoding="utf-8") for agent, path in RULE_FILES.items()}
+        self.assertEqual(rule_heading_faults(texts), [])
+
+    def test_missing_or_renamed_headings_are_caught(self):
+        texts = {agent: path.read_text(encoding="utf-8") for agent, path in RULE_FILES.items()}
+        for agent in ("Codex", "Antigravity"):
+            original = texts[agent]
+            missing = original.replace("## 7. Review\n", "")
+            renamed = original.replace("## 7. Review\n", "## 7. Code review\n")
+            with self.subTest(agent=agent, case="missing"):
+                self.assertEqual(rule_heading_faults(dict(texts, **{agent: missing})),
+                                 [f"{agent}: missing heading '## 7. Review'"])
+            with self.subTest(agent=agent, case="renamed"):
+                self.assertEqual(rule_heading_faults(dict(texts, **{agent: renamed})),
+                                 [f"{agent}: section 7 heading is 'Code review', expected 'Review'"])
+            extra = original + "\n## 12. Extra\n"
+            with self.subTest(agent=agent, case="extra"):
+                self.assertEqual(rule_heading_faults(dict(texts, **{agent: extra})),
+                                 [f"{agent}: unexpected extra heading '## 12. Extra'"])
+            reordered = original.replace("## 7. Review\n", "") + "\n## 7. Review\n"
+            with self.subTest(agent=agent, case="reordered"):
+                self.assertEqual(rule_heading_faults(dict(texts, **{agent: reordered})),
+                                 [f"{agent}: numbered headings are out of order"])
 
 
 if __name__ == "__main__":

@@ -13,12 +13,13 @@ The owner's machine-level configuration for Claude Code, Codex, and Antigravity:
 | `codex/rules/` | `codex.md` (master Codex rules) and `hooks.json` (the template `deploy.py` fills in) |
 | `codex/hooks/` | Codex hooks and their tests |
 | `codex/skills/<name>/` | Global Codex skills: `file-to-ticktick`, `process-ticktick-task` |
+| `agy/rules/agy.md` | Master copy of Antigravity's global rules |
 | `../plugins/agy/<name>/` | Antigravity global plugins deployed to `.gemini/config/plugins/` |
 | `deploy.py`, `tests/` | The one deploy script and its tests |
 | `codex/scripts/` | `check-approval-policy.mjs` |
 | [`../docs/bosun.md`](../docs/bosun.md) | The Bosun queue behind section 11's "Heavy jobs queue" bullet |
 
-The three agents are maintained independently. Nothing here is shared across `claude/`, `codex/`, and `plugins/agy/`.
+The three agents are maintained independently. Nothing here is shared across `claude/`, `codex/`, `agy/`, and `plugins/agy/`.
 
 ## Deploying
 
@@ -36,6 +37,7 @@ python <SDK>/global/deploy.py [--agent claude|codex|agy|all] [--home DIR] [--dry
 | `codex/rules/codex.md` | `.codex/AGENTS.md` |
 | `codex/rules/hooks.json` | `.codex/hooks.json`, generated from the template |
 | `codex/skills/<name>/` | `.agents/skills/<name>/`, folders that hold a `SKILL.md` |
+| `agy/rules/agy.md` | `.gemini/GEMINI.md` |
 | `../plugins/agy/<name>/` | `.gemini/config/plugins/<name>/`, mirrored per OS |
 
 Codex runs a hook only once its current hash is approved (`hooks.state` in the home's `config.toml`), and a changed `hooks.json` reads `modified`, so after writing `.codex/hooks.json` the deploy approves the hooks it wrote: the user hooks from that file whose command runs a script under `global/codex/hooks`. It does so through Codex's own app-server (`hooks/list`, then `config/value/write`), with the todo kit's `scripts/codex-hook-trust.py`, against the deploy's home (`--home` sets `CODEX_HOME`). A hook disabled in Codex stays disabled, and each hook is reported `approved`, `unchanged` (already trusted) or `skipped` with the reason; a dry run or a machine without `codex` skips the step, and a rerun approves what is still not trusted. To check: run the deploy again (every hook `unchanged`), or list the hooks in a Codex session.
@@ -55,4 +57,4 @@ The copies in `R:\Bin` (themselves from the retired `R:\Claude` and `R:\Codex` r
 
 ## Account identifiers
 
-Several files name the owner's mail identities, mailbox addresses or client names as examples or as fixtures: the two `process-ticktick-task` skills (`references/outlook.md` and the helper tests), `claude/rules/claude-code.md`, `codex/rules/codex.md`, `codex/skills/file-to-ticktick/README.md` and the hook tests. Treat this folder as private to the owner.
+Several files name the owner's mail identities, mailbox addresses or client names as examples or as fixtures: the two `process-ticktick-task` skills (`references/outlook.md` and the helper tests), `claude/rules/claude-code.md`, `codex/rules/codex.md`, `agy/rules/agy.md`, `codex/skills/file-to-ticktick/README.md` and the hook tests. Treat this folder as private to the owner.
